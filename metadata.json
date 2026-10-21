@@ -1,0 +1,8 @@
+{
+  "name": "PPDI Kab. Bandung - Pengelolaan Anggota \u0026 E-KTA",
+  "description": "Sistem Informasi Manajemen Anggota Persatuan Perangkat Desa Indonesia (PPDI) Kabupaten Bandung",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

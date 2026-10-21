@@ -1,0 +1,48 @@
+# ====================================================================
+# PPDI KAB. BANDUNG - APACHE / CPANEL HTACCESS CONFIGURATION
+# Mencegah error "Unexpected token '<', <!doctype... is not valid JSON"
+# ====================================================================
+
+# Proxy API and uploads to Node.js backend on port 3000 if mod_proxy is enabled
+<IfModule mod_proxy.c>
+  ProxyPreserveHost On
+  ProxyPass /api http://127.0.0.1:3000/api
+  ProxyPassReverse /api http://127.0.0.1:3000/api
+  ProxyPass /uploads http://127.0.0.1:3000/uploads
+  ProxyPassReverse /uploads http://127.0.0.1:3000/uploads
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # 1. JANGAN rewrite request API (/api/*) ke index.html
+  RewriteCond %{REQUEST_URI} ^/api(/.*)?$ [NC]
+  RewriteRule ^ - [L]
+
+  # 2. JANGAN rewrite request file upload (/uploads/*) ke index.html
+  RewriteCond %{REQUEST_URI} ^/uploads(/.*)?$ [NC]
+  RewriteRule ^ - [L]
+
+  # 3. File dan folder statis yang memang ada di disk langsung disajikan
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # 4. Fallback React SPA: Semua rute halaman diarahkan ke index.html
+  RewriteRule ^index\.html$ - [L]
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Security Headers & MIME Types
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+<IfModule mod_mime.c>
+  AddType application/javascript .js .mjs
+  AddType text/css .css
+  AddType application/json .json
+  AddType image/svg+xml .svg
+</IfModule>
