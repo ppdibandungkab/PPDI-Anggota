@@ -267,15 +267,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
               <span>
                 {currentUser.role === 'Superadmin_Kabupaten'
                   ? 'Superadmin Kab.'
+                  : currentUser.role === 'Admin_Kabupaten'
+                  ? 'Admin Kab. (PD)'
                   : currentUser.role === 'Admin_Kecamatan'
                   ? 'Admin Kecamatan'
+                  : currentUser.role === 'Admin_Desa'
+                  ? 'Admin Desa'
                   : 'Perangkat Desa'}
               </span>
             </div>
           </div>
 
-          {/* Kecamatan Filter for Superadmin */}
-          {currentUser.role === 'Superadmin_Kabupaten' && (
+          {/* Kecamatan Filter for Superadmin & Admin Kabupaten */}
+          {(currentUser.role === 'Superadmin_Kabupaten' || currentUser.role === 'Admin_Kabupaten') && (
             <div>
               <label className="brand-meta block mb-1.5 text-[#111113]/60">WILAYAH KERJA (TERITORIAL)</label>
               <div className="relative">
@@ -322,15 +326,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
               <span>
                 {currentUser.role === 'Superadmin_Kabupaten'
                   ? 'Superadmin Kab.'
+                  : currentUser.role === 'Admin_Kabupaten'
+                  ? 'Admin Kab. (PD)'
                   : currentUser.role === 'Admin_Kecamatan'
                   ? 'Admin Kecamatan'
+                  : currentUser.role === 'Admin_Desa'
+                  ? 'Admin Desa'
                   : 'Perangkat Desa'}
               </span>
             </div>
           </div>
 
-          {/* Kecamatan Filter for Superadmin */}
-          {currentUser.role === 'Superadmin_Kabupaten' && (
+          {/* Kecamatan Filter for Superadmin & Admin Kabupaten */}
+          {(currentUser.role === 'Superadmin_Kabupaten' || currentUser.role === 'Admin_Kabupaten') && (
             <div>
               <label className="brand-meta block mb-1.5 text-[#111113]/60">WILAYAH KERJA (TERITORIAL)</label>
               <div className="relative">

@@ -84,6 +84,12 @@ export const Header: React.FC<{
           fullLabel: 'Superadmin Kab. Bandung',
           badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300',
         };
+      case 'Admin_Kabupaten':
+        return {
+          shortLabel: 'Admin Kab.',
+          fullLabel: 'Admin Kab. Bandung (PD)',
+          badgeClass: 'bg-cyan-100 text-cyan-800 border-cyan-300',
+        };
       case 'Admin_Kecamatan':
         return {
           shortLabel: 'Admin Kec.',
@@ -370,8 +376,8 @@ export const Header: React.FC<{
                       </div>
                     </button>
 
-                    {/* Quick Switch User if multiple users exist */}
-                    {users && users.length > 1 && (
+                    {/* Quick Switch User (Hanya untuk Superadmin_Kabupaten jika ada > 1 user) */}
+                    {currentUser?.role === 'Superadmin_Kabupaten' && users && users.length > 1 && (
                       <div className="pt-1.5 mt-1 border-t border-[#111113]/10">
                         <div className="px-3 py-1 text-[10px] font-mono text-[#111113]/40 uppercase tracking-wider">
                           Ganti Akun Cepat

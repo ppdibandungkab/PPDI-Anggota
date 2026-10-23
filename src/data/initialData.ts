@@ -11,13 +11,21 @@ export const INITIAL_USERS: UserAccount[] = [
   {
     id_user: 1,
     username: 'superadmin',
-    email: 'admin.kabupaten@ppdi-bandungkab.id',
-    nama: 'ADMINISTRATOR KABUPATEN',
+    email: 'superadmin@ppdi-bandungkab.id',
+    nama: 'SUPERADMIN KABUPATEN BANDUNG',
     password: 'admin',
     role: 'Superadmin_Kabupaten',
   },
   {
     id_user: 2,
+    username: 'admin.kabupaten',
+    email: 'admin.pd@ppdi-bandungkab.id',
+    nama: 'PENGURUS DAERAH KAB. BANDUNG',
+    password: 'admin',
+    role: 'Admin_Kabupaten',
+  },
+  {
+    id_user: 3,
     username: 'admin.soreang',
     email: 'admin.soreang@ppdi-bandungkab.id',
     nama: 'ADMIN PK PPDI SOREANG',
@@ -26,7 +34,7 @@ export const INITIAL_USERS: UserAccount[] = [
     id_kecamatan: '320437',
   },
   {
-    id_user: 3,
+    id_user: 4,
     username: 'admin.banjaran',
     email: 'admin.banjaran@ppdi-bandungkab.id',
     nama: 'ADMIN PK PPDI BANJARAN',
