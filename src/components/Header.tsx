@@ -25,7 +25,6 @@ export const Header: React.FC<{
     currentUser,
     switchUser,
     users,
-    resetAllData,
     logout,
     dbStatus,
     isCheckingDb,
@@ -168,14 +167,6 @@ export const Header: React.FC<{
 
           {/* Zone 2: Navigation Links & Database Status (Desktop) */}
           <div className="hidden lg:flex items-center gap-3 text-xs font-mono text-[#111113]/70">
-            <button
-              onClick={onOpenVerifyModal}
-              className="flex items-center gap-1.5 hover:text-[#064E3B] transition-colors whitespace-nowrap cursor-pointer text-xs"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-[#064E3B]" />
-              <span>VERIFIKASI KTA</span>
-            </button>
-
             <span className="text-[#111113]/20">/</span>
 
             {/* MySQL Status Chip with Live Latency & Diagnostic Trigger */}
@@ -237,19 +228,6 @@ export const Header: React.FC<{
 
           {/* Zone 3: Compact User Profile & Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Quick Demo Data Reset (Subtle) */}
-            <button
-              onClick={() => {
-                if (confirm('Reset seluruh data ke kondisi awal demo?')) {
-                  resetAllData();
-                }
-              }}
-              title="Reset data demo"
-              className="p-1.5 text-[#111113]/30 hover:text-[#111113] hover:bg-neutral-200/50 rounded-sm transition-colors cursor-pointer hidden sm:inline-flex"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-
             {/* User Profile Capsule Trigger */}
             <div className="relative" ref={profileRef}>
               <button
@@ -411,18 +389,7 @@ export const Header: React.FC<{
 
                   {/* Logout section */}
                   <div className="p-1.5 border-t border-[#111113]/10 bg-neutral-50/50">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        logout();
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer text-left group"
-                      role="menuitem"
-                    >
-                      <LogOut className="w-4 h-4 text-red-600 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                      <span>Keluar dari Sistem (Logout)</span>
-                    </button>
+                    
                   </div>
                 </div>
               )}

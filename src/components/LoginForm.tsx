@@ -23,6 +23,7 @@ interface LoginFormProps {
 export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
   const {
     login,
+    setActiveTab,
     appSettings,
     kecamatanList,
     fullMembers,
@@ -74,7 +75,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
 
     try {
       const result = await login(username, password);
-      if (!result.success) {
+      if (result.success) {
+        setActiveTab('dashboard');
+      } else {
         setErrorMsg(result.message || 'Login gagal. Periksa NIPD/Username dan password.');
       }
     } catch (err: any) {

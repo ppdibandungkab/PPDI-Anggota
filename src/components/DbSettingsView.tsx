@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { safeFetchJson } from '../utils/ppdiHelpers';
-import { Database, RefreshCw, CheckCircle2, AlertTriangle, Server, Layers, KeyRound, Plus, Edit2, Trash2, X, Search, Check } from 'lucide-react';
+import { Database, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, Server, Layers, KeyRound, Plus, Edit2, Trash2, X, Search, Check } from 'lucide-react';
 
 export const DbSettingsView: React.FC = () => {
-  const { dbStatus, checkDbStatus, initDbTables, setIsDbModalOpen } = usePPDI();
+  const { dbStatus, checkDbStatus, initDbTables, setIsDbModalOpen, resetAllData } = usePPDI();
   const [isTesting, setIsTesting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [initMsg, setInitMsg] = useState<{ success: boolean; message: string } | null>(null);
 
   // CRUD State for Database Tables
@@ -84,6 +85,35 @@ export const DbSettingsView: React.FC = () => {
       setInitMsg({ success: false, message: `Gagal inisialisasi: ${res.message || 'Error koneksi database'}` });
     }
     setIsInitializing(false);
+  };
+
+  const handleResetDemo = async () => {
+    if (
+      !confirm(
+        'PERINGATAN RESET DATA DEMO:\n\nApakah Anda yakin ingin mengembalikan seluruh data simulasi (anggota, SK, pendaftaran, iuran kas, dan akun) ke kondisi awal demo PPDI Kabupaten Bandung?\n\nTindakan ini akan mengosongkan cache lokal browser dan menyinkronkan ulang dataset awal.'
+      )
+    ) {
+      return;
+    }
+
+    setIsResetting(true);
+    setFeedback(null);
+    try {
+      await resetAllData();
+      setFeedback({
+        success: true,
+        message: 'Data demo simulasi berhasil direset ke dataset awal!',
+      });
+      fetchTableData(selectedTable);
+    } catch (err: any) {
+      setFeedback({
+        success: false,
+        message: 'Gagal mereset data: ' + (err.message || 'Terjadi kesalahan sistem'),
+      });
+    } finally {
+      setIsResetting(false);
+      setTimeout(() => setFeedback(null), 5000);
+    }
   };
 
   const handleOpenAdd = () => {
@@ -183,6 +213,15 @@ export const DbSettingsView: React.FC = () => {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={handleResetDemo}
+            disabled={isResetting}
+            title="Reset seluruh data ke kondisi awal demo simulasi"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer uppercase shrink-0 disabled:opacity-50"
+          >
+            <RotateCcw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
+            <span>{isResetting ? 'Mereset...' : 'Reset Data Demo'}</span>
+          </button>
+          <button
             onClick={() => setIsDbModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-400 hover:bg-amber-300 text-neutral-900 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer uppercase shrink-0"
           >
@@ -247,6 +286,37 @@ export const DbSettingsView: React.FC = () => {
           <span>{feedback.message}</span>
         </div>
       )}
+
+      {/* Card: Reset Data Demo & Sandbox Simulation */}
+      <div className="bg-white border border-rose-200/90 rounded-xl p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-rose-50/40 via-white to-amber-50/20">
+        <div className="flex items-start gap-3.5">
+          <div className="p-2.5 bg-rose-100 text-rose-800 rounded-xl border border-rose-200 shrink-0">
+            <RotateCcw className="w-5 h-5 text-rose-700" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs font-bold text-neutral-900 uppercase font-mono tracking-wider">
+                Reset Data Demo Sistem
+              </h3>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 font-mono">
+                Dataset Simulasi
+              </span>
+            </div>
+            <p className="text-xs text-neutral-600 mt-1 leading-relaxed max-w-2xl font-mono">
+              Kembalikan seluruh data master (anggota perangkat desa, riwayat SK pengangkatan, formulir pendaftaran online, iuran kas, dan akun pengguna) ke kondisi awal demo simulasi PPDI Kabupaten Bandung.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleResetDemo}
+          disabled={isResetting}
+          className="flex items-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer uppercase shrink-0 shadow-xs disabled:opacity-50 font-mono"
+        >
+          <RotateCcw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
+          <span>{isResetting ? 'Sedang Mereset Data...' : 'Reset Data Demo'}</span>
+        </button>
+      </div>
 
       {/* CRUD Database Table Explorer Section */}
       <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">

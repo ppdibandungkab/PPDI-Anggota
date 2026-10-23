@@ -1010,6 +1010,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(true);
         localStorage.setItem(STORAGE_KEYS.AUTH, 'true');
         setCurrentUserId(data.user.id_user);
+        setActiveTab('dashboard');
         await refreshDataFromMySQL();
         return { success: true };
       }
@@ -1046,6 +1047,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setIsAuthenticated(true);
           localStorage.setItem(STORAGE_KEYS.AUTH, 'true');
           setCurrentUserId(matched.id_user);
+          setActiveTab('dashboard');
           return { success: true };
         } else {
           return {
@@ -1065,6 +1067,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setIsAuthenticated(false);
     localStorage.removeItem(STORAGE_KEYS.AUTH);
+    setActiveTab('dashboard');
   };
 
   const resetAllData = () => {
