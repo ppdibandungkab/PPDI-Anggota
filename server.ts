@@ -600,6 +600,8 @@ app.post('/api/db/init-tables', async (_req, res) => {
         \`id_pendaftaran\` INT AUTO_INCREMENT NOT NULL,
         \`nik\` VARCHAR(16) NOT NULL,
         \`nama_lengkap\` VARCHAR(150) NOT NULL,
+        \`gelar_depan\` VARCHAR(30) NULL,
+        \`gelar_belakang\` VARCHAR(50) NULL,
         \`tempat_lahir\` VARCHAR(100) NOT NULL,
         \`tanggal_lahir\` DATE NOT NULL,
         \`jenis_kelamin\` ENUM('L', 'P') NOT NULL,
@@ -624,6 +626,10 @@ app.post('/api/db/init-tables', async (_req, res) => {
         PRIMARY KEY (\`id_pendaftaran\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Migration for pendaftaran_perangkat_desa columns
+    try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN gelar_depan VARCHAR(30) NULL AFTER nama_lengkap`); } catch (_) {}
+    try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN gelar_belakang VARCHAR(50) NULL AFTER gelar_depan`); } catch (_) {}
 
     // Seed default superadmin if users table empty
     const [userRows]: [any[], any] = await conn.query('SELECT COUNT(*) as cnt FROM users');
@@ -1775,14 +1781,16 @@ app.post('/api/pendaftaran', async (req, res) => {
 
     const [insertRes]: [any, any] = await conn.query(
       `INSERT INTO pendaftaran_perangkat_desa (
-        nik, nama_lengkap, tempat_lahir, tanggal_lahir, jenis_kelamin, agama,
+        nik, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama,
         pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan,
         id_kecamatan, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan,
         status_approval
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
       [
         data.nik,
         data.nama_lengkap.trim().toUpperCase(),
+        data.gelar_depan ? data.gelar_depan.trim() : null,
+        data.gelar_belakang ? data.gelar_belakang.trim() : null,
         data.tempat_lahir || 'Bandung',
         data.tanggal_lahir || '1990-01-01',
         data.jenis_kelamin || 'L',
@@ -1857,6 +1865,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       await conn.query(
         `UPDATE anggota SET
           nama_lengkap = ?,
+          gelar_depan = COALESCE(?, gelar_depan),
+          gelar_belakang = COALESCE(?, gelar_belakang),
           tempat_lahir = COALESCE(?, tempat_lahir),
           tanggal_lahir = COALESCE(?, tanggal_lahir),
           jenis_kelamin = COALESCE(?, jenis_kelamin),
@@ -1869,6 +1879,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
          WHERE id_anggota = ?`,
         [
           p.nama_lengkap.trim().toUpperCase(),
+          p.gelar_depan || null,
+          p.gelar_belakang || null,
           p.tempat_lahir,
           p.tanggal_lahir,
           p.jenis_kelamin,
@@ -1884,13 +1896,15 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     } else {
       effectiveIdAnggota = crypto.randomUUID();
       await conn.query(
-        `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           effectiveIdAnggota,
           p.nik,
           nipdVal,
           p.nama_lengkap.trim().toUpperCase(),
+          p.gelar_depan || null,
+          p.gelar_belakang || null,
           p.tempat_lahir || 'Bandung',
           p.tanggal_lahir || '1990-01-01',
           p.jenis_kelamin || 'L',

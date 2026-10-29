@@ -122,6 +122,8 @@ export interface PendaftaranPerangkatDesa {
   id_pendaftaran: number;
   nik: string;
   nama_lengkap: string;
+  gelar_depan?: string;
+  gelar_belakang?: string;
   tempat_lahir: string;
   tanggal_lahir: string;
   jenis_kelamin: 'L' | 'P';

@@ -13,6 +13,8 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
   const [formData, setFormData] = useState({
     nik: '',
     namaLengkap: '',
+    gelarDepan: '',
+    gelarBelakang: '',
     tempatLahir: '',
     tanggalLahir: '',
     jenisKelamin: 'L' as 'L' | 'P',
@@ -65,6 +67,8 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     setFormData({
       nik: '',
       namaLengkap: '',
+      gelarDepan: '',
+      gelarBelakang: '',
       tempatLahir: '',
       tanggalLahir: '',
       jenisKelamin: 'L',
@@ -117,6 +121,8 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       await submitPendaftaran({
         nik: formData.nik,
         nama_lengkap: formData.namaLengkap.trim().toUpperCase(),
+        gelar_depan: formData.gelarDepan.trim() || undefined,
+        gelar_belakang: formData.gelarBelakang.trim() || undefined,
         tempat_lahir: formData.tempatLahir.trim(),
         tanggal_lahir: formData.tanggalLahir,
         jenis_kelamin: formData.jenisKelamin,
@@ -226,6 +232,44 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                   required 
                 />
               </div>
+
+              {/* Gelar Depan */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase">
+                  Gelar Depan <span className="text-neutral-400 font-normal lowercase">(opsional)</span>
+                </label>
+                <input 
+                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 placeholder:text-neutral-400 text-sm" 
+                  placeholder="Contoh: H., Drs., Ir." 
+                  value={formData.gelarDepan} 
+                  onChange={e => setFormData({...formData, gelarDepan: e.target.value})} 
+                />
+              </div>
+
+              {/* Gelar Belakang */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase">
+                  Gelar Belakang <span className="text-neutral-400 font-normal lowercase">(opsional)</span>
+                </label>
+                <input 
+                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 placeholder:text-neutral-400 text-sm" 
+                  placeholder="Contoh: S.Pd., S.Sos., S.IP., M.Si." 
+                  value={formData.gelarBelakang} 
+                  onChange={e => setFormData({...formData, gelarBelakang: e.target.value})} 
+                />
+              </div>
+
+              {/* Pratinjau Nama Lengkap + Gelar */}
+              {(formData.gelarDepan.trim() || formData.gelarBelakang.trim()) && (
+                <div className="md:col-span-2 text-xs bg-emerald-50 text-emerald-900 p-2.5 rounded-lg border border-emerald-200 flex items-center gap-2">
+                  <span className="font-bold text-emerald-800">Pratinjau Nama & Gelar di E-KTA:</span>
+                  <span className="font-semibold text-neutral-900">
+                    {formData.gelarDepan.trim() ? `${formData.gelarDepan.trim()} ` : ''}
+                    {formData.namaLengkap || 'NAMA LENGKAP'}
+                    {formData.gelarBelakang.trim() ? `, ${formData.gelarBelakang.trim()}` : ''}
+                  </span>
+                </div>
+              )}
 
               {/* Tempat Lahir */}
               <div className="space-y-1">

@@ -400,8 +400,10 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                         </div>
                       </td>
                       <td className="p-3">
-                        <div className="font-bold text-neutral-900 uppercase tracking-wide">
-                          {item.nama_lengkap.toUpperCase()}
+                        <div className="font-bold text-neutral-900 tracking-wide">
+                          {item.gelar_depan ? `${item.gelar_depan} ` : ''}
+                          <span className="uppercase">{item.nama_lengkap}</span>
+                          {item.gelar_belakang ? `, ${item.gelar_belakang}` : ''}
                         </div>
                         <div className="text-[10px] text-neutral-500">
                           {item.tempat_lahir}, {item.tanggal_lahir} ({item.jenis_kelamin === 'L' ? 'Laki-laki' : 'Perempuan'})
@@ -550,14 +552,26 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                 <h4 className="font-bold text-neutral-700 uppercase tracking-wider text-[11px]">Biodata Perangkat Desa</h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-2.5 bg-neutral-50 rounded border border-neutral-100">
-                    <span className="text-neutral-500 block text-[10px]">Nama Lengkap (strtoupper)</span>
+                    <span className="text-neutral-500 block text-[10px]">Nama Lengkap (Tanpa Gelar)</span>
                     <span className="font-bold text-neutral-900 text-sm uppercase">
                       {selectedItem.nama_lengkap.toUpperCase()}
                     </span>
+                    {(selectedItem.gelar_depan || selectedItem.gelar_belakang) && (
+                      <div className="text-[11px] text-emerald-800 font-semibold mt-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {selectedItem.gelar_depan ? `${selectedItem.gelar_depan} ` : ''}
+                        {selectedItem.nama_lengkap.toUpperCase()}
+                        {selectedItem.gelar_belakang ? `, ${selectedItem.gelar_belakang}` : ''}
+                      </div>
+                    )}
                   </div>
                   <div className="p-2.5 bg-neutral-50 rounded border border-neutral-100">
                     <span className="text-neutral-500 block text-[10px]">NIK KTP (16 Digit)</span>
                     <span className="font-bold text-neutral-900 text-sm">{selectedItem.nik}</span>
+                    <div className="flex gap-2 mt-1 text-[10px] text-neutral-600">
+                      <span>Gelar Depan: <b>{selectedItem.gelar_depan || '-'}</b></span>
+                      <span>•</span>
+                      <span>Gelar Belakang: <b>{selectedItem.gelar_belakang || '-'}</b></span>
+                    </div>
                   </div>
                   <div className="p-2.5 bg-neutral-50 rounded border border-neutral-100">
                     <span className="text-neutral-500 block text-[10px]">Tempat, Tanggal Lahir</span>
