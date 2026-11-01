@@ -34,8 +34,23 @@ if (!envFoundOnDisk) {
   console.warn('[Database Init] File .env tidak ditemukan secara langsung di folder root hosting, menggunakan env process.');
 }
 
+// Handle unhandled process rejections and exceptions gracefully
+process.on('uncaughtException', (err) => {
+  console.error('[Process Error] Uncaught exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process Error] Unhandled rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
-const PORT = process.env.PORT || 3000;
+
+// Parse CLI arguments if provided, e.g. --port 3000 from npm run dev
+const cliArgs = process.argv.slice(2);
+const portFlagIndex = cliArgs.indexOf('--port');
+const cliPort = portFlagIndex !== -1 && cliArgs[portFlagIndex + 1] ? Number(cliArgs[portFlagIndex + 1]) : null;
+
+// Dev server must always bind to 3000 in AI Studio environment (PORT=8080 is reserved by container proxy)
+const PORT = cliPort || (process.env.PORT && process.env.PORT !== '8080' ? Number(process.env.PORT) : 3000);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -2448,14 +2463,17 @@ async function startServer() {
   const hasDist = fs.existsSync(path.join(activeDistPath, 'index.html'));
 
   // Detect if running as compiled bundle (e.g. node server.js on hosting/cPanel)
-  const isCompiledBundle = process.argv[1]?.endsWith('.js') || !process.argv[1]?.endsWith('.ts');
-  const isProduction = process.env.NODE_ENV === 'production' || isCompiledBundle || (hasDist && process.env.NODE_ENV !== 'development');
+  const isCompiledBundle = process.argv[1]?.endsWith('.js');
+  const isProduction = process.env.NODE_ENV === 'production' && isCompiledBundle;
 
   if (!isProduction) {
     try {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: {
+          middlewareMode: true,
+          hmr: false,
+        },
         appType: 'spa',
       });
       app.use(vite.middlewares);
@@ -2493,9 +2511,17 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Server PPDI Kab. Bandung berjalan pada port ${PORT}`);
     console.log(`MySQL Live Connected: ${activeDbConfig.user}@${activeDbConfig.host}:${activeDbConfig.port}/${activeDbConfig.database}`);
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Server Error] Port ${PORT} sedang digunakan. Error:`, err);
+    } else {
+      console.error('[Server Error]', err);
+    }
   });
 }
 
