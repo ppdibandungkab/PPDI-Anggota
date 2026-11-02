@@ -19,6 +19,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types/ppdi';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const UserSettingsView: React.FC = () => {
   const { users, currentUser, switchUser, createUser, updateUser, deleteUser, kecamatanList, desaList } = usePPDI();
@@ -26,6 +27,10 @@ export const UserSettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+
+  // Change Password Modal state
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [passwordTargetUser, setPasswordTargetUser] = useState<UserAccount | null>(null);
 
   // Form states
   const [username, setUsername] = useState('');
@@ -370,9 +375,23 @@ export const UserSettingsView: React.FC = () => {
                   Sesi Pengguna Sedang Aktif
                 </h2>
               </div>
-              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 text-[11px] font-mono font-semibold rounded-md">
-                {currentUser.role}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasswordTargetUser(currentUser);
+                    setIsPasswordModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#064E3B] hover:bg-[#043d2e] text-white text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs"
+                  title="Ganti Password Akun Aktif"
+                >
+                  <Key className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Ganti Password Akun</span>
+                </button>
+                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 text-[11px] font-mono font-semibold rounded-md">
+                  {currentUser.role}
+                </span>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-mono">
@@ -544,6 +563,35 @@ export const UserSettingsView: React.FC = () => {
                                 title="Edit Data Pengguna"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Ganti Password Akun */}
+                            {isAdminKabupatenBlocked ? (
+                              <span
+                                className="p-1.5 text-neutral-300 bg-neutral-100 rounded-md cursor-not-allowed inline-flex items-center justify-center"
+                                title="User Role Admin_Kabupaten tidak dapat mengubah password akun Superadmin_Kabupaten"
+                              >
+                                <Key className="w-3.5 h-3.5 text-neutral-300" />
+                              </span>
+                            ) : !isKabupatenLevel && !isCurrent ? (
+                              <span
+                                className="p-1.5 text-neutral-300 bg-neutral-100 rounded-md cursor-not-allowed inline-flex items-center justify-center"
+                                title="Anda hanya dapat mengganti password akun Anda sendiri"
+                              >
+                                <Key className="w-3.5 h-3.5 text-neutral-300" />
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPasswordTargetUser(u);
+                                  setIsPasswordModalOpen(true);
+                                }}
+                                className="p-1.5 text-amber-700 hover:text-amber-900 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
+                                title={`Ganti Password Akun (${u.username})`}
+                              >
+                                <Key className="w-3.5 h-3.5" />
                               </button>
                             )}
 
@@ -843,6 +891,21 @@ export const UserSettingsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal Popup Ganti Password Akun */}
+      <ChangePasswordModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => {
+          setIsPasswordModalOpen(false);
+          setPasswordTargetUser(null);
+        }}
+        targetUser={passwordTargetUser || currentUser}
+        requireOldPassword={
+          // Jika mengganti akun sendiri, wajib masukkan password lama
+          (passwordTargetUser ? passwordTargetUser.id_user === currentUser.id_user : true) ||
+          !isKabupatenLevel
+        }
+      />
     </div>
   );
 };

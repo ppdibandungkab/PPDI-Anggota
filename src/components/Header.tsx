@@ -12,7 +12,9 @@ import {
   UserCog,
   Sliders,
   Check,
+  Key,
 } from 'lucide-react';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const Header: React.FC<{
   onOpenAddModal: () => void;
@@ -38,6 +40,7 @@ export const Header: React.FC<{
   } = usePPDI();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
   // Close profile dropdown when clicking outside or pressing Escape
@@ -333,6 +336,27 @@ export const Header: React.FC<{
                       </div>
                     </button>
 
+                    {/* Akses Ganti Password (Popup Modal) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsChangePasswordOpen(true);
+                        setIsProfileOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[#111113]/80 hover:text-[#064E3B] hover:bg-emerald-50/70 rounded-md transition-colors cursor-pointer text-left group"
+                      role="menuitem"
+                    >
+                      <Key className="w-4 h-4 text-[#111113]/50 group-hover:text-[#064E3B] shrink-0" />
+                      <div className="flex-1 truncate">
+                        <div className="font-semibold text-[#111113] group-hover:text-[#064E3B]">
+                          Ganti Password
+                        </div>
+                        <div className="text-[10px] text-[#111113]/50 truncate">
+                          Ubah kata sandi akun login Anda
+                        </div>
+                      </div>
+                    </button>
+
                     {/* Akses Pengaturan Aplikasi */}
                     <button
                       type="button"
@@ -407,6 +431,14 @@ export const Header: React.FC<{
           </div>
         </div>
       </div>
+
+      {/* Modal Popup Ganti Password Akun */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        targetUser={currentUser}
+        requireOldPassword={true}
+      />
     </header>
   );
 };

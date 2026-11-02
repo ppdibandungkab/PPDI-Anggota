@@ -11,16 +11,52 @@ import {
   Calendar,
   ArrowRight,
   TrendingUp,
+  ClipboardCheck,
+  CheckCircle2,
+  XCircle,
+  FileText,
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const { visibleMembers, fullMembers, kecamatanList, desaList, iuranList, setActiveTab } = usePPDI();
+  const {
+    visibleMembers,
+    fullMembers,
+    visiblePendaftaran,
+    currentUser,
+    kecamatanList,
+    desaList,
+    iuranList,
+    setActiveTab,
+  } = usePPDI();
 
-  // Primary Metrics
+  // Primary Metrics (Scoped to Role & Jurisdiction)
   const totalAnggota = visibleMembers.length;
   const ktaAktifCount = visibleMembers.filter((m) => m.keanggotaan?.status_kta === 'Aktif').length;
   const ktaPendingCount = visibleMembers.filter((m) => m.keanggotaan?.status_kta === 'Pending').length;
   const ktaPercentage = totalAnggota > 0 ? Math.round((ktaAktifCount / totalAnggota) * 100) : 0;
+
+  // Registration & Approval Metrics (Scoped to Role)
+  const scopedPendaftaran = visiblePendaftaran || [];
+  const totalRegistrasi = scopedPendaftaran.length;
+  const pendingApprovalCount = scopedPendaftaran.filter((p) => p.status_approval === 'Menunggu').length;
+  const approvedPendaftaranCount = scopedPendaftaran.filter((p) => p.status_approval === 'Disetujui').length;
+  const rejectedPendaftaranCount = scopedPendaftaran.filter((p) => p.status_approval === 'Ditolak').length;
+
+  // Role Scope Label for UI Context
+  const roleScopeLabel = (() => {
+    if (currentUser.role === 'Superadmin_Kabupaten' || currentUser.role === 'Admin_Kabupaten') {
+      return 'Tingkat Kabupaten (Seluruh 31 Kecamatan)';
+    }
+    if (currentUser.role === 'Admin_Kecamatan') {
+      const kec = kecamatanList.find((k) => k.id_kecamatan.replace(/\./g, '') === (currentUser.id_kecamatan || '').replace(/\./g, ''));
+      return `Kecamatan ${kec?.nama_kecamatan || currentUser.id_kecamatan || '-'}`;
+    }
+    if (currentUser.role === 'Admin_Desa') {
+      const desa = desaList.find((d) => String(d.id_desa).replace(/\./g, '') === String(currentUser.id_desa || '').replace(/\./g, ''));
+      return `Desa ${desa?.nama_desa || currentUser.id_desa || '-'}`;
+    }
+    return `Akun Anggota Mandiri (${currentUser.nama})`;
+  })();
 
   // Iuran Summary
   const visibleMemberIds = new Set(visibleMembers.map((m) => m.anggota.id_anggota));
@@ -228,6 +264,88 @@ export const DashboardView: React.FC = () => {
             <span>{waspadaRetirement.length} Siaga &lt;2 Thn</span>
             <span>·</span>
             <span>Batas Usia 60 Th</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Registrasi & Approval Scoped KPI Section */}
+      <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-100 gap-2">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-5 h-5 text-emerald-800" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-neutral-900 tracking-tight">
+                  Status Registrasi & Approval Perangkat Desa
+                </h2>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-neutral-100 text-neutral-700 border border-neutral-200">
+                  {roleScopeLabel}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                Rekapitulasi berkas formulir induk pendaftaran mandiri perangkat desa sesuai kewenangan wilayah role pengguna
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('pendaftaran')}
+            className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+          >
+            <span>Buka Registrasi & Approval</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Card 1: Total Registrasi */}
+          <div className="bg-neutral-50/70 p-3 rounded-lg border border-neutral-200 flex items-center justify-between">
+            <div>
+              <div className="text-[11px] text-neutral-500 font-medium">Total Registrasi Masuk</div>
+              <div className="text-xl font-bold text-neutral-900 font-mono mt-0.5">{totalRegistrasi}</div>
+              <div className="text-[10px] text-neutral-400 mt-0.5">Formulir di wilayah tugas</div>
+            </div>
+            <FileText className="w-5 h-5 text-neutral-400 shrink-0" />
+          </div>
+
+          {/* Card 2: Menunggu Approval */}
+          <div className="bg-amber-50/70 p-3 rounded-lg border border-amber-200 flex items-center justify-between">
+            <div>
+              <div className="text-[11px] text-amber-800 font-bold flex items-center gap-1">
+                <span>Menunggu Approval</span>
+                {pendingApprovalCount > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                )}
+              </div>
+              <div className="text-xl font-extrabold text-amber-900 font-mono mt-0.5">
+                {pendingApprovalCount}
+              </div>
+              <div className="text-[10px] text-amber-700 font-medium mt-0.5">Perlu diverifikasi & disetujui</div>
+            </div>
+            <ClockAlert className="w-5 h-5 text-amber-600 shrink-0" />
+          </div>
+
+          {/* Card 3: Telah Disetujui */}
+          <div className="bg-emerald-50/70 p-3 rounded-lg border border-emerald-200 flex items-center justify-between">
+            <div>
+              <div className="text-[11px] text-emerald-800 font-bold">Telah Disetujui</div>
+              <div className="text-xl font-extrabold text-emerald-900 font-mono mt-0.5">
+                {approvedPendaftaranCount}
+              </div>
+              <div className="text-[10px] text-emerald-700 font-medium mt-0.5">Tercatat di Data Induk</div>
+            </div>
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          </div>
+
+          {/* Card 4: Ditolak */}
+          <div className="bg-red-50/70 p-3 rounded-lg border border-red-200 flex items-center justify-between">
+            <div>
+              <div className="text-[11px] text-red-800 font-medium">Berkas Ditolak</div>
+              <div className="text-xl font-extrabold text-red-900 font-mono mt-0.5">
+                {rejectedPendaftaranCount}
+              </div>
+              <div className="text-[10px] text-red-700 mt-0.5">Perlu perbaikan oleh pendaftar</div>
+            </div>
+            <XCircle className="w-5 h-5 text-red-600 shrink-0" />
           </div>
         </div>
       </div>

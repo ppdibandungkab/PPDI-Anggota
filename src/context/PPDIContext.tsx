@@ -56,6 +56,13 @@ interface PPDIContextType {
   createUser: (data: Partial<UserAccount> & { password?: string }) => Promise<{ success: boolean; message: string }>;
   updateUser: (id: number, data: Partial<UserAccount> & { password?: string }) => Promise<{ success: boolean; message: string }>;
   deleteUser: (id: number) => Promise<{ success: boolean; message: string }>;
+  changePassword: (params: {
+    userId?: number;
+    username?: string;
+    oldPassword?: string;
+    newPassword: string;
+    requireOldPassword?: boolean;
+  }) => Promise<{ success: boolean; message: string }>;
 
   // App Settings (Logo, Login Background, Branding)
   appSettings: AppSettings;
@@ -546,23 +553,37 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Filtered members based on role & active kecamatan selector
   const visibleMembers = useMemo(() => {
-    if (currentUser.role === 'Anggota' && currentUser.id_anggota) {
-      return fullMembers.filter((m) => m.anggota.id_anggota === currentUser.id_anggota);
+    if (currentUser.role === 'Anggota') {
+      const userNik = currentUser.id_anggota || currentUser.username;
+      return fullMembers.filter((m) => m.anggota.id_anggota === currentUser.id_anggota || m.anggota.nik === userNik);
+    }
+    if (currentUser.role === 'Admin_Desa') {
+      const cleanUserDesa = (currentUser.id_desa || '').replace(/\./g, '').trim();
+      const cleanUserKec = (currentUser.id_kecamatan || '').replace(/\./g, '').trim();
+      return fullMembers.filter((m) => {
+        const itemDesa = (m.desa?.id_desa || m.jabatanTerkini?.id_desa || '').replace(/\./g, '').trim();
+        if (cleanUserDesa && itemDesa === cleanUserDesa) return true;
+        if (!cleanUserDesa && cleanUserKec) {
+          const itemKec = (m.kecamatan?.id_kecamatan || m.desa?.id_kecamatan || '').replace(/\./g, '').trim();
+          return itemKec === cleanUserKec || (itemDesa.length >= 6 && itemDesa.startsWith(cleanUserKec));
+        }
+        return false;
+      });
     }
     if (currentUser.role === 'Admin_Kecamatan' && currentUser.id_kecamatan) {
-      const cleanUserKec = currentUser.id_kecamatan.replace(/\./g, '');
-      return fullMembers.filter(
-        (m) =>
-          (m.kecamatan?.id_kecamatan || '').replace(/\./g, '') === cleanUserKec ||
-          (m.desa?.id_kecamatan || '').replace(/\./g, '') === cleanUserKec
-      );
+      const cleanUserKec = currentUser.id_kecamatan.replace(/\./g, '').trim();
+      return fullMembers.filter((m) => {
+        const itemKec = (m.kecamatan?.id_kecamatan || m.desa?.id_kecamatan || '').replace(/\./g, '').trim();
+        const itemDesa = (m.desa?.id_desa || m.jabatanTerkini?.id_desa || '').replace(/\./g, '').trim();
+        return itemKec === cleanUserKec || (itemDesa.length >= 6 && itemDesa.startsWith(cleanUserKec));
+      });
     }
     if (selectedKecamatanFilter !== 'all') {
-      const cleanFilter = selectedKecamatanFilter.replace(/\./g, '');
+      const cleanFilter = selectedKecamatanFilter.replace(/\./g, '').trim();
       return fullMembers.filter(
         (m) =>
-          (m.kecamatan?.id_kecamatan || '').replace(/\./g, '') === cleanFilter ||
-          (m.desa?.id_kecamatan || '').replace(/\./g, '') === cleanFilter
+          (m.kecamatan?.id_kecamatan || '').replace(/\./g, '').trim() === cleanFilter ||
+          (m.desa?.id_kecamatan || '').replace(/\./g, '').trim() === cleanFilter
       );
     }
     return fullMembers;
@@ -964,6 +985,37 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return json;
   };
 
+  const changePassword = async (params: {
+    userId?: number;
+    username?: string;
+    oldPassword?: string;
+    newPassword: string;
+    requireOldPassword?: boolean;
+  }) => {
+    const res = await safeFetchJson('/api/users/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id_user: params.userId,
+        username: params.username,
+        oldPassword: params.oldPassword,
+        newPassword: params.newPassword,
+        requireOldPassword: params.requireOldPassword,
+      }),
+    });
+    const json = res.data;
+    if (!res.ok || json?.success === false) {
+      throw new Error(json?.message || res.error || 'Gagal mengubah password');
+    }
+    if (params.userId) {
+      setUserList((prev) =>
+        prev.map((u) => (u.id_user === params.userId ? { ...u, password: params.newPassword } : u))
+      );
+    }
+    await refreshDataFromMySQL();
+    return json;
+  };
+
   // Pendaftaran (Formulir Induk) & Approval Actions
   const submitPendaftaran = async (data: any) => {
     const res = await safeFetchJson('/api/pendaftaran', {
@@ -1179,6 +1231,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createUser,
         updateUser,
         deleteUser,
+        changePassword,
         appSettings,
         updateAppSettings,
         addAnggotaWithJobAndKta,

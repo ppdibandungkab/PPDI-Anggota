@@ -35,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
     setSelectedKecamatanFilter,
     kecamatanList,
     fullMembers,
+    visibleMembers,
     pendaftaranList,
     visiblePendaftaran,
     appSettings,
@@ -86,13 +87,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
     }
   }, [isSettingsActive]);
 
-  // Count pending retirement alerts
-  const criticalRetirementCount = fullMembers.filter(
+  // Count pending retirement alerts scoped to visible members
+  const criticalRetirementCount = visibleMembers.filter(
     (m) => m.statusPensiun === 'Kritis (<6 Bln)' || m.statusPensiun === 'Siaga (<1 Thn)'
   ).length;
 
-  // Count pending registration approvals scoped to role
-  const pendingPendaftaranCount = (visiblePendaftaran || pendaftaranList).filter((p) => p.status_approval === 'Menunggu').length;
+  // Count pending registration approvals strictly scoped to user role
+  const pendingPendaftaranCount = (visiblePendaftaran || []).filter(
+    (p) => p.status_approval === 'Menunggu'
+  ).length;
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard & Statistik', icon: LayoutDashboard },
@@ -103,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
       badge: pendingPendaftaranCount > 0 ? pendingPendaftaranCount : undefined,
       badgeColor: 'text-amber-900 bg-amber-200/90 font-bold',
     },
-    { id: 'anggota', label: 'Data Induk Anggota', icon: Users, badge: fullMembers.length },
+    { id: 'anggota', label: 'Data Induk Anggota', icon: Users, badge: visibleMembers.length },
     { id: 'ekta', label: 'E-KTA Digital & Cetak', icon: CreditCard },
     {
       id: 'pensiun',

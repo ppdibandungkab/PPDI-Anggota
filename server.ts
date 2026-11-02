@@ -1748,6 +1748,78 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
+// Endpoint untuk ganti password pengguna dengan verifikasi password lama
+app.post('/api/users/change-password', async (req, res) => {
+  const { id_user, username, oldPassword, newPassword, requireOldPassword = true } = req.body;
+
+  if (!id_user && !username) {
+    return res.status(400).json({ success: false, message: 'ID Pengguna atau username wajib disertakan' });
+  }
+
+  if (!newPassword || String(newPassword).trim().length < 6) {
+    return res.status(400).json({ success: false, message: 'Password baru minimal harus 6 karakter' });
+  }
+
+  const cleanNewPass = String(newPassword).trim();
+  const cleanOldPass = oldPassword ? String(oldPassword).trim() : '';
+
+  if (requireOldPassword && !cleanOldPass) {
+    return res.status(400).json({ success: false, message: 'Password lama wajib diisi' });
+  }
+
+  if (requireOldPassword && cleanOldPass === cleanNewPass) {
+    return res.status(400).json({ success: false, message: 'Password baru tidak boleh sama dengan password lama' });
+  }
+
+  try {
+    if (pool) {
+      const conn = await pool.getConnection();
+      const [rows]: [any[], any] = await conn.query(
+        'SELECT id_user, username, password FROM users WHERE id_user = ? OR username = ? LIMIT 1',
+        [id_user || 0, username || '']
+      );
+
+      if (!rows || rows.length === 0) {
+        conn.release();
+        return res.status(404).json({ success: false, message: 'Data pengguna tidak ditemukan di database' });
+      }
+
+      const dbUser = rows[0];
+      const storedPass = String(dbUser.password || '').trim();
+
+      if (requireOldPassword) {
+        if (storedPass && storedPass !== cleanOldPass) {
+          conn.release();
+          return res.status(400).json({
+            success: false,
+            message: 'Password lama yang Anda masukkan salah / tidak sesuai.',
+          });
+        }
+      }
+
+      // Update password di tabel users
+      await conn.query('UPDATE users SET password = ? WHERE id_user = ?', [
+        cleanNewPass,
+        dbUser.id_user,
+      ]);
+      conn.release();
+
+      return res.json({
+        success: true,
+        message: 'Password akun berhasil diperbarui! Silakan gunakan password baru ini untuk login.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Password berhasil diperbarui (mode offline).',
+    });
+  } catch (err: any) {
+    console.error('Change password error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ====================================================================
 // 8. PENDAFTARAN PERANGKAT DESA (FORMULIR INDUK) & APPROVAL
 // ====================================================================
