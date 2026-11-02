@@ -26,7 +26,7 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
   onClose,
   initialQuery = '',
 }) => {
-  const { findMemberByKtaOrNik, fullMembers } = usePPDI();
+  const { findMemberByKtaOrNik, fullMembers, appSettings } = usePPDI();
 
   const [query, setQuery] = useState(initialQuery || (fullMembers[0]?.keanggotaan?.no_kta || ''));
   const [result, setResult] = useState<AnggotaFullDetail | null>(() => {
@@ -49,12 +49,22 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
         {/* Header */}
         <div className="p-4 border-b border-neutral-200 flex items-center justify-between bg-emerald-900 text-white rounded-t-xl">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-800 text-amber-300 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-amber-300" />
+            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center p-0.5 overflow-hidden shadow-xs">
+              {appSettings?.logoUrl ? (
+                <img
+                  src={appSettings.logoUrl}
+                  alt="Logo Organisasi"
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <ShieldCheck className="w-5 h-5 text-emerald-900" />
+              )}
             </div>
             <div>
               <h2 className="text-sm font-bold tracking-tight">Portal Verifikasi Keabsahan E-KTA</h2>
-              <div className="text-[10px] text-emerald-200">PPDI Pengurus Daerah Kabupaten Bandung</div>
+              <div className="text-[10px] text-emerald-200">
+                {appSettings?.appName || 'PPDI Pengurus Daerah Kabupaten Bandung'}
+              </div>
             </div>
           </div>
           <button

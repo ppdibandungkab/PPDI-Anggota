@@ -134,7 +134,7 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS: AppSettings = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
-  logoUrl: '',
+  logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png',
   loginBackgroundType: 'preset_emerald',
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',

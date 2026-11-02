@@ -22,7 +22,12 @@ interface EKTAViewProps {
 }
 
 export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVerifyModal }) => {
-  const { visibleMembers, fullMembers } = usePPDI();
+  const { visibleMembers, fullMembers, appSettings } = usePPDI();
+
+  // App Logo synchronized from Application Settings
+  const appLogo =
+    appSettings?.logoUrl ||
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png';
 
   // Selected member state
   const [activeMemberId, setActiveMemberId] = useState<string>(() => {
@@ -194,17 +199,38 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fde047_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none"></div>
                   <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-400/10 rounded-full blur-2xl pointer-events-none"></div>
 
-                  {/* Header Organization Lockup */}
+                  {/* Organization Logo Watermark (Sesuai Logo Aplikasi) */}
+                  {appLogo && (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.09] pointer-events-none select-none flex items-center justify-center">
+                      <img
+                        src={appLogo}
+                        alt=""
+                        className="w-full h-full object-contain filter grayscale brightness-200"
+                      />
+                    </div>
+                  )}
+
+                  {/* Header Organization Lockup (Sesuai Logo Aplikasi) */}
                   <div className="relative z-10 flex items-center justify-between pb-2.5 border-b border-amber-400/40">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-full bg-linear-to-b from-amber-300 to-amber-500 p-0.5 shadow-sm shrink-0 flex items-center justify-center">
-                        <div className="w-full h-full rounded-full bg-emerald-950 flex items-center justify-center">
-                          <Shield className="w-5 h-5 text-amber-300" />
+                      <div className="w-11 h-11 rounded-full bg-linear-to-b from-amber-300 via-amber-400 to-amber-500 p-0.5 shadow-md shrink-0 flex items-center justify-center overflow-hidden">
+                        <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden p-0.5">
+                          {appLogo ? (
+                            <img
+                              src={appLogo}
+                              alt="Logo Aplikasi"
+                              className="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div className="w-full h-full rounded-full bg-emerald-950 flex items-center justify-center">
+                              <Shield className="w-5 h-5 text-amber-300" />
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div>
                         <div className="text-[10px] sm:text-xs font-extrabold tracking-wider text-amber-300 uppercase leading-none">
-                          PERSATUAN PERANGKAT DESA INDONESIA
+                          {appSettings?.appName || 'PERSATUAN PERANGKAT DESA INDONESIA'}
                         </div>
                         <div className="text-[9px] sm:text-[10px] tracking-widest text-emerald-100 font-semibold uppercase mt-0.5">
                           PENGURUS DAERAH KABUPATEN BANDUNG
@@ -309,11 +335,35 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   {/* Subtle Background Pattern */}
                   <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fde047_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none"></div>
 
-                  {/* Header Ketentuan */}
+                  {/* Organization Logo Watermark (Sesuai Logo Aplikasi) */}
+                  {appLogo && (
+                    <div className="absolute left-6 top-1/2 -translate-y-1/2 w-44 h-44 opacity-[0.08] pointer-events-none select-none flex items-center justify-center">
+                      <img
+                        src={appLogo}
+                        alt=""
+                        className="w-full h-full object-contain filter grayscale brightness-200"
+                      />
+                    </div>
+                  )}
+
+                  {/* Header Ketentuan (Sesuai Logo Aplikasi) */}
                   <div className="relative z-10 flex items-center justify-between pb-1.5 border-b border-amber-400/30">
-                    <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
-                      KETENTUAN KARTU ANGGOTA PPDI
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center p-0.5 shrink-0 overflow-hidden shadow-2xs">
+                        {appLogo ? (
+                          <img
+                            src={appLogo}
+                            alt="Logo Aplikasi"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <Shield className="w-3.5 h-3.5 text-emerald-900" />
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                        KETENTUAN KARTU ANGGOTA PPDI
+                      </span>
+                    </div>
                     <span className="text-[8px] text-emerald-200 font-mono">DIPERIKSA KAB. BANDUNG</span>
                   </div>
 
@@ -336,7 +386,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
 
                     {/* QR Code Container */}
                     <div className="col-span-4 flex flex-col items-center justify-center">
-                      <div className="p-1.5 bg-white rounded-lg shadow-md border-2 border-amber-300">
+                      <div className="p-1.5 bg-white rounded-lg shadow-md border-2 border-amber-300 relative">
                         {qrDataUrl ? (
                           <img
                             src={qrDataUrl}
@@ -353,9 +403,20 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
 
                   {/* Signature & Legal Endorsement */}
                   <div className="relative z-10 pt-1.5 border-t border-amber-400/30 flex items-center justify-between text-[8px]">
-                    <div>
-                      <div className="text-emerald-300">Diterbitkan oleh:</div>
-                      <div className="font-semibold text-white">Pengurus Daerah PPDI Kab. Bandung</div>
+                    <div className="flex items-center gap-2">
+                      {appLogo && (
+                        <div className="w-6 h-6 rounded-full bg-white/95 p-0.5 shadow-2xs shrink-0 flex items-center justify-center overflow-hidden">
+                          <img
+                            src={appLogo}
+                            alt="Logo Organisasi"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-emerald-300">Diterbitkan oleh:</div>
+                        <div className="font-semibold text-white">Pengurus Daerah PPDI Kab. Bandung</div>
+                      </div>
                     </div>
 
                     <div className="text-center">

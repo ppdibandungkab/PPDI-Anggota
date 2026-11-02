@@ -2263,7 +2263,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
 const DEFAULT_SETTINGS = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
-  logoUrl: '', // Kosong = pakai default icon Garuda Shield
+  logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png',
   loginBackgroundType: 'preset_emerald', // 'preset_emerald' | 'gradient_mesh' | 'custom_image' | 'dark_slate'
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
