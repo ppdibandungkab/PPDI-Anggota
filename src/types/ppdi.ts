@@ -47,7 +47,7 @@ export interface Anggota {
   tanggal_lahir: string; // YYYY-MM-DD
   jenis_kelamin: 'L' | 'P';
   agama: string;
-  pendidikan_terakhir: 'SMA/SMK' | 'D3' | 'S1' | 'S2';
+  pendidikan_terakhir: 'SD' | 'SMP' | 'SMA/SMK' | 'D3' | 'S1' | 'S2' | 'S3';
   no_hp_wa: string;
   email?: string;
   foto?: string;

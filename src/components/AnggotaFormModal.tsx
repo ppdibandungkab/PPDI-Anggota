@@ -74,7 +74,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const [tanggalLahir, setTanggalLahir] = useState('1985-05-15');
   const [jenisKelamin, setJenisKelamin] = useState<'L' | 'P'>('L');
   const [agama, setAgama] = useState('Islam');
-  const [pendidikanTerakhir, setPendidikanTerakhir] = useState<'SMA/SMK' | 'D3' | 'S1' | 'S2'>('S1');
+  const [pendidikanTerakhir, setPendidikanTerakhir] = useState<'SD' | 'SMP' | 'SMA/SMK' | 'D3' | 'S1' | 'S2' | 'S3'>('SMA/SMK');
   const [noHpWa, setNoHpWa] = useState('');
   const [email, setEmail] = useState('');
   const [alamatRumah, setAlamatRumah] = useState('');
@@ -237,7 +237,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       setTanggalLahir('1988-06-20');
       setJenisKelamin('L');
       setAgama('Islam');
-      setPendidikanTerakhir('S1');
+      setPendidikanTerakhir('SMA/SMK');
       setNoHpWa('0812');
       setEmail('');
       setAlamatRumah('');

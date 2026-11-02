@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
 import { formatDateIndo } from '../utils/ppdiHelpers';
@@ -70,8 +72,72 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
       ).toUpperCase()
     : '-';
 
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadPDF = async () => {
+    const frontEl = document.getElementById('kta-front');
+    const backEl = document.getElementById('kta-back');
+
+    if (!frontEl) {
+      alert('Elemen KTA tidak ditemukan!');
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      // Dimensions in mm: Standard ISO/IEC 7810 ID-1 (CR80 KTP / ATM) is 85.6mm x 53.98mm
+      const cardWidthMm = 85.6;
+      const cardHeightMm = 53.98;
+
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: [cardWidthMm, cardHeightMm],
+        compress: true,
+      });
+
+      // Render Front Side Canvas with high resolution scale
+      const canvasFront = await html2canvas(frontEl, {
+        scale: 3,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+        logging: false,
+      });
+      const imgFront = canvasFront.toDataURL('image/png', 1.0);
+      pdf.addImage(imgFront, 'PNG', 0, 0, cardWidthMm, cardHeightMm, undefined, 'FAST');
+
+      // Render Back Side Canvas if available and requested
+      if (backEl && (cardSide === 'both' || cardSide === 'back')) {
+        pdf.addPage([cardWidthMm, cardHeightMm], 'landscape');
+        const canvasBack = await html2canvas(backEl, {
+          scale: 3,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: null,
+          logging: false,
+        });
+        const imgBack = canvasBack.toDataURL('image/png', 1.0);
+        pdf.addImage(imgBack, 'PNG', 0, 0, cardWidthMm, cardHeightMm, undefined, 'FAST');
+      }
+
+      const cleanName = (currentMember?.anggota?.nama_lengkap || 'PERANGKAT_DESA')
+        .replace(/[^a-zA-Z0-9]/g, '_')
+        .toUpperCase();
+      const ktaNo = (currentMember?.keanggotaan?.no_kta || 'KTA')
+        .replace(/[^a-zA-Z0-9]/g, '_');
+
+      pdf.save(`KTA_PPDI_${cleanName}_${ktaNo}.pdf`);
+    } catch (err: any) {
+      console.error('PDF Export Error:', err);
+      alert('Gagal mengekspor file PDF KTA: ' + (err?.message || err));
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   if (fullMembers.length === 0) {
@@ -107,7 +173,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
             E-KTA Digital & Kartu Anggota PPDI
           </h1>
           <p className="text-xs text-neutral-500 mt-0.5">
-            Penerbitan Kartu Tanda Anggota digital berisikan QR Code verifikasi otentikasi kelembagaan
+            Penerbitan Kartu Tanda Anggota digital berisikan QR Code verifikasi otentikasi kelembagaan (Ukuran KTP / ATM Standard CR80)
           </p>
         </div>
 
@@ -120,8 +186,18 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
             <span>Uji Scan QR KTA</span>
           </button>
           <button
+            onClick={handleDownloadPDF}
+            disabled={isExportingPdf}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+            title="Unduh File PDF KTA Ukuran KTP / ATM (85.6mm x 53.98mm)"
+          >
+            <Download className="w-4 h-4" />
+            <span>{isExportingPdf ? 'Mengekspor PDF...' : 'Unduh PDF KTA (KTP/ATM)'}</span>
+          </button>
+          <button
             onClick={handlePrint}
             className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Cetak Langsung ke Printer"
           >
             <Printer className="w-4 h-4" />
             <span>Cetak Kartu Fisik</span>

@@ -18,6 +18,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     tempatLahir: '',
     tanggalLahir: '',
     jenisKelamin: 'L' as 'L' | 'P',
+    pendidikanTerakhir: 'SMA/SMK',
     noHpWa: '',
     email: '',
     selectedKecamatan: '',
@@ -72,6 +73,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       tempatLahir: '',
       tanggalLahir: '',
       jenisKelamin: 'L',
+      pendidikanTerakhir: 'SMA/SMK',
       noHpWa: '',
       email: '',
       selectedKecamatan: '',
@@ -127,7 +129,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         tanggal_lahir: formData.tanggalLahir,
         jenis_kelamin: formData.jenisKelamin,
         agama: 'Islam',
-        pendidikan_terakhir: 'S1',
+        pendidikan_terakhir: formData.pendidikanTerakhir || 'SMA/SMK',
         no_hp_wa: formData.noHpWa.trim(),
         email: formData.email.trim() || undefined,
         alamat_rumah: 'Kabupaten Bandung',
@@ -312,6 +314,27 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                 >
                   <option value="L">Laki-laki</option>
                   <option value="P">Perempuan</option>
+                </select>
+              </div>
+
+              {/* Pendidikan Terakhir */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase">
+                  Pendidikan Terakhir <span className="text-red-500">*</span>
+                </label>
+                <select 
+                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white"
+                  value={formData.pendidikanTerakhir}
+                  onChange={e => setFormData({...formData, pendidikanTerakhir: e.target.value})}
+                  required
+                >
+                  <option value="SD">SD / Sederajat</option>
+                  <option value="SMP">SMP / Sederajat</option>
+                  <option value="SMA/SMK">SMA / SMK / Sederajat (Default)</option>
+                  <option value="D1">D1 / D2 / D3 (Diploma)</option>
+                  <option value="S1">S1 (Sarjana)</option>
+                  <option value="S2">S2 (Magister)</option>
+                  <option value="S3">S3 (Doktor)</option>
                 </select>
               </div>
 
