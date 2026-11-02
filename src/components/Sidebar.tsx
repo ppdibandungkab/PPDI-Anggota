@@ -36,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
     kecamatanList,
     fullMembers,
     pendaftaranList,
+    visiblePendaftaran,
     appSettings,
   } = usePPDI();
 
@@ -90,8 +91,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
     (m) => m.statusPensiun === 'Kritis (<6 Bln)' || m.statusPensiun === 'Siaga (<1 Thn)'
   ).length;
 
-  // Count pending registration approvals
-  const pendingPendaftaranCount = pendaftaranList.filter((p) => p.status_approval === 'Menunggu').length;
+  // Count pending registration approvals scoped to role
+  const pendingPendaftaranCount = (visiblePendaftaran || pendaftaranList).filter((p) => p.status_approval === 'Menunggu').length;
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard & Statistik', icon: LayoutDashboard },

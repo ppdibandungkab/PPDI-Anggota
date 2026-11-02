@@ -42,4 +42,14 @@ export const INITIAL_USERS: UserAccount[] = [
     role: 'Admin_Kecamatan',
     id_kecamatan: '320413',
   },
+  {
+    id_user: 5,
+    username: 'admin.sekarwangi',
+    email: 'admin.sekarwangi@ppdi-bandungkab.id',
+    nama: 'OPERATOR DESA SEKARWANGI',
+    password: 'admin',
+    role: 'Admin_Desa',
+    id_kecamatan: '320437',
+    id_desa: '3204372021',
+  },
 ];

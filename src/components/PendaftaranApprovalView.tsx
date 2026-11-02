@@ -19,6 +19,8 @@ import {
   FileText,
   AlertCircle,
   X,
+  Shield,
+  Lock,
 } from 'lucide-react';
 import { PendaftaranPerangkatDesa } from '../types/ppdi';
 
@@ -34,15 +36,112 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     deletePendaftaran,
     refreshDataFromMySQL,
     kecamatanList,
+    desaList,
     currentUser,
-    fullMembers,
     setActiveTab,
   } = usePPDI();
+
+  // Role detection
+  const userRole = currentUser?.role || 'Superadmin_Kabupaten';
+  const isSuperadmin = userRole === 'Superadmin_Kabupaten';
+  const isAdminKabupaten = userRole === 'Admin_Kabupaten';
+  const isKabupatenLevel = isSuperadmin || isAdminKabupaten;
+  const isAdminKecamatan = userRole === 'Admin_Kecamatan';
+  const isAdminDesa = userRole === 'Admin_Desa';
+  const isAnggota = userRole === 'Anggota';
+
+  // Permission rights based on role
+  const canApprove = isKabupatenLevel || isAdminKecamatan;
+  const canReject = isKabupatenLevel || isAdminKecamatan;
+  const canDelete = isKabupatenLevel;
+  const canInput = isKabupatenLevel || isAdminKecamatan || isAdminDesa;
+
+  // Territorial assignment
+  const userKecClean = (currentUser?.id_kecamatan || '').replace(/\./g, '').trim();
+  const userDesaClean = (currentUser?.id_desa || '').replace(/\./g, '').trim();
+
+  const assignedKec = useMemo(() => {
+    if (!userKecClean) return null;
+    return kecamatanList.find((k) => k.id_kecamatan.replace(/\./g, '').trim() === userKecClean) || null;
+  }, [kecamatanList, userKecClean]);
+
+  const assignedDesa = useMemo(() => {
+    if (!userDesaClean) return null;
+    return desaList.find((d) => d.id_desa.replace(/\./g, '').trim() === userDesaClean) || null;
+  }, [desaList, userDesaClean]);
+
+  // Role-Scoped baseline list: ONLY data belonging to user's territorial jurisdiction
+  const roleScopedList = useMemo(() => {
+    if (!currentUser) return pendaftaranList;
+
+    // 1. Superadmin & Admin Kabupaten: Melihat semua data pendaftaran se-Kabupaten Bandung
+    if (isKabupatenLevel) {
+      return pendaftaranList;
+    }
+
+    // 2. Admin Kecamatan: Terkunci HANYA formulir yang masuk di wilayah Kecamatannya
+    if (isAdminKecamatan) {
+      if (!userKecClean) return pendaftaranList;
+      return pendaftaranList.filter((item) => {
+        const itemKec = (item.id_kecamatan || '').replace(/\./g, '').trim();
+        const itemDesa = (item.id_desa || '').replace(/\./g, '').trim();
+        const matchKec = itemKec === userKecClean;
+        const matchDesaPrefix = itemDesa.length >= 6 && itemDesa.startsWith(userKecClean);
+        const matchName = assignedKec?.nama_kecamatan && item.nama_kecamatan
+          ? item.nama_kecamatan.toUpperCase().trim() === assignedKec.nama_kecamatan.toUpperCase().trim()
+          : false;
+        return matchKec || matchDesaPrefix || matchName;
+      });
+    }
+
+    // 3. Admin Desa: Terkunci HANYA formulir yang masuk di wilayah Desanya
+    if (isAdminDesa) {
+      return pendaftaranList.filter((item) => {
+        const itemDesa = (item.id_desa || '').replace(/\./g, '').trim();
+        if (userDesaClean && itemDesa === userDesaClean) return true;
+        if (assignedDesa?.nama_desa && item.nama_desa) {
+          if (item.nama_desa.toUpperCase().trim() === assignedDesa.nama_desa.toUpperCase().trim()) return true;
+        }
+        // Fallback jika id_desa belum diset spesifik tapi ada id_kecamatan
+        if (!userDesaClean && userKecClean) {
+          const itemKec = (item.id_kecamatan || '').replace(/\./g, '').trim();
+          return itemKec === userKecClean || (itemDesa.length >= 6 && itemDesa.startsWith(userKecClean));
+        }
+        return false;
+      });
+    }
+
+    // 4. Anggota: Hanya melihat pengajuan mandirinya (berdasarkan NIK / ID Anggota)
+    if (isAnggota) {
+      const userNik = currentUser.id_anggota || currentUser.username;
+      return pendaftaranList.filter((item) => {
+        if (userNik && item.nik === userNik) return true;
+        if (currentUser.email && item.email && item.email.toLowerCase() === currentUser.email.toLowerCase()) return true;
+        return false;
+      });
+    }
+
+    return pendaftaranList;
+  }, [pendaftaranList, isKabupatenLevel, isAdminKecamatan, isAdminDesa, isAnggota, userKecClean, userDesaClean, assignedKec, assignedDesa, currentUser]);
 
   const [activeFilterTab, setActiveFilterTab] = useState<'Semua' | 'Menunggu' | 'Disetujui' | 'Ditolak'>('Menunggu');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterKecamatan, setFilterKecamatan] = useState<string>('all');
+  const [filterDesa, setFilterDesa] = useState<string>('all');
   const [selectedItem, setSelectedItem] = useState<PendaftaranPerangkatDesa | null>(null);
+
+  // Available desa options based on active kecamatan
+  const availableDesaList = useMemo(() => {
+    let targetKec = '';
+    if (isKabupatenLevel) {
+      if (filterKecamatan === 'all') return [];
+      targetKec = filterKecamatan.replace(/\./g, '').trim();
+    } else if (isAdminKecamatan) {
+      targetKec = userKecClean;
+    }
+    if (!targetKec) return [];
+    return desaList.filter((d) => d.id_kecamatan.replace(/\./g, '').trim() === targetKec);
+  }, [desaList, isKabupatenLevel, filterKecamatan, isAdminKecamatan, userKecClean]);
 
   // Modal Approve confirmation
   const [approvingItem, setApprovingItem] = useState<PendaftaranPerangkatDesa | null>(null);
@@ -56,29 +155,36 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
 
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Statistik ringkasan
+  // Statistik ringkasan scoped to current user's role
   const stats = useMemo(() => {
-    const total = pendaftaranList.length;
-    const pending = pendaftaranList.filter((p) => p.status_approval === 'Menunggu').length;
-    const approved = pendaftaranList.filter((p) => p.status_approval === 'Disetujui').length;
-    const rejected = pendaftaranList.filter((p) => p.status_approval === 'Ditolak').length;
+    const total = roleScopedList.length;
+    const pending = roleScopedList.filter((p) => p.status_approval === 'Menunggu').length;
+    const approved = roleScopedList.filter((p) => p.status_approval === 'Disetujui').length;
+    const rejected = roleScopedList.filter((p) => p.status_approval === 'Ditolak').length;
     return { total, pending, approved, rejected };
-  }, [pendaftaranList]);
+  }, [roleScopedList]);
 
   // Filter list
   const filteredList = useMemo(() => {
-    return pendaftaranList.filter((item) => {
+    return roleScopedList.filter((item) => {
       // Status filter
       if (activeFilterTab !== 'Semua' && item.status_approval !== activeFilterTab) {
         return false;
       }
-      // Kecamatan filter
-      if (filterKecamatan !== 'all') {
-        const cleanFilter = filterKecamatan.replace(/\./g, '');
-        const cleanItemKec = (item.id_kecamatan || '').replace(/\./g, '');
-        if (cleanItemKec !== cleanFilter) return false;
+      // Kecamatan filter (only for Kabupaten level since other roles are already pre-scoped)
+      if (isKabupatenLevel && filterKecamatan !== 'all') {
+        const cleanFilter = filterKecamatan.replace(/\./g, '').trim();
+        const cleanItemKec = (item.id_kecamatan || '').replace(/\./g, '').trim();
+        const cleanItemDesa = (item.id_desa || '').replace(/\./g, '').trim();
+        if (cleanItemKec !== cleanFilter && !cleanItemDesa.startsWith(cleanFilter)) return false;
       }
-      // Search term (Nama, NIK, No HP, Desa)
+      // Desa filter
+      if (filterDesa !== 'all') {
+        const cleanFilterDesa = filterDesa.replace(/\./g, '').trim();
+        const cleanItemDesa = (item.id_desa || '').replace(/\./g, '').trim();
+        if (cleanItemDesa !== cleanFilterDesa) return false;
+      }
+      // Search term (Nama, NIK, No HP, Desa, Kecamatan, Jabatan)
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const nama = (item.nama_lengkap || '').toLowerCase();
@@ -86,15 +192,20 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         const noHp = (item.no_hp_wa || '').toLowerCase();
         const desa = (item.nama_desa || '').toLowerCase();
         const kec = (item.nama_kecamatan || '').toLowerCase();
-        return nama.includes(q) || nik.includes(q) || noHp.includes(q) || desa.includes(q) || kec.includes(q);
+        const jab = (item.nama_jabatan || '').toLowerCase();
+        return nama.includes(q) || nik.includes(q) || noHp.includes(q) || desa.includes(q) || kec.includes(q) || jab.includes(q);
       }
       return true;
     });
-  }, [pendaftaranList, activeFilterTab, filterKecamatan, searchTerm]);
+  }, [roleScopedList, activeFilterTab, isKabupatenLevel, filterKecamatan, filterDesa, searchTerm]);
 
   // Handle Approve
   const handleConfirmApprove = async () => {
     if (!approvingItem) return;
+    if (!canApprove) {
+      setActionMessage({ type: 'error', text: 'Akses Ditolak: Anda tidak memiliki wewenang menyetujui pendaftaran.' });
+      return;
+    }
     setIsApproving(true);
     try {
       const result = await approvePendaftaran(approvingItem.id_pendaftaran, customKta.trim() || undefined);
@@ -118,6 +229,10 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   // Handle Reject
   const handleConfirmReject = async () => {
     if (!rejectingItem) return;
+    if (!canReject) {
+      setActionMessage({ type: 'error', text: 'Akses Ditolak: Anda tidak memiliki wewenang menolak pendaftaran.' });
+      return;
+    }
     setIsRejecting(true);
     try {
       await rejectPendaftaran(rejectingItem.id_pendaftaran, rejectReason.trim() || 'Berkas belum memenuhi persyaratan');
@@ -140,6 +255,13 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
 
   // Handle Delete
   const handleDelete = async (item: PendaftaranPerangkatDesa) => {
+    if (!canDelete) {
+      setActionMessage({
+        type: 'error',
+        text: 'Akses Ditolak: Hanya Akun Tingkat Kabupaten yang diizinkan menghapus formulir pendaftaran.',
+      });
+      return;
+    }
     if (!confirm(`Hapus data formulir registrasi atas nama ${item.nama_lengkap.toUpperCase()}?`)) return;
     try {
       await deletePendaftaran(item.id_pendaftaran);
@@ -166,12 +288,12 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
             </h1>
           </div>
           <p className="text-emerald-100 text-xs sm:text-sm mt-1 max-w-3xl">
-            Tabel verifikasi formulir registrasi mandiri perangkat desa se-Kabupaten Bandung. Setelah disetujui (Approval),
+            Tabel verifikasi formulir registrasi mandiri perangkat desa. Setelah disetujui (Approval),
             data langsung otomatis diterbitkan ke Data Induk Anggota serta dibuatkan Nomor E-KTA resmi.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {onOpenPublicForm && (
+          {onOpenPublicForm && canInput && (
             <button
               onClick={onOpenPublicForm}
               className="flex items-center gap-2 px-4 py-2 bg-white text-[#064E3B] hover:bg-emerald-50 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer uppercase"
@@ -187,6 +309,52 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+        </div>
+      </div>
+
+      {/* Role & Territorial Scope Indicator Banner */}
+      <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs font-mono">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-neutral-500 font-semibold text-[11px] uppercase">Tingkatan Role Pengguna:</span>
+          <span
+            className={`px-2.5 py-0.5 rounded-md font-bold text-xs uppercase border ${
+              isSuperadmin
+                ? 'bg-purple-100 text-purple-900 border-purple-300'
+                : isAdminKabupaten
+                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                : isAdminKecamatan
+                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                : isAdminDesa
+                ? 'bg-blue-100 text-blue-900 border-blue-300'
+                : 'bg-neutral-100 text-neutral-800 border-neutral-300'
+            }`}
+          >
+            {userRole.replace(/_/g, ' ')}
+          </span>
+          <span className="text-neutral-300">|</span>
+          <div className="flex items-center gap-1.5 text-neutral-800">
+            {isKabupatenLevel ? (
+              <Shield className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+            ) : (
+              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            )}
+            <span className="font-semibold">
+              {isKabupatenLevel
+                ? 'Cakupan: Seluruh Kabupaten Bandung (31 Kecamatan & 270+ Desa)'
+                : isAdminKecamatan
+                ? `Wilayah Teritorial: Kecamatan ${assignedKec?.nama_kecamatan || userKecClean} (Terkunci Auto-Filter)`
+                : isAdminDesa
+                ? `Wilayah Teritorial: Desa ${assignedDesa?.nama_desa || userDesaClean}, Kec. ${assignedKec?.nama_kecamatan || userKecClean} (Terkunci)`
+                : 'Akses Mandiri: Hanya melihat berkas pengajuan pribadi'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-[11px] text-neutral-600 shrink-0">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>
+            Data Terbaca: <b>{roleScopedList.length} Formulir</b> dalam wewenang Anda
+          </span>
         </div>
       </div>
 
@@ -224,7 +392,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         </div>
       )}
 
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards - Scoped to User's Role Jurisdiction */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
           <div className="flex items-center justify-between text-neutral-500 mb-2">
@@ -232,7 +400,9 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
             <FileText className="w-4 h-4 text-neutral-400" />
           </div>
           <div className="text-2xl font-extrabold text-neutral-900 font-mono">{stats.total}</div>
-          <div className="text-[11px] text-neutral-500 mt-1">Seluruh formulir pendaftaran masuk</div>
+          <div className="text-[11px] text-neutral-500 mt-1">
+            {isKabupatenLevel ? 'Seluruh formulir pendaftaran masuk se-Kabupaten' : `Formulir di wilayah ${assignedKec?.nama_kecamatan || 'tugas Anda'}`}
+          </div>
         </div>
 
         <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-300 shadow-2xs">
@@ -301,7 +471,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         </div>
 
         {/* Inputs Filter & Search */}
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -313,32 +483,73 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
             />
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Filter className="w-4 h-4 text-neutral-400" />
-            <select
-              value={filterKecamatan}
-              onChange={(e) => setFilterKecamatan(e.target.value)}
-              className="border border-neutral-200 rounded-lg text-xs font-mono py-2 px-3 focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
-            >
-              <option value="all">Semua Kecamatan (31 Kec)</option>
-              {kecamatanList.map((k) => (
-                <option key={k.id_kecamatan} value={k.id_kecamatan}>
-                  Kec. {k.nama_kecamatan}
-                </option>
-              ))}
-            </select>
+
+            {/* Filter Kecamatan: Dropdown untuk Kabupaten, Terkunci untuk Kecamatan/Desa */}
+            {isKabupatenLevel ? (
+              <select
+                value={filterKecamatan}
+                onChange={(e) => {
+                  setFilterKecamatan(e.target.value);
+                  setFilterDesa('all');
+                }}
+                className="border border-neutral-200 rounded-lg text-xs font-mono py-2 px-3 focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+              >
+                <option value="all">Semua Kecamatan (31 Kec)</option>
+                {kecamatanList.map((k) => (
+                  <option key={k.id_kecamatan} value={k.id_kecamatan}>
+                    Kec. {k.nama_kecamatan}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-300 rounded-lg text-xs font-mono font-bold text-amber-900 shadow-2xs">
+                <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span>Kec. {assignedKec?.nama_kecamatan || userKecClean || 'Penugasan'}</span>
+              </div>
+            )}
+
+            {/* Filter Desa: Tersedia jika Kecamatan terpilih atau untuk Admin_Kecamatan */}
+            {(isKabupatenLevel ? filterKecamatan !== 'all' : isAdminKecamatan) && availableDesaList.length > 0 && (
+              <select
+                value={filterDesa}
+                onChange={(e) => setFilterDesa(e.target.value)}
+                className="border border-emerald-300 bg-emerald-50/50 text-emerald-950 font-semibold rounded-lg text-xs font-mono py-2 px-3 focus:ring-2 focus:ring-[#064E3B] outline-none"
+              >
+                <option value="all">Semua Desa ({availableDesaList.length} Desa)</option>
+                {availableDesaList.map((d) => (
+                  <option key={d.id_desa} value={d.id_desa}>
+                    Desa {d.nama_desa}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Lock Indicator untuk Admin Desa */}
+            {isAdminDesa && assignedDesa && (
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-xs font-mono font-bold text-blue-900 shadow-2xs">
+                <Lock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                <span>Desa {assignedDesa.nama_desa}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Table of Registrations */}
       <div className="bg-white rounded-xl border border-neutral-200 shadow-2xs overflow-hidden">
-        <div className="p-4 bg-neutral-50/80 border-b border-neutral-200 flex items-center justify-between">
-          <h2 className="text-xs font-bold text-neutral-800 uppercase tracking-wider font-mono">
-            Daftar Formulir Induk Perangkat Desa ({filteredList.length} Data)
-          </h2>
+        <div className="p-4 bg-neutral-50/80 border-b border-neutral-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-bold text-neutral-800 uppercase tracking-wider font-mono">
+              Daftar Formulir Induk Perangkat Desa ({filteredList.length} Data)
+            </h2>
+            <span className="text-[11px] px-2 py-0.5 bg-neutral-200/80 rounded font-mono font-semibold text-neutral-700">
+              Role: {userRole}
+            </span>
+          </div>
           <span className="text-[11px] text-neutral-500 font-mono">
-            Tersimpan di tabel database: <code className="bg-neutral-200/60 px-1 py-0.5 rounded text-neutral-800 font-semibold">pendaftaran_perangkat_desa</code>
+            Tersimpan di tabel: <code className="bg-neutral-200/60 px-1 py-0.5 rounded text-neutral-800 font-semibold">pendaftaran_perangkat_desa</code>
           </span>
         </div>
 
@@ -348,12 +559,16 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               <ClipboardCheck className="w-7 h-7" />
             </div>
             <h3 className="text-sm font-bold text-neutral-800">Tidak ada data formulir pendaftaran</h3>
-            <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              {activeFilterTab === 'Menunggu'
+            <p className="text-xs text-neutral-500 max-w-md mx-auto">
+              {isAdminKecamatan
+                ? `Tidak ada pengajuan pendaftaran untuk wilayah Kecamatan ${assignedKec?.nama_kecamatan || ''} dengan kriteria yang dipilih.`
+                : isAdminDesa
+                ? `Tidak ada pengajuan pendaftaran untuk Desa ${assignedDesa?.nama_desa || ''}.`
+                : activeFilterTab === 'Menunggu'
                 ? 'Semua pengajuan pendaftaran telah diproses atau belum ada formulir baru yang masuk.'
                 : 'Tidak ada data registrasi dengan kriteria pencarian yang dipilih.'}
             </p>
-            {onOpenPublicForm && (
+            {onOpenPublicForm && canInput && (
               <button
                 onClick={onOpenPublicForm}
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#064E3B] text-white rounded-lg text-xs font-bold hover:bg-emerald-900 transition-colors cursor-pointer mt-2"
@@ -375,7 +590,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                   <th className="p-3">Jabatan</th>
                   <th className="p-3">Kontak</th>
                   <th className="p-3 text-center">Status</th>
-                  <th className="p-3 text-center">Aksi Approval</th>
+                  <th className="p-3 text-center">Aksi Verifikasi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
@@ -466,8 +681,8 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          {/* Approval Actions */}
-                          {isPending && (
+                          {/* Approval Actions (Hanya untuk Role yang memiliki wewenang: Superadmin, Admin Kabupaten, Admin Kecamatan) */}
+                          {isPending && canApprove && (
                             <>
                               <button
                                 onClick={() => {
@@ -494,14 +709,21 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                             </>
                           )}
 
-                          {/* Delete Button */}
-                          <button
-                            onClick={() => handleDelete(item)}
-                            className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                            title="Hapus Formulir"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Indicator jika tidak memiliki hak approval (misal Admin Desa / Anggota) */}
+                          {isPending && !canApprove && (
+                            <span className="text-[10px] text-neutral-400 italic">Verifikasi PK/Kabupaten</span>
+                          )}
+
+                          {/* Delete Button (Hanya Superadmin & Admin Kabupaten) */}
+                          {canDelete && (
+                            <button
+                              onClick={() => handleDelete(item)}
+                              className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                              title="Hapus Formulir Pendaftaran"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -644,7 +866,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               >
                 Tutup
               </button>
-              {selectedItem.status_approval === 'Menunggu' && (
+              {selectedItem.status_approval === 'Menunggu' && canApprove && (
                 <button
                   onClick={() => {
                     setApprovingItem(selectedItem);

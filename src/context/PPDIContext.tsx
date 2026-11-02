@@ -46,6 +46,7 @@ interface PPDIContextType {
   
   // Pendaftaran (Formulir Induk) & Approval Workflow
   pendaftaranList: PendaftaranPerangkatDesa[];
+  visiblePendaftaran: PendaftaranPerangkatDesa[];
   submitPendaftaran: (data: any) => Promise<{ success: boolean; message: string; id_pendaftaran?: number }>;
   approvePendaftaran: (id: number, noKtaCustom?: string) => Promise<{ success: boolean; message: string; id_anggota?: number; no_kta?: string }>;
   rejectPendaftaran: (id: number, catatan: string) => Promise<{ success: boolean; message: string }>;
@@ -310,6 +311,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           uRes.value.data.users.map((u: any) => ({
             ...u,
             nama: (u.nama || u.username).toUpperCase(),
+            id_kecamatan: u.id_kecamatan_scope || u.id_kecamatan || undefined,
+            id_desa: u.id_desa || undefined,
           }))
         );
       }
@@ -564,6 +567,57 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return fullMembers;
   }, [fullMembers, currentUser, selectedKecamatanFilter]);
+
+  // Filtered pendaftaran based on user role & territory
+  const visiblePendaftaran = useMemo(() => {
+    if (!currentUser) return pendaftaranList;
+    const role = currentUser.role;
+
+    // 1. Superadmin_Kabupaten & Admin_Kabupaten: Akses seluruh pendaftaran se-Kabupaten Bandung
+    if (role === 'Superadmin_Kabupaten' || role === 'Admin_Kabupaten') {
+      return pendaftaranList;
+    }
+
+    // 2. Admin_Kecamatan: Terkunci pada wilayah Kecamatan penugasan
+    if (role === 'Admin_Kecamatan') {
+      const userKecClean = (currentUser.id_kecamatan || '').replace(/\./g, '').trim();
+      if (!userKecClean) return pendaftaranList;
+
+      return pendaftaranList.filter((p) => {
+        const itemKecClean = (p.id_kecamatan || '').replace(/\./g, '').trim();
+        const itemDesaClean = (p.id_desa || '').replace(/\./g, '').trim();
+        return itemKecClean === userKecClean || (itemDesaClean.length >= 6 && itemDesaClean.startsWith(userKecClean));
+      });
+    }
+
+    // 3. Admin_Desa: Terkunci pada wilayah Desa penugasan
+    if (role === 'Admin_Desa') {
+      const userDesaClean = (currentUser.id_desa || '').replace(/\./g, '').trim();
+      const userKecClean = (currentUser.id_kecamatan || '').replace(/\./g, '').trim();
+
+      return pendaftaranList.filter((p) => {
+        const itemDesaClean = (p.id_desa || '').replace(/\./g, '').trim();
+        if (userDesaClean && itemDesaClean === userDesaClean) return true;
+        if (!userDesaClean && userKecClean) {
+          const itemKecClean = (p.id_kecamatan || '').replace(/\./g, '').trim();
+          return itemKecClean === userKecClean || itemDesaClean.startsWith(userKecClean);
+        }
+        return false;
+      });
+    }
+
+    // 4. Anggota: Hanya melihat pengajuan mandirinya (berdasarkan NIK / id_anggota / email)
+    if (role === 'Anggota') {
+      const userNik = currentUser.id_anggota || currentUser.username;
+      return pendaftaranList.filter((p) => {
+        if (userNik && p.nik === userNik) return true;
+        if (currentUser.email && p.email && p.email.toLowerCase() === currentUser.email.toLowerCase()) return true;
+        return false;
+      });
+    }
+
+    return pendaftaranList;
+  }, [pendaftaranList, currentUser]);
 
   // Actions fully integrated with MySQL
   const addAnggotaWithJobAndKta = async (
@@ -1117,6 +1171,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fullMembers,
         visibleMembers,
         pendaftaranList,
+        visiblePendaftaran,
         submitPendaftaran,
         approvePendaftaran,
         rejectPendaftaran,

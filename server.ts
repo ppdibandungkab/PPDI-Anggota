@@ -1484,6 +1484,7 @@ app.post('/api/auth/login', async (req, res) => {
             id_role: dbUser.id_role,
             id_anggota: dbUser.id_anggota ? String(dbUser.id_anggota) : undefined,
             id_kecamatan: dbUser.id_kecamatan_scope || dbUser.id_kecamatan || undefined,
+            id_desa: dbUser.id_desa || undefined,
           },
         });
       }
@@ -1504,10 +1505,20 @@ app.post('/api/auth/login', async (req, res) => {
         role: 'Superadmin_Kabupaten',
       },
     },
-    'admin.soreang': {
+    'admin.kabupaten': {
       pass: process.env.ADMIN_PASSWORD || 'admin',
       user: {
         id_user: 2,
+        username: 'admin.kabupaten',
+        email: 'admin.pd@ppdi-bandungkab.id',
+        nama: 'PENGURUS DAERAH KAB. BANDUNG',
+        role: 'Admin_Kabupaten',
+      },
+    },
+    'admin.soreang': {
+      pass: process.env.ADMIN_PASSWORD || 'admin',
+      user: {
+        id_user: 3,
         username: 'admin.soreang',
         email: 'admin.soreang@ppdi-bandungkab.id',
         nama: 'ADMIN PK PPDI SOREANG',
@@ -1518,12 +1529,24 @@ app.post('/api/auth/login', async (req, res) => {
     'admin.banjaran': {
       pass: process.env.ADMIN_PASSWORD || 'admin',
       user: {
-        id_user: 3,
+        id_user: 4,
         username: 'admin.banjaran',
         email: 'admin.banjaran@ppdi-bandungkab.id',
         nama: 'ADMIN PK PPDI BANJARAN',
         role: 'Admin_Kecamatan',
         id_kecamatan: '320413',
+      },
+    },
+    'admin.sekarwangi': {
+      pass: process.env.ADMIN_PASSWORD || 'admin',
+      user: {
+        id_user: 5,
+        username: 'admin.sekarwangi',
+        email: 'admin.sekarwangi@ppdi-bandungkab.id',
+        nama: 'OPERATOR DESA SEKARWANGI',
+        role: 'Admin_Desa',
+        id_kecamatan: '320437',
+        id_desa: '3204372021',
       },
     },
   };
@@ -1728,11 +1751,12 @@ app.delete('/api/users/:id', async (req, res) => {
 // ====================================================================
 // 8. PENDAFTARAN PERANGKAT DESA (FORMULIR INDUK) & APPROVAL
 // ====================================================================
-app.get('/api/pendaftaran', async (_req, res) => {
+app.get('/api/pendaftaran', async (req, res) => {
   try {
     if (!pool) throw new Error('Pool not ready');
-    const conn = await pool.getConnection();
-    const [rows]: [any[], any] = await conn.query(`
+    const { id_kecamatan, id_desa, nik } = req.query;
+
+    let querySql = `
       SELECT 
         p.*,
         DATE_FORMAT(p.tanggal_lahir, '%Y-%m-%d') as tanggal_lahir,
@@ -1747,8 +1771,34 @@ app.get('/api/pendaftaran', async (_req, res) => {
       LEFT JOIN ref_kecamatan k ON p.id_kecamatan = k.id_kecamatan
       LEFT JOIN ref_desa d ON p.id_desa = d.id_desa
       LEFT JOIN ref_jabatan j ON p.id_jabatan = j.id_jabatan
-      ORDER BY p.id_pendaftaran DESC
-    `);
+    `;
+
+    const whereClauses: string[] = [];
+    const queryParams: any[] = [];
+
+    if (id_desa && String(id_desa).trim() !== '' && String(id_desa).toLowerCase() !== 'all') {
+      const cleanDesa = String(id_desa).replace(/\./g, '').trim();
+      whereClauses.push('(p.id_desa = ? OR REPLACE(p.id_desa, \'.\', \'\') = ?)');
+      queryParams.push(String(id_desa), cleanDesa);
+    } else if (id_kecamatan && String(id_kecamatan).trim() !== '' && String(id_kecamatan).toLowerCase() !== 'all') {
+      const cleanKec = String(id_kecamatan).replace(/\./g, '').trim();
+      whereClauses.push('(p.id_kecamatan = ? OR REPLACE(p.id_kecamatan, \'.\', \'\') = ? OR REPLACE(p.id_desa, \'.\', \'\') LIKE CONCAT(?, \'%\'))');
+      queryParams.push(String(id_kecamatan), cleanKec, cleanKec);
+    }
+
+    if (nik && String(nik).trim() !== '') {
+      whereClauses.push('p.nik = ?');
+      queryParams.push(String(nik).trim());
+    }
+
+    if (whereClauses.length > 0) {
+      querySql += ' WHERE ' + whereClauses.join(' AND ');
+    }
+
+    querySql += ' ORDER BY p.id_pendaftaran DESC';
+
+    const conn = await pool.getConnection();
+    const [rows]: [any[], any] = await conn.query(querySql, queryParams);
     conn.release();
     return res.json({ success: true, pendaftaran: rows });
   } catch (err: any) {
