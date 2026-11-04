@@ -409,7 +409,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-x-1 gap-y-0.5 text-[9px]">
+                      <div className="grid grid-cols-1 gap-x-1 gap-y-0.5 text-[10px]">
                         <div>
                           <span className="text-emerald-200 text-[8px] block">NIK KTP</span>
                           <span className="font-mono font-semibold">{currentMember.anggota.nik}</span>
