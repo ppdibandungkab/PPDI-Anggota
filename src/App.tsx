@@ -78,6 +78,10 @@ const MainAppContent: React.FC = () => {
           isOpen={isRegistrationModalOpen}
           onClose={() => setIsRegistrationModalOpen(false)}
         />
+        <DbConnectionModal
+          isOpen={isDbModalOpen}
+          onClose={() => setIsDbModalOpen(false)}
+        />
       </>
     );
   }
@@ -165,48 +169,24 @@ const MainAppContent: React.FC = () => {
       />
 
       {/* Database Connection & MySQL Status Modal */}
-      {currentUser.role === 'Superadmin_Kabupaten' && (
-        <DbConnectionModal
-          isOpen={isDbModalOpen}
-          onClose={() => setIsDbModalOpen(false)}
-        />
-      )}
+      <DbConnectionModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
+      />
 
-      {/* Floating Database Connection Status & Quick Diagnostic Trigger */}
-      <aside aria-label="Status Koneksi Database" className="fixed bottom-4 right-4 z-40 no-print flex items-center gap-2">
-        <button
-          onClick={() => setIsDbModalOpen(true)}
-          title={
-            dbStatus?.success
-              ? `Koneksi MySQL Aktif (${dbStatus.latencyMs} ms · ${dbStatus.host}) - Klik untuk info diagnostik`
-              : 'Koneksi MySQL Terputus - Klik untuk membuka solusi hosting'
-          }
-          className={`flex items-center gap-2 px-3 py-2 rounded-xl backdrop-blur-md shadow-lg border text-xs font-mono transition-all cursor-pointer ${
-            isCheckingDb
-              ? 'bg-amber-950/90 text-amber-200 border-amber-500/50'
-              : dbStatus?.success
-              ? 'bg-white/95 text-neutral-800 border-emerald-500/40 hover:bg-emerald-50 hover:border-emerald-600 shadow-sm'
-              : 'bg-red-950/90 text-red-200 border-red-500/80 hover:bg-red-900 shadow-md animate-pulse'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isCheckingDb
-                ? 'bg-amber-400 animate-ping'
-                : dbStatus?.success
-                ? 'bg-emerald-500'
-                : 'bg-red-500'
-            }`}
-          />
-          <span className="font-semibold">
-            {isCheckingDb
-              ? 'Cek DB...'
-              : dbStatus?.success
-              ? `MySQL: ${dbStatus.latencyMs || 0}ms`
-              : 'MySQL Offline (Solusi)'}
-          </span>
-        </button>
-      </aside>
+      {/* Floating Database Connection Status & Setting Trigger - Visible ONLY when MySQL is NOT connected */}
+      {!dbStatus?.success && (
+        <aside aria-label="Status Koneksi Database" className="fixed bottom-4 right-4 z-40 no-print flex items-center gap-2">
+          <button
+            onClick={() => setIsDbModalOpen(true)}
+            title="Koneksi MySQL Terputus - Klik untuk membuka Setting Database & Diagnostik"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-950/95 text-red-100 border border-red-500/80 hover:bg-red-900 shadow-2xl backdrop-blur-md text-xs font-mono transition-all cursor-pointer animate-pulse font-bold"
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+            <span>Setting Database (Offline)</span>
+          </button>
+        </aside>
+      )}
     </div>
   );
 };

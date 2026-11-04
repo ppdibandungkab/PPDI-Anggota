@@ -172,41 +172,37 @@ export const Header: React.FC<{
           <div className="hidden lg:flex items-center gap-3 text-xs font-mono text-[#111113]/70">
             <span className="text-[#111113]/20">/</span>
 
-            {/* MySQL Status Chip with Live Latency & Diagnostic Trigger */}
+            {/* MySQL Status Chip with Live Latency & Diagnostic Trigger (Setting Database open ONLY when MySQL is NOT connected) */}
             <div className="flex items-center gap-1">
-              <button
-                onClick={onOpenDbModal}
-                title={
-                  dbStatus?.success
-                    ? `MySQL Terhubung (${dbStatus.latencyMs} ms · ${dbStatus.host}:${dbStatus.port || 3306}) - Klik untuk info tabel & diagnostik`
-                    : 'MySQL Offline / Belum Terhubung - Klik untuk diagnosa & solusi hosting'
-                }
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono transition-colors cursor-pointer border ${
-                  isCheckingDb
-                    ? 'bg-amber-50 text-amber-900 border-amber-300'
-                    : dbStatus?.success
-                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
-                    : 'bg-red-50 text-red-900 border-red-300 hover:bg-red-100 animate-pulse font-bold'
-                }`}
-              >
-                <Database className="w-3 h-3 text-[#064E3B]" />
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isCheckingDb
-                      ? 'bg-amber-500 animate-ping'
-                      : dbStatus?.success
-                      ? 'bg-emerald-600'
-                      : 'bg-red-600'
-                  }`}
-                />
-                <span>
-                  {isCheckingDb
-                    ? 'Cek DB...'
-                    : dbStatus?.success
-                    ? `MySQL (${dbStatus.latencyMs || 0}ms)`
-                    : 'MySQL Offline'}
-                </span>
-              </button>
+              {isCheckingDb ? (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono bg-amber-50 text-amber-900 border border-amber-300">
+                  <Database className="w-3 h-3 text-[#064E3B]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                  <span>Cek DB...</span>
+                </div>
+              ) : dbStatus?.success ? (
+                <button
+                  type="button"
+                  disabled
+                  title={`Status: Database MySQL Terhubung Aktif (${dbStatus.latencyMs} ms) - Tombol Pengaturan Nonaktif Saat Terhubung`}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono bg-emerald-50 text-emerald-900 border border-emerald-300 opacity-80 cursor-not-allowed select-none"
+                >
+                  <Database className="w-3 h-3 text-[#064E3B]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                  <span>MySQL Terhubung ({dbStatus.latencyMs || 0}ms)</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenDbModal}
+                  title="Koneksi MySQL Terputus - Klik untuk membuka Setting Database"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono transition-colors cursor-pointer border bg-red-100 text-red-950 border-red-400 hover:bg-red-200 animate-pulse font-bold"
+                >
+                  <Database className="w-3 h-3 text-red-700" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
+                  <span>Setting Database (Offline)</span>
+                </button>
+              )}
 
               <button
                 onClick={() => checkDbStatus()}

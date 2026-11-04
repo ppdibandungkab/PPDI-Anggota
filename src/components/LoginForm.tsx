@@ -161,15 +161,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               <span className="sm:hidden">Cek DB...</span>
             </div>
           ) : dbStatus?.success ? (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/70 backdrop-blur-md border border-emerald-500/50 text-emerald-200 text-xs font-mono shadow-sm select-none"
-              title="Status: Database MySQL Terhubung Aktif"
+            <button
+              onClick={() => setIsDbModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/70 hover:bg-emerald-900/90 backdrop-blur-md border border-emerald-500/50 text-emerald-200 text-xs font-mono shadow-sm transition-all cursor-pointer"
+              title="Status: Database MySQL Terhubung Aktif. Klik untuk membuka diagnostik & setting database."
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <Database className="w-3.5 h-3.5 text-emerald-400" />
               <span className="hidden sm:inline font-semibold">MySQL Terhubung ({dbStatus.latencyMs}ms)</span>
               <span className="sm:hidden font-semibold">MySQL Aktif</span>
-            </div>
+            </button>
           ) : (
             <button
               onClick={() => setIsDbModalOpen(true)}
@@ -322,7 +323,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
           </p>
 
           {/* Public Action & Login Popup Trigger */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
             <button
               type="button"
               onClick={onOpenPublicVerify}
@@ -339,6 +340,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
             >
               <span>Login Sistem</span>
             </button>
+
+            {!dbStatus?.success && (
+              <button
+                type="button"
+                onClick={() => setIsDbModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-amber-200 bg-amber-950/80 hover:bg-amber-900/90 border border-amber-500/40 transition-all cursor-pointer backdrop-blur-md shadow-sm animate-pulse font-bold"
+                title="Buka Pengaturan & Diagnostik Database MySQL (Terbuka Saat Terputus)"
+              >
+                <Database className="w-4 h-4 text-amber-400" />
+                <span>Setting Database (Offline)</span>
+              </button>
+            )}
           </div>
 
           {/* Rekapitulasi Anggota Per Kecamatan Table */}

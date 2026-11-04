@@ -270,3 +270,16 @@ export interface DbStatusInfo {
   hostingTips?: string[];
   message?: string;
 }
+
+export interface DbConnectionLogEntry {
+  id: string;
+  timestamp: string;
+  type: 'CHECK' | 'TEST' | 'RECONNECT' | 'SAVE_ENV' | 'INIT_TABLES';
+  success: boolean;
+  host: string;
+  port?: number;
+  database?: string;
+  latencyMs?: number;
+  message: string;
+  code?: string;
+}

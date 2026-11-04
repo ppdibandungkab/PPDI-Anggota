@@ -15,6 +15,7 @@ import {
   PendaftaranPerangkatDesa,
   AppSettings,
   DbStatusInfo,
+  DbConnectionLogEntry,
   DEFAULT_ROLE_PERMISSIONS,
 } from '../types/ppdi';
 import { REF_KECAMATAN, REF_DESA, REF_JABATAN } from '../data/bandungWilayah';
@@ -114,6 +115,9 @@ interface PPDIContextType {
   reconnectDb: (config?: any) => Promise<any>;
   saveDbEnvConfig: (config: any) => Promise<any>;
   initDbTables: () => Promise<{ success: boolean; message?: string }>;
+  dbLogs: DbConnectionLogEntry[];
+  addDbLogEntry: (entry: Omit<DbConnectionLogEntry, 'id' | 'timestamp'>) => void;
+  clearDbLogs: () => void;
 
   // Verification lookup
   findMemberByKtaOrNik: (query: string) => AnggotaFullDetail | null;
@@ -218,6 +222,42 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [initialDbCheckDone, setInitialDbCheckDone] = useState<boolean>(false);
   const [dbAlertVisible, setDbAlertVisible] = useState<boolean>(false);
   const [isDbModalOpen, setIsDbModalOpen] = useState<boolean>(false);
+
+  const [dbLogs, setDbLogs] = useState<DbConnectionLogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('ppdi_db_connection_logs');
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ppdi_db_connection_logs', JSON.stringify(dbLogs));
+    } catch (_) {}
+  }, [dbLogs]);
+
+  const addDbLogEntry = (entry: Omit<DbConnectionLogEntry, 'id' | 'timestamp'>) => {
+    const newLog: DbConnectionLogEntry = {
+      id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      timestamp: new Date().toLocaleString('id-ID', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      ...entry,
+    };
+    setDbLogs((prev) => [newLog, ...prev].slice(0, 100));
+  };
+
+  const clearDbLogs = () => {
+    setDbLogs([]);
+    localStorage.removeItem('ppdi_db_connection_logs');
+  };
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -363,6 +403,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const fetchRes = await safeFetchJson<DbStatusInfo>('/api/db/status');
       if (fetchRes.ok && fetchRes.data && fetchRes.data.success) {
         setDbStatus(fetchRes.data);
+        addDbLogEntry({
+          type: 'CHECK',
+          success: true,
+          host: fetchRes.data.host || 'localhost',
+          port: fetchRes.data.port || 3306,
+          database: fetchRes.data.database,
+          latencyMs: fetchRes.data.latencyMs,
+          message: `KONEKSI BERHASIL: Tersambung ke ${fetchRes.data.host}:${fetchRes.data.port || 3306} (${fetchRes.data.latencyMs} ms · ${fetchRes.data.tablesCount || 0} tabel SQL)`,
+        });
         return fetchRes.data;
       }
 
@@ -400,6 +449,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setDbStatus(fallback);
       setDbAlertVisible(true);
+      addDbLogEntry({
+        type: 'CHECK',
+        success: false,
+        host: fallback.host || 'localhost',
+        port: fallback.port || 3306,
+        database: fallback.database,
+        message: `KONEKSI GAGAL: ${fallback.status} - ${errorDetail}`,
+        code: fallback.code,
+      });
       return fallback;
     } catch (err: any) {
       const fallback: DbStatusInfo = {
@@ -421,6 +479,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setDbStatus(fallback);
       setDbAlertVisible(true);
+      addDbLogEntry({
+        type: 'CHECK',
+        success: false,
+        host: 'localhost',
+        port: 3306,
+        message: `NETWORK ERROR: ${err.message || 'Server backend tidak merespons'}`,
+        code: 'NETWORK_ERROR',
+      });
       return fallback;
     } finally {
       setIsCheckingDb(false);
@@ -435,8 +501,30 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
-      return res.data;
+      const data = res.data;
+      addDbLogEntry({
+        type: 'TEST',
+        success: Boolean(data?.success),
+        host: config.host || 'localhost',
+        port: config.port || 3306,
+        database: config.database,
+        latencyMs: data?.latencyMs,
+        message: data?.success
+          ? `UJI KONEKSI SUCCESS: Tersambung ke ${config.host}:${config.port || 3306} (${data.latencyMs} ms)`
+          : `UJI KONEKSI FAILED: ${data?.error || 'Gagal terhubung'}`,
+        code: data?.code,
+      });
+      return data;
     } catch (err: any) {
+      addDbLogEntry({
+        type: 'TEST',
+        success: false,
+        host: config.host || 'localhost',
+        port: config.port || 3306,
+        database: config.database,
+        message: `UJI KONEKSI ERROR: ${err.message}`,
+        code: 'TEST_ERROR',
+      });
       return { success: false, error: err.message, code: 'FETCH_ERROR' };
     }
   };
@@ -453,6 +541,12 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.data?.success) {
         await refreshDataFromMySQL();
       }
+      addDbLogEntry({
+        type: 'RECONNECT',
+        success: Boolean(res.data?.success),
+        host: dbStatus?.host || 'localhost',
+        message: res.data?.success ? 'Reconnect berhasil!' : `Reconnect gagal: ${res.data?.error || 'Error'}`,
+      });
       return res.data;
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -469,11 +563,32 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(config),
       });
       if (res.data?.success) {
+        addDbLogEntry({
+          type: 'SAVE_ENV',
+          success: true,
+          host: config.host || 'localhost',
+          port: config.port || 3306,
+          database: config.database,
+          message: `File .env berhasil diperbarui (Host: ${config.host}, DB: ${config.database})`,
+        });
         await checkDbStatus();
         await refreshDataFromMySQL();
+      } else {
+        addDbLogEntry({
+          type: 'SAVE_ENV',
+          success: false,
+          host: config.host || 'localhost',
+          message: `Gagal menyimpan .env: ${res.data?.error || 'Error'}`,
+        });
       }
       return res.data;
     } catch (err: any) {
+      addDbLogEntry({
+        type: 'SAVE_ENV',
+        success: false,
+        host: config.host || 'localhost',
+        message: `Error menyimpan .env: ${err.message}`,
+      });
       return { success: false, error: err.message };
     }
   };
@@ -482,11 +597,30 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await safeFetchJson('/api/db/init-tables', { method: 'POST' });
       if (res.data?.success) {
+        addDbLogEntry({
+          type: 'INIT_TABLES',
+          success: true,
+          host: dbStatus?.host || 'localhost',
+          message: 'Inisialisasi tabel SQL berhasil dijalankan!',
+        });
         await checkDbStatus();
         await refreshDataFromMySQL();
+      } else {
+        addDbLogEntry({
+          type: 'INIT_TABLES',
+          success: false,
+          host: dbStatus?.host || 'localhost',
+          message: `Gagal inisialisasi tabel: ${res.data?.message || 'Error'}`,
+        });
       }
       return res.data;
     } catch (err: any) {
+      addDbLogEntry({
+        type: 'INIT_TABLES',
+        success: false,
+        host: dbStatus?.host || 'localhost',
+        message: `Error inisialisasi tabel: ${err.message}`,
+      });
       return { success: false, message: err.message };
     }
   };
@@ -501,10 +635,13 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isMounted) {
         if (statusRes && statusRes.success) {
           console.log('[PPDI] MySQL Berhasil Terkoneksi:', statusRes.database, statusRes.serverVersion);
+          setDbAlertVisible(false);
+          setIsDbModalOpen(false);
           refreshDataFromMySQL();
         } else {
           console.warn('[PPDI] MySQL Belum Terkoneksi di Hosting:', statusRes?.error || statusRes?.status);
           setDbAlertVisible(true);
+          setIsDbModalOpen(true);
         }
       }
     };
@@ -1265,6 +1402,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reconnectDb,
         saveDbEnvConfig,
         initDbTables,
+        dbLogs,
+        addDbLogEntry,
+        clearDbLogs,
       }}
     >
       {children}
