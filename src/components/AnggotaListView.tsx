@@ -3,6 +3,7 @@ import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
 import { formatDateIndo } from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl } from '../utils/fileHelpers';
+import { exportAnggotaToExcel, exportAnggotaToCSV } from '../utils/excelExport';
 import {
   Search,
   Filter,
@@ -20,6 +21,7 @@ import {
   CheckCircle,
   X,
   FileSpreadsheet,
+  RefreshCw,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 
@@ -149,74 +151,24 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     filterStatusPensiun,
   ]);
 
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  // Export to Excel function using ExcelJS
+  const handleExportExcel = async () => {
+    try {
+      setIsExportingExcel(true);
+      await exportAnggotaToExcel(filteredList);
+    } catch (err: any) {
+      console.error('Error exporting Excel:', err);
+      alert('Gagal mendownload file Excel: ' + (err.message || 'Error'));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   // Export to CSV function
-  const handleExportCSV = () => {
-    const headers = [
-      'No',
-      'NIK',
-      'NIAP/NIPD',
-      'Nama Lengkap',
-      'Gelar Depan',
-      'Gelar Belakang',
-      'Tempat Lahir',
-      'Tanggal Lahir',
-      'Usia',
-      'Jenis Kelamin',
-      'Pendidikan Terakhir',
-      'No HP/WhatsApp',
-      'Kecamatan',
-      'Desa',
-      'Jabatan',
-      'Kategori Jabatan',
-      'No SK',
-      'TMT Jabatan',
-      'Status Keaktifan',
-      'No KTA PPDI',
-      'Status KTA',
-      'Jabatan Pengurus',
-      'Status Masa Pensiun (60 Th)',
-    ];
-
-    const rows = filteredList.map((m, idx) => [
-      idx + 1,
-      `'${m.anggota.nik}`,
-      m.anggota.nipd || '-',
-      `"${m.anggota.nama_lengkap}"`,
-      m.anggota.gelar_depan || '',
-      m.anggota.gelar_belakang || '',
-      m.anggota.tempat_lahir,
-      m.anggota.tanggal_lahir,
-      m.usia,
-      m.anggota.jenis_kelamin,
-      m.anggota.pendidikan_terakhir,
-      m.anggota.no_hp_wa,
-      m.kecamatan?.nama_kecamatan || '-',
-      m.desa?.nama_desa || '-',
-      `"${m.jabatanRef?.nama_jabatan || '-'}"`,
-      m.jabatanRef?.kategori_jabatan || '-',
-      `"${m.jabatanTerkini?.no_sk_pengangkatan || '-'}"`,
-      m.jabatanTerkini?.tmt_jabatan || '-',
-      m.jabatanTerkini?.status_aktif || '-',
-      m.keanggotaan?.no_kta || '-',
-      m.keanggotaan?.status_kta || '-',
-      `"${m.keanggotaan?.jabatan_pengurus || '-'}"`,
-      m.statusPensiun,
-    ]);
-
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute(
-      'download',
-      `DATA_ANGGOTA_PPDI_KAB_BANDUNG_${new Date().toISOString().slice(0, 10)}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportCSVClick = () => {
+    exportAnggotaToCSV(filteredList);
   };
 
   return (
@@ -232,7 +184,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {currentUser.role !== 'Anggota' && (
             <button
               onClick={() => setIsImportModalOpen(true)}
@@ -244,11 +196,26 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           )}
 
           <button
-            onClick={handleExportCSV}
+            onClick={handleExportExcel}
+            disabled={isExportingExcel}
+            title="Download Data Anggota Terfilter dalam Format Excel (.xlsx)"
+            className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+          >
+            {isExportingExcel ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+            ) : (
+              <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
+            )}
+            <span>{isExportingExcel ? 'Mengekspor...' : 'Ekspor Excel (.xlsx)'}</span>
+          </button>
+
+          <button
+            onClick={handleExportCSVClick}
+            title="Download Data Anggota Terfilter dalam Format CSV"
             className="px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
           >
             <Download className="w-3.5 h-3.5 text-neutral-600" />
-            <span>Ekspor CSV / Excel</span>
+            <span>Ekspor CSV</span>
           </button>
 
           {currentUser.role !== 'Anggota' && (
