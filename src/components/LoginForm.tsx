@@ -143,7 +143,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
             </div>
           )}
           <span className="text-xs font-mono tracking-widest uppercase text-emerald-300/80">
-                PORTAL RESMI KEANGGOTAAN
+                PORTAL RESMI KEANGGOTAAN PPDI
           </span>
           <span className="text-xs sm:text-sm font-bold tracking-tight text-white uppercase font-mono">
             {appSettings?.appName || 'PPDI KAB. BANDUNG'}
