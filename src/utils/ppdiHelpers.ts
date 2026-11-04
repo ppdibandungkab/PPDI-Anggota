@@ -455,12 +455,17 @@ export async function safeFetchJson<T = any>(
       } catch (_) {}
     }
 
-    const errorMsg = netErr.message || 'Koneksi jaringan ke server gagal';
+    const rawError = netErr.message || 'Koneksi jaringan ke server gagal';
+    const isFetchFailed = String(rawError).toLowerCase().includes('failed to fetch');
+    const friendlyError = isFetchFailed
+      ? 'Server backend Node.js (port 3000) tidak dapat dijangkau dari browser. Pastikan service "server.js" telah aktif via "npm start" atau URL backend telah dikonfigurasi.'
+      : rawError;
+
     return {
       ok: false,
       status: 0,
-      data: { success: false, error: errorMsg, message: errorMsg } as any,
-      error: errorMsg,
+      data: { success: false, error: friendlyError, message: friendlyError, isNetworkError: true } as any,
+      error: friendlyError,
     };
   }
 }

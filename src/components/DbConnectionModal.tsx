@@ -156,6 +156,7 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
 
   const handleApplyLocalhost = async () => {
     setIsSavingCfg(true);
+    setCfgSaveMsg(null);
     const res = await saveDbEnvConfig({
       host: 'localhost',
       port: 3306,
@@ -166,9 +167,14 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
     setIsSavingCfg(false);
     setCfgHost('localhost');
     if (res.success) {
-      setCfgSaveMsg({ success: true, message: 'DB_HOST berhasil diubah ke "localhost" dan file .env diperbarui!' });
+      setCfgSaveMsg({ success: true, message: 'DB_HOST berhasil diubah ke "localhost" dan file .env diperbarui di server!' });
+    } else if (res.savedLocally) {
+      setCfgSaveMsg({
+        success: true,
+        message: 'DB_HOST diubah ke "localhost" dan disimpan di memori browser! (Backend belum terhubung ke file .env)',
+      });
     } else {
-      setCfgSaveMsg({ success: false, message: res.error || 'Gagal menyimpan .env' });
+      setCfgSaveMsg({ success: false, message: res.error || res.message || 'Gagal menyimpan .env' });
     }
   };
 
@@ -186,8 +192,13 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
     setIsSavingCfg(false);
     if (res.success) {
       setCfgSaveMsg({ success: true, message: 'Konfigurasi berhasil disimpan ke file .env dan koneksi dimuat ulang!' });
+    } else if (res.savedLocally) {
+      setCfgSaveMsg({
+        success: true,
+        message: `Konfigurasi (${cfgHost}) berhasil disimpan di memori browser (Local Storage)! ${res.error ? 'Pesan server: ' + res.error : ''}`,
+      });
     } else {
-      setCfgSaveMsg({ success: false, message: res.error || 'Gagal menyimpan konfigurasi' });
+      setCfgSaveMsg({ success: false, message: res.error || res.message || 'Gagal menyimpan konfigurasi' });
     }
   };
 

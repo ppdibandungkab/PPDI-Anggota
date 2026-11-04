@@ -211,12 +211,28 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return localStorage.getItem(STORAGE_KEYS.AUTH) === 'true';
   });
 
-  const [dbStatus, setDbStatus] = useState<DbStatusInfo | null>({
-    success: false,
-    status: 'Memeriksa Koneksi Database...',
-    host: '',
-    database: '',
-    user: '',
+  const [dbStatus, setDbStatus] = useState<DbStatusInfo | null>(() => {
+    try {
+      const savedCfg = localStorage.getItem('ppdi_saved_db_config');
+      if (savedCfg) {
+        const parsed = JSON.parse(savedCfg);
+        return {
+          success: false,
+          status: 'Menghubungkan...',
+          host: parsed.host || 'localhost',
+          port: Number(parsed.port) || 3306,
+          user: parsed.user || 'root',
+          database: parsed.database || 'db_ppdi',
+        };
+      }
+    } catch (_) {}
+    return {
+      success: false,
+      status: 'Memeriksa Koneksi Database...',
+      host: '',
+      database: '',
+      user: '',
+    };
   });
   const [isCheckingDb, setIsCheckingDb] = useState<boolean>(true);
   const [initialDbCheckDone, setInitialDbCheckDone] = useState<boolean>(false);
@@ -556,12 +572,27 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const saveDbEnvConfig = async (config: any) => {
+    // 1. Store config in localStorage so user's form entries are preserved
+    try {
+      localStorage.setItem('ppdi_saved_db_config', JSON.stringify(config));
+    } catch (_) {}
+
+    // Immediately update local state representation
+    setDbStatus((prev) => ({
+      ...(prev || { success: false, status: 'Mengaitkan Konfigurasi...' }),
+      host: config.host || prev?.host || 'localhost',
+      port: Number(config.port) || prev?.port || 3306,
+      user: config.user || prev?.user || 'root',
+      database: config.database || prev?.database || 'db_ppdi',
+    }));
+
     try {
       const res = await safeFetchJson('/api/db/save-env', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
+
       if (res.data?.success) {
         addDbLogEntry({
           type: 'SAVE_ENV',
@@ -569,27 +600,45 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           host: config.host || 'localhost',
           port: config.port || 3306,
           database: config.database,
-          message: `File .env berhasil diperbarui (Host: ${config.host}, DB: ${config.database})`,
+          message: `File .env berhasil diperbarui di server (Host: ${config.host}, DB: ${config.database})`,
         });
         await checkDbStatus();
         await refreshDataFromMySQL();
+        return {
+          success: true,
+          message: 'Konfigurasi .env berhasil disimpan ke server dan pool koneksi MySQL telah diperbarui!',
+          data: res.data,
+        };
       } else {
+        const errMsg = res.data?.error || res.error || 'Server backend Node.js tidak merespons';
         addDbLogEntry({
           type: 'SAVE_ENV',
           success: false,
           host: config.host || 'localhost',
-          message: `Gagal menyimpan .env: ${res.data?.error || 'Error'}`,
+          message: `Tersimpan secara lokal di browser. Catatan Server: ${errMsg}`,
         });
+
+        return {
+          success: false,
+          savedLocally: true,
+          error: errMsg,
+          message: `Konfigurasi berhasil disimpan di memori browser (Local Storage). ${errMsg}`,
+        };
       }
-      return res.data;
     } catch (err: any) {
+      const errMsg = err.message || 'Gagal tersambung ke endpoint server.js';
       addDbLogEntry({
         type: 'SAVE_ENV',
         success: false,
         host: config.host || 'localhost',
-        message: `Error menyimpan .env: ${err.message}`,
+        message: `Error koneksi: ${errMsg}`,
       });
-      return { success: false, error: err.message };
+      return {
+        success: false,
+        savedLocally: true,
+        error: errMsg,
+        message: `Konfigurasi disimpan di memori browser. ${errMsg}`,
+      };
     }
   };
 
