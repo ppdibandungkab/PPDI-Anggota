@@ -228,12 +228,11 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
                         result.anggota.nama_lengkap +
                         (result.anggota.gelar_belakang ? `, ${result.anggota.gelar_belakang}` : '')}
                     </div>
-                    <div className="text-[11px] text-neutral-500 font-mono flex items-center gap-2 mt-0.5">
-                      <span>NIK: {result.anggota.nik}</span>
+                    <div className="text-[11px] text-neutral-500 font-mono flex items-center gap-1 mt-0.5">
                       {result.anggota.nipd && (
                         <>
                           <span>·</span>
-                          <span>NIAP: {result.anggota.nipd}</span>
+                          <span>NIPD: {result.anggota.nipd}</span>
                         </>
                       )}
                       <span>·</span>

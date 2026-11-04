@@ -1643,10 +1643,10 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-700"
                     >
                       <option value="Anggota Biasa">Anggota Biasa</option>
-                      <option value="Ketua Pengurus Kecamatan">Ketua Pengurus Kecamatan</option>
-                      <option value="Sekretaris Pengurus Kecamatan">Sekretaris Pengurus Kecamatan</option>
-                      <option value="Bendahara Pengurus Kecamatan">Bendahara Pengurus Kecamatan</option>
+                      <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
                       <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
+                      <option value="Anggota Istimewa">Anggota Istimewa</option>
+                      <option value="Penasehat">Penasehat</option>
                     </select>
                   </div>
                 </div>

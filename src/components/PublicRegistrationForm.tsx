@@ -24,6 +24,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     selectedKecamatan: '',
     selectedDesa: '',
     selectedJabatan: jabatanList[0]?.id_jabatan || 1,
+    jabatanPengurus: 'Anggota Biasa',
     noSkPengangkatan: '',
     tglSkPengangkatan: '',
     tmtJabatan: '',
@@ -79,6 +80,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       selectedKecamatan: '',
       selectedDesa: '',
       selectedJabatan: jabatanList[0]?.id_jabatan || 1,
+      jabatanPengurus: 'Anggota Biasa',
       noSkPengangkatan: '',
       tglSkPengangkatan: '',
       tmtJabatan: '',
@@ -137,6 +139,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         id_kecamatan: formData.selectedKecamatan,
         id_desa: formData.selectedDesa,
         id_jabatan: formData.selectedJabatan,
+        jabatan_pengurus: formData.jabatanPengurus || 'Anggota Biasa',
         no_sk_pengangkatan: formData.noSkPengangkatan.trim() || undefined,
         tgl_sk_pengangkatan: formData.tglSkPengangkatan || undefined,
         tmt_jabatan: formData.tmtJabatan || undefined,
@@ -441,6 +444,25 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                       {j.nama_jabatan} ({j.kategori_jabatan})
                     </option>
                   ))}
+                </select>
+              </div>
+
+              {/* Jabatan Kepengurusan PPDI */}
+              <div className="md:col-span-2 space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase">
+                  Jabatan Kepengurusan PPDI <span className="text-red-500">*</span>
+                </label>
+                <select 
+                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white font-medium" 
+                  value={formData.jabatanPengurus} 
+                  onChange={e => setFormData(prev => ({ ...prev, jabatanPengurus: e.target.value }))} 
+                  required
+                >
+                  <option value="Anggota Biasa">Anggota Biasa</option>
+                  <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
+                  <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
+                  <option value="Anggota Istimewa">Anggota Istimewa</option>
+                  <option value="Penasehat">Penasehat</option>
                 </select>
               </div>
 
