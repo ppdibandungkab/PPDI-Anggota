@@ -255,19 +255,34 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [dbLogs]);
 
   const addDbLogEntry = (entry: Omit<DbConnectionLogEntry, 'id' | 'timestamp'>) => {
-    const newLog: DbConnectionLogEntry = {
-      id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      timestamp: new Date().toLocaleString('id-ID', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-      ...entry,
-    };
-    setDbLogs((prev) => [newLog, ...prev].slice(0, 100));
+    setDbLogs((prev) => {
+      // Prevent log spamming if latest entry has same type, success, host, and message
+      if (prev.length > 0) {
+        const last = prev[0];
+        if (
+          last.type === entry.type &&
+          last.success === entry.success &&
+          last.host === entry.host &&
+          last.message === entry.message
+        ) {
+          return prev;
+        }
+      }
+
+      const newLog: DbConnectionLogEntry = {
+        id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        timestamp: new Date().toLocaleString('id-ID', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }),
+        ...entry,
+      };
+      return [newLog, ...prev].slice(0, 100);
+    });
   };
 
   const clearDbLogs = () => {
@@ -434,13 +449,29 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If server returned error or HTML fallback
       const errorDetail = fetchRes.data?.error || fetchRes.error || fetchRes.data?.status || 'Gagal tersambung';
       const isHtmlOr404 = (fetchRes.error && (fetchRes.error.includes('HTML') || fetchRes.error.includes('404') || fetchRes.error.includes('Endpoint API'))) || fetchRes.status === 404;
+      // Read saved local config as fallback if backend fetch failed
+      let currentLocalHost = fetchRes.data?.host || '';
+      let currentLocalDb = fetchRes.data?.database || '';
+      let currentLocalUser = fetchRes.data?.user || '';
+      let currentLocalPort = fetchRes.data?.port || 3306;
+      try {
+        const savedCfg = localStorage.getItem('ppdi_saved_db_config');
+        if (savedCfg) {
+          const parsed = JSON.parse(savedCfg);
+          if (!currentLocalHost) currentLocalHost = parsed.host || 'localhost';
+          if (!currentLocalDb) currentLocalDb = parsed.database || 'db_ppdi';
+          if (!currentLocalUser) currentLocalUser = parsed.user || 'root';
+          if (parsed.port) currentLocalPort = Number(parsed.port) || 3306;
+        }
+      } catch (_) {}
+
       const fallback: DbStatusInfo = {
         success: false,
         status: isHtmlOr404 ? 'Server Backend Node.js Belum Berjalan (404 / HTML)' : (fetchRes.data?.status || 'Koneksi Terputus / Timeout'),
-        host: fetchRes.data?.host || '',
-        port: fetchRes.data?.port || 3306,
-        database: fetchRes.data?.database || '',
-        user: fetchRes.data?.user || '',
+        host: currentLocalHost || 'localhost',
+        port: currentLocalPort,
+        database: currentLocalDb || 'db_ppdi',
+        user: currentLocalUser || 'root',
         error: errorDetail,
         code: fetchRes.data?.code || (fetchRes.status === 0 ? 'NETWORK_ERROR' : `HTTP_${fetchRes.status}`),
         hint: isHtmlOr404
@@ -476,13 +507,24 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       return fallback;
     } catch (err: any) {
+      let currentLocalHost = 'localhost';
+      let currentLocalDb = 'db_ppdi';
+      try {
+        const savedCfg = localStorage.getItem('ppdi_saved_db_config');
+        if (savedCfg) {
+          const parsed = JSON.parse(savedCfg);
+          currentLocalHost = parsed.host || 'localhost';
+          currentLocalDb = parsed.database || 'db_ppdi';
+        }
+      } catch (_) {}
+
       const fallback: DbStatusInfo = {
         success: false,
         status: 'Koneksi Terputus / Timeout',
-        host: '',
+        host: currentLocalHost,
         port: 3306,
-        database: '',
-        user: '',
+        database: currentLocalDb,
+        user: 'root',
         error: err.message,
         code: 'NETWORK_ERROR',
         hint: 'Gagal menghubungi endpoint backend /api/db/status.',
@@ -498,7 +540,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addDbLogEntry({
         type: 'CHECK',
         success: false,
-        host: 'localhost',
+        host: currentLocalHost,
         port: 3306,
         message: `NETWORK ERROR: ${err.message || 'Server backend tidak merespons'}`,
         code: 'NETWORK_ERROR',
@@ -572,18 +614,28 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const saveDbEnvConfig = async (config: any) => {
+    const cleanHost = config.host ? String(config.host).trim() : 'localhost';
+    const cleanPort = Number(config.port) || 3306;
+    const cleanUser = config.user ? String(config.user).trim() : 'root';
+    const cleanDb = config.database ? String(config.database).trim() : 'db_ppdi';
+
     // 1. Store config in localStorage so user's form entries are preserved
     try {
-      localStorage.setItem('ppdi_saved_db_config', JSON.stringify(config));
+      localStorage.setItem('ppdi_saved_db_config', JSON.stringify({
+        host: cleanHost,
+        port: cleanPort,
+        user: cleanUser,
+        database: cleanDb,
+      }));
     } catch (_) {}
 
     // Immediately update local state representation
     setDbStatus((prev) => ({
-      ...(prev || { success: false, status: 'Mengaitkan Konfigurasi...' }),
-      host: config.host || prev?.host || 'localhost',
-      port: Number(config.port) || prev?.port || 3306,
-      user: config.user || prev?.user || 'root',
-      database: config.database || prev?.database || 'db_ppdi',
+      ...(prev || { success: false, status: 'Konfigurasi Tersimpan Lokal' }),
+      host: cleanHost,
+      port: cleanPort,
+      user: cleanUser,
+      database: cleanDb,
     }));
 
     try {
@@ -597,10 +649,10 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addDbLogEntry({
           type: 'SAVE_ENV',
           success: true,
-          host: config.host || 'localhost',
-          port: config.port || 3306,
-          database: config.database,
-          message: `File .env berhasil diperbarui di server (Host: ${config.host}, DB: ${config.database})`,
+          host: cleanHost,
+          port: cleanPort,
+          database: cleanDb,
+          message: `File .env berhasil diperbarui di server (Host: ${cleanHost}, DB: ${cleanDb})`,
         });
         await checkDbStatus();
         await refreshDataFromMySQL();
@@ -610,34 +662,38 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           data: res.data,
         };
       } else {
-        const errMsg = res.data?.error || res.error || 'Server backend Node.js tidak merespons';
+        const errMsg = res.data?.error || res.error || 'Server backend Node.js tidak terjangkau';
         addDbLogEntry({
           type: 'SAVE_ENV',
-          success: false,
-          host: config.host || 'localhost',
-          message: `Tersimpan secara lokal di browser. Catatan Server: ${errMsg}`,
+          success: true, // Local save succeeded
+          host: cleanHost,
+          port: cleanPort,
+          database: cleanDb,
+          message: `Konfigurasi tersimpan di penyimpanan browser (Local Storage). Catatan Server: ${errMsg}`,
         });
 
         return {
-          success: false,
+          success: true,
           savedLocally: true,
+          message: `Konfigurasi (${cleanHost}) berhasil disimpan di penyimpanan browser (Local Storage)!`,
           error: errMsg,
-          message: `Konfigurasi berhasil disimpan di memori browser (Local Storage). ${errMsg}`,
         };
       }
     } catch (err: any) {
       const errMsg = err.message || 'Gagal tersambung ke endpoint server.js';
       addDbLogEntry({
         type: 'SAVE_ENV',
-        success: false,
-        host: config.host || 'localhost',
-        message: `Error koneksi: ${errMsg}`,
+        success: true, // Local save succeeded
+        host: cleanHost,
+        port: cleanPort,
+        database: cleanDb,
+        message: `Konfigurasi tersimpan di penyimpanan browser (Local Storage). Server offline: ${errMsg}`,
       });
       return {
-        success: false,
+        success: true,
         savedLocally: true,
+        message: `Konfigurasi (${cleanHost}) berhasil disimpan di penyimpanan browser!`,
         error: errMsg,
-        message: `Konfigurasi disimpan di memori browser. ${errMsg}`,
       };
     }
   };
