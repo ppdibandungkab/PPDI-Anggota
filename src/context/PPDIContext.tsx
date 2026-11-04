@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Anggota,
   RiwayatJabatan,
@@ -27,8 +27,13 @@ import {
   INITIAL_USERS,
 } from '../data/initialData';
 import { buildFullMember, generateNextKTA, safeFetchJson, updateFaviconAndTitle } from '../utils/ppdiHelpers';
+import { decodeKtaToken } from '../utils/qrCrypto';
+import { checkUserPermission, sanitizeRolePermissions, PermissionAction } from '../utils/permissions';
 
 interface PPDIContextType {
+  // Role & Global Permissions
+  hasPermission: (moduleId: string, action?: PermissionAction) => boolean;
+
   anggotaList: Anggota[];
   riwayatList: RiwayatJabatan[];
   keanggotaanList: KeanggotaanPPDI[];
@@ -769,8 +774,22 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return userList.find((u) => u.id_user === currentUserId) || userList[0] || INITIAL_USERS[0];
   }, [userList, currentUserId]);
 
-  // Adjust filter when switching user role
+  // Global centralized permission evaluation hook
+  const hasPermission = useCallback(
+    (moduleId: string, action: PermissionAction = 'view'): boolean => {
+      return checkUserPermission(currentUser?.role, moduleId, action, appSettings.rolePermissions);
+    },
+    [currentUser?.role, appSettings.rolePermissions]
+  );
+
+  // Adjust filter when switching user role and sync auth headers context
   useEffect(() => {
+    if (currentUser) {
+      try {
+        localStorage.setItem('ppdi_current_user_id', String(currentUser.id_user));
+        localStorage.setItem('ppdi_current_user_role', currentUser.role);
+      } catch (_) {}
+    }
     if (currentUser.role === 'Admin_Kecamatan' && currentUser.id_kecamatan) {
       setSelectedKecamatanFilter(currentUser.id_kecamatan);
     } else if (currentUser.role === 'Superadmin_Kabupaten') {
@@ -1318,7 +1337,11 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // App Settings Action
   const updateAppSettings = async (newSettings: Partial<AppSettings>) => {
-    const merged = { ...appSettings, ...newSettings };
+    let sanitizedSettings = { ...newSettings };
+    if (newSettings.rolePermissions) {
+      sanitizedSettings.rolePermissions = sanitizeRolePermissions(newSettings.rolePermissions);
+    }
+    const merged = { ...appSettings, ...sanitizedSettings };
     setAppSettings(merged);
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
     try {
@@ -1434,13 +1457,35 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const findMemberByKtaOrNik = (query: string): AnggotaFullDetail | null => {
-    const cleanQuery = query.trim().toLowerCase();
-    if (!cleanQuery) return null;
+    if (!query || !query.trim()) return null;
+    const rawTrimmed = query.trim();
+
+    // 1. Try decoding as an encrypted QR token or short URL first
+    const decoded = decodeKtaToken(rawTrimmed);
+    if (decoded && decoded.valid) {
+      const matchByToken = fullMembers.find((m) => {
+        if (decoded.no_kta && m.keanggotaan?.no_kta && m.keanggotaan.no_kta.toLowerCase() === decoded.no_kta.toLowerCase()) {
+          return true;
+        }
+        if (decoded.nik && m.anggota.nik.toLowerCase() === decoded.nik.toLowerCase()) {
+          return true;
+        }
+        if (decoded.id_anggota && m.anggota.id_anggota === decoded.id_anggota) {
+          return true;
+        }
+        return false;
+      });
+      if (matchByToken) return matchByToken;
+    }
+
+    // 2. Standard search query (No KTA, NIK, ID, or Nama)
+    const cleanQuery = rawTrimmed.toLowerCase();
     return (
       fullMembers.find(
         (m) =>
           m.anggota.nik.toLowerCase() === cleanQuery ||
           (m.keanggotaan?.no_kta && m.keanggotaan.no_kta.toLowerCase() === cleanQuery) ||
+          m.anggota.id_anggota.toLowerCase() === cleanQuery ||
           m.anggota.nama_lengkap.toLowerCase().includes(cleanQuery)
       ) || null
     );
@@ -1449,6 +1494,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <PPDIContext.Provider
       value={{
+        hasPermission,
         anggotaList,
         riwayatList,
         keanggotaanList,

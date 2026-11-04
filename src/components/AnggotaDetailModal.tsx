@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, StatusAktifJabatan, StatusKTA } from '../types/ppdi';
 import { formatDateIndo, formatRupiah } from '../utils/ppdiHelpers';
+import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import {
   X,
   User,
@@ -43,6 +44,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     updateRiwayatStatus,
     updateKTAStatus,
     currentUser,
+    hasPermission,
   } = usePPDI();
 
   const [activeTab, setActiveTab] = useState<'bio' | 'karir' | 'kta' | 'iuran' | 'dokumen'>('bio');
@@ -101,12 +103,10 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
         <div className="p-5 border-b border-neutral-200 flex items-start justify-between bg-neutral-50/70 rounded-t-xl gap-4">
           <div className="flex items-center gap-4">
             <img
-              src={
-                member.anggota.foto ||
-                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'
-              }
+              src={getPhotoUrl(member.anggota.foto, member.anggota.jenis_kelamin)}
               alt={member.anggota.nama_lengkap.toUpperCase()}
-              className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-xs shrink-0"
+              className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-xs shrink-0 bg-neutral-100"
+              onError={(e) => handleImageError(e, member.anggota.jenis_kelamin)}
               referrerPolicy="no-referrer"
             />
             <div>
@@ -295,7 +295,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                     Rekam jejak mutasi, promosi, dan riwayat SK pengangkatan perangkat desa
                   </p>
                 </div>
-                {currentUser.role !== 'Anggota' && (
+                {hasPermission('anggota', 'edit') && (
                   <button
                     onClick={() => setShowAddRiwayat(!showAddRiwayat)}
                     className="px-2.5 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"

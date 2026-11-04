@@ -39,6 +39,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     desaList,
     currentUser,
     setActiveTab,
+    hasPermission,
   } = usePPDI();
 
   // Role detection
@@ -50,11 +51,11 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   const isAdminDesa = userRole === 'Admin_Desa';
   const isAnggota = userRole === 'Anggota';
 
-  // Permission rights based on role
-  const canApprove = isKabupatenLevel || isAdminKecamatan;
-  const canReject = isKabupatenLevel || isAdminKecamatan;
-  const canDelete = isKabupatenLevel;
-  const canInput = isKabupatenLevel || isAdminKecamatan || isAdminDesa;
+  // Permission rights strictly bound to centralized Role Permissions
+  const canApprove = hasPermission('pendaftaran', 'edit') && (isKabupatenLevel || isAdminKecamatan);
+  const canReject = hasPermission('pendaftaran', 'edit') && (isKabupatenLevel || isAdminKecamatan);
+  const canDelete = hasPermission('pendaftaran', 'delete');
+  const canInput = hasPermission('pendaftaran', 'add');
 
   // Territorial assignment
   const userKecClean = (currentUser?.id_kecamatan || '').replace(/\./g, '').trim();

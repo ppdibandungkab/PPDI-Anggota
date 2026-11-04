@@ -125,6 +125,150 @@ app.use('/uploads', express.static(UPLOADS_ROOT));
 app.use(express.static(path.resolve(process.cwd(), 'public')));
 
 // ====================================================================
+// ROLE PERMISSION ENGINE & AUTHORIZATION MIDDLEWARE (SERVER-SIDE 403)
+// ====================================================================
+const SETTINGS_FILE = path.resolve(process.cwd(), 'app_settings.json');
+
+const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boolean>>> = {
+  'Superadmin_Kabupaten': {
+    'dashboard': { view: true, add: true, edit: true, delete: true },
+    'pendaftaran': { view: true, add: true, edit: true, delete: true },
+    'anggota': { view: true, add: true, edit: true, delete: true },
+    'ekta': { view: true, add: true, edit: true, delete: true },
+    'pensiun': { view: true, add: true, edit: true, delete: true },
+    'arsip': { view: true, add: true, edit: true, delete: true },
+    'iuran': { view: true, add: true, edit: true, delete: true },
+    'settings-app': { view: true, add: true, edit: true, delete: true },
+    'settings-user': { view: true, add: true, edit: true, delete: true },
+    'settings-role': { view: true, add: true, edit: true, delete: true },
+    'settings-db': { view: true, add: true, edit: true, delete: true },
+    'skema': { view: true, add: true, edit: true, delete: true },
+  },
+  'Admin_Kabupaten': {
+    'dashboard': { view: true, add: false, edit: false, delete: false },
+    'pendaftaran': { view: true, add: true, edit: true, delete: true },
+    'anggota': { view: true, add: true, edit: true, delete: true },
+    'ekta': { view: true, add: true, edit: true, delete: true },
+    'pensiun': { view: true, add: false, edit: false, delete: false },
+    'arsip': { view: true, add: true, edit: true, delete: true },
+    'iuran': { view: true, add: true, edit: true, delete: true },
+    'settings-user': { view: true, add: true, edit: true, delete: true },
+    'settings-app': { view: false, add: false, edit: false, delete: false },
+    'settings-role': { view: false, add: false, edit: false, delete: false },
+    'settings-db': { view: false, add: false, edit: false, delete: false },
+    'skema': { view: false, add: false, edit: false, delete: false },
+  },
+  'Admin_Kecamatan': {
+    'dashboard': { view: true, add: false, edit: false, delete: false },
+    'pendaftaran': { view: true, add: true, edit: true, delete: false },
+    'anggota': { view: true, add: true, edit: true, delete: false },
+    'ekta': { view: true, add: true, edit: false, delete: false },
+    'pensiun': { view: true, add: false, edit: false, delete: false },
+    'arsip': { view: true, add: true, edit: false, delete: false },
+    'iuran': { view: true, add: true, edit: true, delete: false },
+    'settings-user': { view: false, add: false, edit: false, delete: false },
+    'settings-app': { view: false, add: false, edit: false, delete: false },
+    'settings-role': { view: false, add: false, edit: false, delete: false },
+    'settings-db': { view: false, add: false, edit: false, delete: false },
+    'skema': { view: false, add: false, edit: false, delete: false },
+  },
+  'Admin_Desa': {
+    'dashboard': { view: true, add: false, edit: false, delete: false },
+    'pendaftaran': { view: true, add: true, edit: false, delete: false },
+    'anggota': { view: true, add: false, edit: true, delete: false },
+    'ekta': { view: true, add: false, edit: false, delete: false },
+    'pensiun': { view: true, add: false, edit: false, delete: false },
+    'arsip': { view: true, add: true, edit: false, delete: false },
+    'iuran': { view: true, add: true, edit: false, delete: false },
+    'settings-user': { view: false, add: false, edit: false, delete: false },
+    'settings-app': { view: false, add: false, edit: false, delete: false },
+    'settings-role': { view: false, add: false, edit: false, delete: false },
+    'settings-db': { view: false, add: false, edit: false, delete: false },
+    'skema': { view: false, add: false, edit: false, delete: false },
+  },
+  'Anggota': {
+    'dashboard': { view: true, add: false, edit: false, delete: false },
+    'pendaftaran': { view: false, add: false, edit: false, delete: false },
+    'anggota': { view: true, add: false, edit: false, delete: false },
+    'ekta': { view: true, add: false, edit: false, delete: false },
+    'pensiun': { view: false, add: false, edit: false, delete: false },
+    'arsip': { view: false, add: false, edit: false, delete: false },
+    'iuran': { view: true, add: true, edit: false, delete: false },
+    'settings-user': { view: false, add: false, edit: false, delete: false },
+    'settings-app': { view: false, add: false, edit: false, delete: false },
+    'settings-role': { view: false, add: false, edit: false, delete: false },
+    'settings-db': { view: false, add: false, edit: false, delete: false },
+    'skema': { view: false, add: false, edit: false, delete: false },
+  },
+};
+
+function getActiveRolePermissions(): Record<string, any> {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+      if (data.rolePermissions && Object.keys(data.rolePermissions).length > 0) {
+        return data.rolePermissions;
+      }
+    }
+  } catch (_) {}
+  return DEFAULT_ROLE_PERMISSIONS;
+}
+
+function normalizePermissionBoolean(val: any): boolean {
+  return val === true || val === 1 || val === 'true' || val === '1';
+}
+
+function checkServerPermission(
+  userRole: string | undefined | null,
+  moduleId: string,
+  action: 'view' | 'add' | 'edit' | 'delete'
+): boolean {
+  if (!userRole) return false;
+  if (userRole === 'Superadmin_Kabupaten') return true;
+
+  const roleConfig = getActiveRolePermissions();
+  const activeRole = roleConfig[userRole];
+  if (activeRole && activeRole[moduleId]) {
+    const val = activeRole[moduleId][action];
+    if (val !== undefined && val !== null) {
+      return normalizePermissionBoolean(val);
+    }
+  }
+
+  const defaultRole = DEFAULT_ROLE_PERMISSIONS[userRole];
+  if (defaultRole && defaultRole[moduleId]) {
+    const val = defaultRole[moduleId][action];
+    return normalizePermissionBoolean(val);
+  }
+
+  return false;
+}
+
+function requirePermission(moduleId: string, action: 'view' | 'add' | 'edit' | 'delete') {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toString().trim();
+
+    if (!userRole) {
+      return res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'Akses ditolak: Anda tidak memiliki izin untuk melakukan aksi ini (Header x-user-role tidak ditemukan)',
+      });
+    }
+
+    if (!checkServerPermission(userRole, moduleId, action)) {
+      return res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: `Akses ditolak: Peran '${userRole}' tidak memiliki izin (${action.toUpperCase()}) pada modul '${moduleId}'.`,
+      });
+    }
+
+    next();
+  };
+}
+
+// ====================================================================
 // 0. UPLOAD FOTO & BERKAS SK (DEDICATED FOLDERS: /uploads/foto & /uploads/sk)
 // ====================================================================
 app.post('/api/upload', async (req, res) => {
@@ -381,7 +525,7 @@ app.post('/api/db/test-connection', async (req, res) => {
 });
 
 // Endpoint untuk memuat ulang koneksi (reconnect) & reload .env
-app.post('/api/db/reconnect', async (req, res) => {
+app.post('/api/db/reconnect', requirePermission('settings-db', 'edit'), async (req, res) => {
   try {
     if (fs.existsSync(detectedEnvPath)) {
       dotenv.config({ path: detectedEnvPath, override: true });
@@ -407,7 +551,7 @@ app.post('/api/db/reconnect', async (req, res) => {
 });
 
 // Endpoint untuk menyimpan perubahan konfigurasi ke file .env di hosting
-app.post('/api/db/save-env', async (req, res) => {
+app.post('/api/db/save-env', requirePermission('settings-db', 'edit'), async (req, res) => {
   try {
     const { host, port, user, password, database } = req.body;
     const targetEnv = detectedEnvPath || path.resolve(process.cwd(), '.env');
@@ -450,7 +594,7 @@ app.post('/api/db/save-env', async (req, res) => {
 });
 
 // Endpoint untuk inisialisasi / sinkronisasi struktur seluruh tabel database PPDI
-app.post('/api/db/init-tables', async (_req, res) => {
+app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async (_req, res) => {
   try {
     const currentPool = createOrGetPool();
     const conn = await currentPool.getConnection();
@@ -847,7 +991,7 @@ function generateServerNIPD(params: {
 }
 
 // Add Member with Unique NIK enforcement & Safe Desa FK
-app.post('/api/anggota', async (req, res) => {
+app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) => {
   const { anggota, riwayat, keanggotaan } = req.body;
   if (!anggota || !anggota.nik || !anggota.nama_lengkap) {
     return res.status(400).json({ success: false, message: 'Data anggota tidak lengkap' });
@@ -965,7 +1109,7 @@ app.post('/api/anggota', async (req, res) => {
 });
 
 // Batch Import Members from Excel / CSV
-app.post('/api/anggota/batch-import', async (req, res) => {
+app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async (req, res) => {
   const { items } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ success: false, message: 'Data import kosong atau format salah' });
@@ -1117,7 +1261,7 @@ app.post('/api/anggota/batch-import', async (req, res) => {
 });
 
 // Update Member with Unique NIK check
-app.put('/api/anggota/:id', async (req, res) => {
+app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, res) => {
   const { id } = req.params;
   const data = req.body;
   let conn;
@@ -1188,7 +1332,7 @@ app.put('/api/anggota/:id', async (req, res) => {
 });
 
 // Delete Member with Safe Cascade and Fallback matching (ID / NIK)
-app.delete('/api/anggota/:id', async (req, res) => {
+app.delete('/api/anggota/:id', requirePermission('anggota', 'delete'), async (req, res) => {
   const { id } = req.params;
   let conn;
 
@@ -1254,7 +1398,7 @@ app.delete('/api/anggota/:id', async (req, res) => {
 // ====================================================================
 // 4. RIWAYAT JABATAN & MUTASI
 // ====================================================================
-app.post('/api/riwayat', async (req, res) => {
+app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) => {
   const { id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk } = req.body;
 
   try {
@@ -1286,7 +1430,7 @@ app.post('/api/riwayat', async (req, res) => {
 });
 
 // Update Riwayat Status (e.g. Purna Tugas)
-app.put('/api/riwayat/:id/status', async (req, res) => {
+app.put('/api/riwayat/:id/status', requirePermission('anggota', 'edit'), async (req, res) => {
   const { id } = req.params;
   const { status_aktif } = req.body;
 
@@ -1302,7 +1446,7 @@ app.put('/api/riwayat/:id/status', async (req, res) => {
 });
 
 // Update Full Riwayat Jabatan
-app.put('/api/riwayat/:id', async (req, res) => {
+app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, res) => {
   const { id } = req.params;
   const { id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk } = req.body;
 
@@ -1335,7 +1479,7 @@ app.put('/api/riwayat/:id', async (req, res) => {
 });
 
 // Delete Riwayat Jabatan
-app.delete('/api/riwayat/:id', async (req, res) => {
+app.delete('/api/riwayat/:id', requirePermission('anggota', 'delete'), async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -1350,7 +1494,7 @@ app.delete('/api/riwayat/:id', async (req, res) => {
 });
 
 // Update KTA Status
-app.put('/api/kta/:idAnggota/status', async (req, res) => {
+app.put('/api/kta/:idAnggota/status', requirePermission('ekta', 'edit'), async (req, res) => {
   const { idAnggota } = req.params;
   const { status_kta } = req.body;
 
@@ -1394,7 +1538,7 @@ app.get('/api/iuran', async (_req, res) => {
   }
 });
 
-app.post('/api/iuran', async (req, res) => {
+app.post('/api/iuran', requirePermission('iuran', 'add'), async (req, res) => {
   const { id_anggota, tahun, bulan, jumlah, tgl_bayar, bukti_trf, status_verifikasi } = req.body;
 
   try {
@@ -1422,7 +1566,7 @@ app.post('/api/iuran', async (req, res) => {
   }
 });
 
-app.put('/api/iuran/:id/verify', async (req, res) => {
+app.put('/api/iuran/:id/verify', requirePermission('iuran', 'edit'), async (req, res) => {
   const { id } = req.params;
   const { status_verifikasi } = req.body;
 
@@ -1617,7 +1761,7 @@ app.get('/api/users', async (_req, res) => {
   }
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requirePermission('settings-user', 'add'), async (req, res) => {
   const { username, email, nama, password, role, id_role, id_kecamatan_scope, id_kecamatan, id_desa } = req.body;
   if (!username || !email) {
     return res.status(400).json({ success: false, message: 'Username dan email wajib diisi' });
@@ -1665,7 +1809,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requirePermission('settings-user', 'edit'), async (req, res) => {
   const { id } = req.params;
   const { username, email, nama, password, role, id_role, id_kecamatan_scope, id_kecamatan, id_desa } = req.body;
 
@@ -1731,7 +1875,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requirePermission('settings-user', 'delete'), async (req, res) => {
   const { id } = req.params;
   if (String(id) === '1') {
     return res.status(403).json({ success: false, message: 'Akun Superadmin Utama (ID: 1) tidak dapat dihapus!' });
@@ -2144,7 +2288,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
 });
 
 // Reject Registration
-app.put('/api/pendaftaran/:id/reject', async (req, res) => {
+app.put('/api/pendaftaran/:id/reject', requirePermission('pendaftaran', 'edit'), async (req, res) => {
   const { id } = req.params;
   const { catatan_approval, approved_by } = req.body;
 
@@ -2169,7 +2313,7 @@ app.put('/api/pendaftaran/:id/reject', async (req, res) => {
   }
 });
 
-app.delete('/api/pendaftaran/:id', async (req, res) => {
+app.delete('/api/pendaftaran/:id', requirePermission('pendaftaran', 'delete'), async (req, res) => {
   const { id } = req.params;
   try {
     if (!pool) throw new Error('Pool not ready');
@@ -2185,80 +2329,7 @@ app.delete('/api/pendaftaran/:id', async (req, res) => {
 // ====================================================================
 // 9. APP SETTINGS (LOGO, LOGIN BACKGROUND, BRANDING)
 // ====================================================================
-const SETTINGS_FILE = path.resolve(process.cwd(), 'app_settings.json');
 
-const DEFAULT_ROLE_PERMISSIONS = {
-  'Superadmin_Kabupaten': {
-    'dashboard': { view: true, add: true, edit: true, delete: true },
-    'pendaftaran': { view: true, add: true, edit: true, delete: true },
-    'anggota': { view: true, add: true, edit: true, delete: true },
-    'ekta': { view: true, add: true, edit: true, delete: true },
-    'pensiun': { view: true, add: true, edit: true, delete: true },
-    'arsip': { view: true, add: true, edit: true, delete: true },
-    'iuran': { view: true, add: true, edit: true, delete: true },
-    'settings-app': { view: true, add: true, edit: true, delete: true },
-    'settings-user': { view: true, add: true, edit: true, delete: true },
-    'settings-role': { view: true, add: true, edit: true, delete: true },
-    'settings-db': { view: true, add: true, edit: true, delete: true },
-    'skema': { view: true, add: true, edit: true, delete: true },
-  },
-  'Admin_Kabupaten': {
-    'dashboard': { view: true, add: false, edit: false, delete: false },
-    'pendaftaran': { view: true, add: true, edit: true, delete: true },
-    'anggota': { view: true, add: true, edit: true, delete: true },
-    'ekta': { view: true, add: true, edit: true, delete: true },
-    'pensiun': { view: true, add: false, edit: false, delete: false },
-    'arsip': { view: true, add: true, edit: true, delete: true },
-    'iuran': { view: true, add: true, edit: true, delete: true },
-    'settings-user': { view: true, add: true, edit: true, delete: true },
-    'settings-app': { view: false, add: false, edit: false, delete: false },
-    'settings-role': { view: false, add: false, edit: false, delete: false },
-    'settings-db': { view: false, add: false, edit: false, delete: false },
-    'skema': { view: false, add: false, edit: false, delete: false },
-  },
-  'Admin_Kecamatan': {
-    'dashboard': { view: true, add: false, edit: false, delete: false },
-    'pendaftaran': { view: true, add: true, edit: true, delete: false },
-    'anggota': { view: true, add: true, edit: true, delete: false },
-    'ekta': { view: true, add: true, edit: false, delete: false },
-    'pensiun': { view: true, add: false, edit: false, delete: false },
-    'arsip': { view: true, add: true, edit: false, delete: false },
-    'iuran': { view: true, add: true, edit: true, delete: false },
-    'settings-user': { view: false, add: false, edit: false, delete: false },
-    'settings-app': { view: false, add: false, edit: false, delete: false },
-    'settings-role': { view: false, add: false, edit: false, delete: false },
-    'settings-db': { view: false, add: false, edit: false, delete: false },
-    'skema': { view: false, add: false, edit: false, delete: false },
-  },
-  'Admin_Desa': {
-    'dashboard': { view: true, add: false, edit: false, delete: false },
-    'pendaftaran': { view: true, add: true, edit: false, delete: false },
-    'anggota': { view: true, add: false, edit: true, delete: false },
-    'ekta': { view: true, add: false, edit: false, delete: false },
-    'pensiun': { view: true, add: false, edit: false, delete: false },
-    'arsip': { view: true, add: true, edit: false, delete: false },
-    'iuran': { view: true, add: true, edit: false, delete: false },
-    'settings-user': { view: false, add: false, edit: false, delete: false },
-    'settings-app': { view: false, add: false, edit: false, delete: false },
-    'settings-role': { view: false, add: false, edit: false, delete: false },
-    'settings-db': { view: false, add: false, edit: false, delete: false },
-    'skema': { view: false, add: false, edit: false, delete: false },
-  },
-  'Anggota': {
-    'dashboard': { view: true, add: false, edit: false, delete: false },
-    'pendaftaran': { view: false, add: false, edit: false, delete: false },
-    'anggota': { view: true, add: false, edit: false, delete: false },
-    'ekta': { view: true, add: false, edit: false, delete: false },
-    'pensiun': { view: false, add: false, edit: false, delete: false },
-    'arsip': { view: false, add: false, edit: false, delete: false },
-    'iuran': { view: true, add: true, edit: false, delete: false },
-    'settings-user': { view: false, add: false, edit: false, delete: false },
-    'settings-app': { view: false, add: false, edit: false, delete: false },
-    'settings-role': { view: false, add: false, edit: false, delete: false },
-    'settings-db': { view: false, add: false, edit: false, delete: false },
-    'skema': { view: false, add: false, edit: false, delete: false },
-  },
-};
 
 const DEFAULT_SETTINGS = {
   appName: 'PPDI KABUPATEN BANDUNG',
@@ -2293,6 +2364,18 @@ app.get('/api/settings', (_req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toString().trim();
+  const isUpdatingRoles = req.body && req.body.rolePermissions !== undefined;
+  const targetModule = isUpdatingRoles ? 'settings-role' : 'settings-app';
+
+  if (userRole && !checkServerPermission(userRole, targetModule, 'edit')) {
+    return res.status(403).json({
+      success: false,
+      error: 'FORBIDDEN',
+      message: `Akses ditolak: Peran '${userRole}' tidak memiliki izin memperbarui '${targetModule}'.`,
+    });
+  }
+
   try {
     const newSettings = { ...DEFAULT_SETTINGS, ...req.body };
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(newSettings, null, 2), 'utf-8');
@@ -2475,7 +2558,7 @@ app.get('/api/db/table/:tableName', async (req, res) => {
   }
 });
 
-app.post('/api/db/table/:tableName', async (req, res) => {
+app.post('/api/db/table/:tableName', requirePermission('settings-db', 'add'), async (req, res) => {
   const { tableName } = req.params;
   if (!ALLOWED_TABLES.includes(tableName)) {
     return res.status(400).json({ success: false, message: 'Tabel tidak diizinkan' });
@@ -2503,7 +2586,7 @@ app.post('/api/db/table/:tableName', async (req, res) => {
   }
 });
 
-app.put('/api/db/table/:tableName/:idKey/:idVal', async (req, res) => {
+app.put('/api/db/table/:tableName/:idKey/:idVal', requirePermission('settings-db', 'edit'), async (req, res) => {
   const { tableName, idKey, idVal } = req.params;
   if (!ALLOWED_TABLES.includes(tableName)) {
     return res.status(400).json({ success: false, message: 'Tabel tidak diizinkan' });
@@ -2531,7 +2614,7 @@ app.put('/api/db/table/:tableName/:idKey/:idVal', async (req, res) => {
   }
 });
 
-app.delete('/api/db/table/:tableName/:idKey/:idVal', async (req, res) => {
+app.delete('/api/db/table/:tableName/:idKey/:idVal', requirePermission('settings-db', 'delete'), async (req, res) => {
   const { tableName, idKey, idVal } = req.params;
   if (!ALLOWED_TABLES.includes(tableName)) {
     return res.status(400).json({ success: false, message: 'Tabel tidak diizinkan' });

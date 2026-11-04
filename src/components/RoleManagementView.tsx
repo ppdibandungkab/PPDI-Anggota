@@ -26,7 +26,8 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 export const RoleManagementView: React.FC = () => {
-  const { appSettings, updateAppSettings } = usePPDI();
+  const { appSettings, updateAppSettings, hasPermission } = usePPDI();
+  const canEditRole = hasPermission('settings-role', 'edit');
   const [permissions, setPermissions] = useState<RoleConfig>(() => {
     return {
       ...DEFAULT_ROLE_PERMISSIONS,
@@ -46,6 +47,7 @@ export const RoleManagementView: React.FC = () => {
   }, [appSettings.rolePermissions]);
 
   const handlePermissionChange = (role: string, module: string, action: string, value: boolean) => {
+    if (!canEditRole) return;
     setPermissions(prev => ({
       ...prev,
       [role]: {
@@ -59,6 +61,7 @@ export const RoleManagementView: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (!canEditRole) return;
     setSaving(true);
     await updateAppSettings({ rolePermissions: permissions });
     setSaving(false);
@@ -67,6 +70,7 @@ export const RoleManagementView: React.FC = () => {
   };
 
   const handleResetDefaults = async () => {
+    if (!canEditRole) return;
     if (window.confirm('Kembalikan seluruh hak akses (permissions) ke standar sistem?')) {
       setPermissions(DEFAULT_ROLE_PERMISSIONS);
       setSaving(true);
@@ -92,25 +96,27 @@ export const RoleManagementView: React.FC = () => {
             Konfigurasi visibilitas menu dan hak aksi (tambah, ubah, hapus) untuk setiap peran pengguna. Superadmin_Kabupaten memiliki hak akses penuh secara permanen.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleResetDefaults}
-            type="button"
-            className="px-3.5 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset Standar</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            type="button"
-            className="px-4 py-2 bg-[#064E3B] text-white rounded-lg flex items-center gap-2 cursor-pointer hover:bg-[#043d2e] text-xs font-bold shadow-sm transition-all disabled:opacity-50"
-          >
-            <Save className="w-4 h-4 text-amber-300" />
-            <span>{saving ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
-          </button>
-        </div>
+        {canEditRole && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleResetDefaults}
+              type="button"
+              className="px-3.5 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Standar</span>
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              type="button"
+              className="px-4 py-2 bg-[#064E3B] text-white rounded-lg flex items-center gap-2 cursor-pointer hover:bg-[#043d2e] text-xs font-bold shadow-sm transition-all disabled:opacity-50"
+            >
+              <Save className="w-4 h-4 text-amber-300" />
+              <span>{saving ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
+            </button>
+          </div>
+        )}
       </div>
       
       {success && (

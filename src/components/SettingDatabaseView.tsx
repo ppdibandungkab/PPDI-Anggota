@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 
 export const SettingDatabaseView: React.FC = () => {
-  const { dbStatus, checkDbStatus, initDbTables } = usePPDI();
+  const { dbStatus, checkDbStatus, initDbTables, hasPermission } = usePPDI();
+  const canEditDb = hasPermission('settings-db', 'edit');
   const [isTesting, setIsTesting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [initMsg, setInitMsg] = useState('');
@@ -164,15 +165,21 @@ export const SettingDatabaseView: React.FC = () => {
           </div>
 
           <div className="pt-4 border-t border-neutral-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={handleInit}
-              disabled={isInitializing}
-              className="w-full sm:w-auto px-5 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-md"
-            >
-              <Layers className="w-4 h-4" />
-              <span>{isInitializing ? 'Memproses...' : 'Inisialisasi Tabel Database'}</span>
-            </button>
+            {canEditDb ? (
+              <button
+                type="button"
+                onClick={handleInit}
+                disabled={isInitializing}
+                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
+              >
+                <Layers className="w-4 h-4" />
+                <span>{isInitializing ? 'Memproses...' : 'Inisialisasi Tabel Database'}</span>
+              </button>
+            ) : (
+              <span className="text-xs text-amber-800 font-medium bg-amber-50 p-2 rounded border border-amber-200">
+                Akses Dibatasi: Peran Anda tidak memiliki hak akses menginisialisasi database.
+              </span>
+            )}
             {initMsg && (
               <span className="text-xs font-semibold text-emerald-800 text-center sm:text-right">
                 {initMsg}

@@ -17,19 +17,43 @@ import {
   ExternalLink,
   RefreshCw,
 } from 'lucide-react';
+import { PermissionGate } from './PermissionGate';
 
 export const ArsipSKView: React.FC = () => {
-  const { fullMembers, riwayatList, kecamatanList, desaList, jabatanList, addRiwayatJabatan } = usePPDI();
+  const { fullMembers, riwayatList, kecamatanList, desaList, jabatanList, addRiwayatJabatan, hasPermission, currentUser } = usePPDI();
+
+  const userKecId = currentUser?.id_kecamatan_scope || currentUser?.id_kecamatan;
+  const userDesaId = currentUser?.id_desa;
+  const userMemberId = currentUser?.id_anggota;
+  const userRole = currentUser?.role || 'Anggota';
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterKec, setFilterKec] = useState('all');
+  const [filterKec, setFilterKec] = useState(
+    userRole === 'Admin_Kecamatan' && userKecId ? userKecId : 'all'
+  );
   const [selectedSkDoc, setSelectedSkDoc] = useState<{
     riwayat: RiwayatJabatan;
     member?: AnggotaFullDetail;
   } | null>(null);
 
+  // Scoped members for upload modal
+  const uploadMemberOptions = useMemo(() => {
+    return fullMembers.filter((m) => {
+      if (userRole === 'Admin_Kecamatan' && userKecId) {
+        return m.kecamatan?.id_kecamatan === userKecId || m.desa?.id_kecamatan === userKecId;
+      }
+      if (userRole === 'Admin_Desa' && userDesaId) {
+        return m.desa?.id_desa === userDesaId;
+      }
+      if (userRole === 'Anggota' && userMemberId) {
+        return m.anggota.id_anggota === userMemberId;
+      }
+      return true;
+    });
+  }, [fullMembers, userRole, userKecId, userDesaId, userMemberId]);
+
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadMemberId, setUploadMemberId] = useState(fullMembers[0]?.anggota.id_anggota || '');
+  const [uploadMemberId, setUploadMemberId] = useState(uploadMemberOptions[0]?.anggota.id_anggota || fullMembers[0]?.anggota.id_anggota || '');
   const [uploadDesaId, setUploadDesaId] = useState(desaList[0]?.id_desa || '');
   const [uploadJabatanId, setUploadJabatanId] = useState(jabatanList[0]?.id_jabatan || 2);
   const [uploadNoSk, setUploadNoSk] = useState('');
@@ -89,9 +113,25 @@ export const ArsipSKView: React.FC = () => {
 
   const filteredDocs = useMemo(() => {
     return skDocuments.filter((doc) => {
-      if (filterKec !== 'all' && doc.kecamatan?.id_kecamatan !== filterKec) {
-        return false;
+      // Role Level Scope Filtering
+      if (userRole === 'Admin_Kecamatan' && userKecId) {
+        if (doc.kecamatan?.id_kecamatan !== userKecId && doc.desa?.id_kecamatan !== userKecId) {
+          return false;
+        }
+      } else if (userRole === 'Admin_Desa' && userDesaId) {
+        if (doc.desa?.id_desa !== userDesaId && doc.riwayat.id_desa !== userDesaId) {
+          return false;
+        }
+      } else if (userRole === 'Anggota' && userMemberId) {
+        if (doc.riwayat.id_anggota !== userMemberId && doc.member?.anggota.id_anggota !== userMemberId) {
+          return false;
+        }
+      } else if (filterKec !== 'all') {
+        if (doc.kecamatan?.id_kecamatan !== filterKec) {
+          return false;
+        }
       }
+
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const matchSk = doc.riwayat.no_sk_pengangkatan.toLowerCase().includes(q);
@@ -101,7 +141,7 @@ export const ArsipSKView: React.FC = () => {
       }
       return true;
     });
-  }, [skDocuments, filterKec, searchQuery]);
+  }, [skDocuments, filterKec, searchQuery, userRole, userKecId, userDesaId, userMemberId]);
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,13 +215,15 @@ export const ArsipSKView: React.FC = () => {
             <span>Folder Server (/uploads)</span>
           </button>
 
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#064E3B] hover:bg-[#043d2e] rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
-          >
-            <Upload className="w-4 h-4" />
-            <span>Upload SK Baru</span>
-          </button>
+          <PermissionGate module="arsip" action="create">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#064E3B] hover:bg-[#043d2e] rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload SK Baru</span>
+            </button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -203,8 +245,9 @@ export const ArsipSKView: React.FC = () => {
           <select
             aria-label="Filter Kecamatan untuk e-Arsip"
             value={filterKec}
+            disabled={userRole === 'Admin_Kecamatan' || userRole === 'Admin_Desa' || userRole === 'Anggota'}
             onChange={(e) => setFilterKec(e.target.value)}
-            className="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-xs text-neutral-800 focus:outline-hidden"
+            className="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-xs text-neutral-800 focus:outline-hidden disabled:opacity-75 disabled:bg-neutral-100"
           >
             <option value="all">Semua Kecamatan ({kecamatanList.length})</option>
             {kecamatanList.map((k) => (
@@ -457,7 +500,7 @@ export const ArsipSKView: React.FC = () => {
                   onChange={(e) => setUploadMemberId(e.target.value)}
                   className="w-full p-2 border border-neutral-300 rounded-lg bg-white"
                 >
-                  {fullMembers.map((m) => (
+                  {uploadMemberOptions.map((m) => (
                     <option key={m.anggota.id_anggota} value={m.anggota.id_anggota}>
                       {m.anggota.nama_lengkap.toUpperCase()} (Desa {m.desa?.nama_desa})
                     </option>

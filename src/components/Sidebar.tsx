@@ -39,23 +39,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
     pendaftaranList,
     visiblePendaftaran,
     appSettings,
+    hasPermission,
   } = usePPDI();
 
   const userRole = currentUser?.role || 'Superadmin_Kabupaten';
   const isSuperadmin = userRole === 'Superadmin_Kabupaten';
 
   const hasViewPermission = (moduleId: string): boolean => {
-    // Superadmin_Kabupaten selalu memiliki hak akses penuh ke seluruh modul
-    if (isSuperadmin) return true;
-
-    // Cek konfigurasi kustom role permissions di appSettings
-    const rolePerms = appSettings.rolePermissions?.[userRole];
-    if (rolePerms && rolePerms[moduleId] && typeof rolePerms[moduleId].view === 'boolean') {
-      return rolePerms[moduleId].view;
-    }
-
-    // Fallback ke default role permissions
-    return DEFAULT_ROLE_PERMISSIONS[userRole]?.[moduleId]?.view ?? false;
+    return hasPermission(moduleId, 'view');
   };
 
   // Settings childmenu items

@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 
 export const AppSettingsView: React.FC = () => {
-  const { appSettings, updateAppSettings } = usePPDI();
+  const { appSettings, updateAppSettings, hasPermission } = usePPDI();
+  const canEdit = hasPermission('settings-app', 'edit');
 
   const [appName, setAppName] = useState(appSettings?.appName || 'PPDI KABUPATEN BANDUNG');
   const [appSubtitle, setAppSubtitle] = useState(
@@ -497,14 +498,20 @@ export const AppSettingsView: React.FC = () => {
 
         {/* Submit Actions */}
         <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex items-center gap-2 px-8 py-3 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
-          >
-            <Save className="w-4 h-4 text-amber-300" />
-            <span>{saving ? 'Menyimpan Pengaturan...' : 'Simpan Seluruh Pengaturan'}</span>
-          </button>
+          {canEdit ? (
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex items-center gap-2 px-8 py-3 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+            >
+              <Save className="w-4 h-4 text-amber-300" />
+              <span>{saving ? 'Menyimpan Pengaturan...' : 'Simpan Seluruh Pengaturan'}</span>
+            </button>
+          ) : (
+            <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs font-medium">
+              Anda berada pada mode Baca Saja (Read-Only). Peran Anda tidak memiliki hak akses untuk mengedit Pengaturan Aplikasi.
+            </div>
+          )}
         </div>
       </form>
     </div>

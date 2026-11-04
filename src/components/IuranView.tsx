@@ -14,9 +14,48 @@ import {
   X,
   CreditCard,
 } from 'lucide-react';
+import { PermissionGate } from './PermissionGate';
 
 export const IuranView: React.FC = () => {
-  const { fullMembers, iuranList, addIuran, verifyIuran, currentUser } = usePPDI();
+  const { fullMembers, iuranList, addIuran, verifyIuran, currentUser, hasPermission } = usePPDI();
+
+  const userKecId = currentUser?.id_kecamatan_scope || currentUser?.id_kecamatan;
+  const userDesaId = currentUser?.id_desa;
+  const userMemberId = currentUser?.id_anggota;
+  const userRole = currentUser?.role || 'Anggota';
+
+  // Scoped members for record payment modal
+  const scopedMembers = useMemo(() => {
+    return fullMembers.filter((m) => {
+      if (userRole === 'Admin_Kecamatan' && userKecId) {
+        return m.kecamatan?.id_kecamatan === userKecId || m.desa?.id_kecamatan === userKecId;
+      }
+      if (userRole === 'Admin_Desa' && userDesaId) {
+        return m.desa?.id_desa === userDesaId;
+      }
+      if (userRole === 'Anggota' && userMemberId) {
+        return m.anggota.id_anggota === userMemberId;
+      }
+      return true;
+    });
+  }, [fullMembers, userRole, userKecId, userDesaId, userMemberId]);
+
+  // Scoped iuran list based on user role level
+  const scopedIuranList = useMemo(() => {
+    return iuranList.filter((i) => {
+      const member = fullMembers.find((m) => m.anggota.id_anggota === i.id_anggota);
+      if (userRole === 'Admin_Kecamatan' && userKecId) {
+        return member?.kecamatan?.id_kecamatan === userKecId || member?.desa?.id_kecamatan === userKecId;
+      }
+      if (userRole === 'Admin_Desa' && userDesaId) {
+        return member?.desa?.id_desa === userDesaId;
+      }
+      if (userRole === 'Anggota' && userMemberId) {
+        return i.id_anggota === userMemberId;
+      }
+      return true;
+    });
+  }, [iuranList, fullMembers, userRole, userKecId, userDesaId, userMemberId]);
 
   const [selectedTahun, setSelectedTahun] = useState<number>(2026);
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -24,7 +63,9 @@ export const IuranView: React.FC = () => {
 
   // Modal Record Payment
   const [showAddModal, setShowAddModal] = useState(false);
-  const [inputMemberId, setInputMemberId] = useState(fullMembers[0]?.anggota.id_anggota || '');
+  const [inputMemberId, setInputMemberId] = useState(
+    scopedMembers[0]?.anggota.id_anggota || fullMembers[0]?.anggota.id_anggota || ''
+  );
   const [inputTahun, setInputTahun] = useState(2026);
   const [inputBulan, setInputBulan] = useState(new Date().getMonth() + 1);
   const [inputJumlah, setInputJumlah] = useState(35000);
@@ -33,7 +74,7 @@ export const IuranView: React.FC = () => {
 
   // Computed summary
   const summary = useMemo(() => {
-    const listForYear = iuranList.filter((i) => i.tahun === selectedTahun);
+    const listForYear = scopedIuranList.filter((i) => i.tahun === selectedTahun);
     const lunas = listForYear.filter((i) => i.status_verifikasi === 'Lunas');
     const pending = listForYear.filter((i) => i.status_verifikasi === 'Pending');
     const ditolak = listForYear.filter((i) => i.status_verifikasi === 'Ditolak');
@@ -49,11 +90,11 @@ export const IuranView: React.FC = () => {
       totalNominalLunas,
       totalNominalPending,
     };
-  }, [iuranList, selectedTahun]);
+  }, [scopedIuranList, selectedTahun]);
 
   // Combined iuran rows
   const displayRows = useMemo(() => {
-    return iuranList
+    return scopedIuranList
       .filter((i) => i.tahun === selectedTahun)
       .filter((i) => (filterStatus === 'all' ? true : i.status_verifikasi === filterStatus))
       .map((i) => {
@@ -72,7 +113,7 @@ export const IuranView: React.FC = () => {
           item.member?.desa?.nama_desa.toLowerCase().includes(q)
         );
       });
-  }, [iuranList, selectedTahun, filterStatus, searchMember, fullMembers]);
+  }, [scopedIuranList, selectedTahun, filterStatus, searchMember, fullMembers]);
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +124,7 @@ export const IuranView: React.FC = () => {
       jumlah: inputJumlah,
       tgl_bayar: new Date().toISOString().replace('T', ' ').slice(0, 19),
       bukti_trf: inputBukti,
-      status_verifikasi: currentUser.role !== 'Anggota' ? 'Lunas' : 'Pending',
+      status_verifikasi: currentUser?.role !== 'Anggota' ? 'Lunas' : 'Pending',
       catatan: inputCatatan,
     });
     setShowAddModal(false);
@@ -117,13 +158,15 @@ export const IuranView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Catat Setoran Iuran</span>
-        </button>
+        <PermissionGate module="iuran" action="create">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Catat Setoran Iuran</span>
+          </button>
+        </PermissionGate>
       </div>
 
       {/* Financial Summary Cards */}
@@ -281,21 +324,23 @@ export const IuranView: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-4 text-right">
-                      {currentUser.role !== 'Anggota' && row.status_verifikasi === 'Pending' ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => verifyIuran(row.id_iuran, 'Lunas')}
-                            className="px-2 py-1 bg-emerald-800 text-white rounded text-[11px] font-semibold hover:bg-emerald-900 cursor-pointer"
-                          >
-                            Setujui
-                          </button>
-                          <button
-                            onClick={() => verifyIuran(row.id_iuran, 'Ditolak')}
-                            className="px-2 py-1 bg-neutral-200 text-neutral-700 rounded text-[11px] hover:bg-neutral-300 cursor-pointer"
-                          >
-                            Tolak
-                          </button>
-                        </div>
+                      {row.status_verifikasi === 'Pending' ? (
+                        <PermissionGate module="iuran" action="update" fallback={<span className="text-neutral-400 text-[11px]">-</span>}>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => verifyIuran(row.id_iuran, 'Lunas')}
+                              className="px-2 py-1 bg-emerald-800 text-white rounded text-[11px] font-semibold hover:bg-emerald-900 cursor-pointer"
+                            >
+                              Setujui
+                            </button>
+                            <button
+                              onClick={() => verifyIuran(row.id_iuran, 'Ditolak')}
+                              className="px-2 py-1 bg-neutral-200 text-neutral-700 rounded text-[11px] hover:bg-neutral-300 cursor-pointer"
+                            >
+                              Tolak
+                            </button>
+                          </div>
+                        </PermissionGate>
                       ) : (
                         <span className="text-neutral-400 text-[11px]">-</span>
                       )}
@@ -330,7 +375,7 @@ export const IuranView: React.FC = () => {
                   onChange={(e) => setInputMemberId(e.target.value)}
                   className="w-full p-2 border border-neutral-300 rounded-lg"
                 >
-                  {fullMembers.map((m) => (
+                  {scopedMembers.map((m) => (
                     <option key={m.anggota.id_anggota} value={m.anggota.id_anggota}>
                       {m.anggota.nama_lengkap.toUpperCase()} (Desa {m.desa?.nama_desa})
                     </option>

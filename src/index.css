@@ -274,14 +274,14 @@
     padding: 0 !important;
   }
 
-  /* Exact Standard KTP/ATM CR80 Card Size (85.6mm x 53.98mm) for physical printer output */
+  /* Exact Standard KTP/ATM CR80 Card Size (85.6mm x 54.0mm / 8.56 cm x 5.4 cm) for physical printer output */
   #kta-front,
   #kta-back {
     width: 85.6mm !important;
-    height: 53.98mm !important;
-    min-height: 53.98mm !important;
+    height: 54.0mm !important;
+    min-height: 54.0mm !important;
     max-width: 85.6mm !important;
-    max-height: 53.98mm !important;
+    max-height: 54.0mm !important;
     margin: 5mm auto !important;
     border-radius: 3.18mm !important;
     box-shadow: none !important;

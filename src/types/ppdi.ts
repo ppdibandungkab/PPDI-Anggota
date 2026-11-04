@@ -100,6 +100,7 @@ export interface UserAccount {
   role: UserRole;
   id_anggota?: string;
   id_kecamatan?: string; // For Admin_Kecamatan restriction
+  id_kecamatan_scope?: string; // For Admin_Kecamatan scope restriction
   id_desa?: string; // For Admin_Desa restriction
 }
 

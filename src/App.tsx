@@ -17,6 +17,7 @@ import { AppSettingsView } from './components/AppSettingsView';
 import { PendaftaranApprovalView } from './components/PendaftaranApprovalView';
 import { AnggotaFormModal } from './components/AnggotaFormModal';
 import { AnggotaDetailModal } from './components/AnggotaDetailModal';
+import { PublicVerifyModal } from './components/PublicVerifyModal';
 import { DbConnectionModal } from './components/DbConnectionModal';
 import { DbSettingsView } from './components/DbSettingsView';
 import { AnggotaFullDetail } from './types/ppdi';
@@ -45,6 +46,28 @@ const MainAppContent: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
 
+  // Auto-detect if visitor opened a short URL (/v/:token) or verification link
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname;
+      const search = window.location.search;
+      if (pathname.includes('/v/')) {
+        const token = pathname.split('/v/')[1]?.split('?')[0]?.split('#')[0];
+        if (token) {
+          setVerifyInitialQuery(token);
+          setIsVerifyModalOpen(true);
+        }
+      } else if (search.includes('v=') || search.includes('token=')) {
+        const params = new URLSearchParams(search);
+        const token = params.get('v') || params.get('token');
+        if (token) {
+          setVerifyInitialQuery(token);
+          setIsVerifyModalOpen(true);
+        }
+      }
+    }
+  }, []);
+
   const handleOpenAddModal = () => {
     setEditingMember(null);
     setIsAddModalOpen(true);
@@ -69,7 +92,6 @@ const MainAppContent: React.FC = () => {
     setIsVerifyModalOpen(true);
   };
 
-  
   if (!isAuthenticated) {
     return (
       <>
@@ -81,6 +103,11 @@ const MainAppContent: React.FC = () => {
         <DbConnectionModal
           isOpen={isDbModalOpen}
           onClose={() => setIsDbModalOpen(false)}
+        />
+        <PublicVerifyModal
+          isOpen={isVerifyModalOpen}
+          onClose={() => setIsVerifyModalOpen(false)}
+          initialQuery={verifyInitialQuery}
         />
       </>
     );
@@ -172,6 +199,13 @@ const MainAppContent: React.FC = () => {
       <DbConnectionModal
         isOpen={isDbModalOpen}
         onClose={() => setIsDbModalOpen(false)}
+      />
+
+      {/* Public KTA Verification Modal & QR Scan Result */}
+      <PublicVerifyModal
+        isOpen={isVerifyModalOpen}
+        onClose={() => setIsVerifyModalOpen(false)}
+        initialQuery={verifyInitialQuery}
       />
 
       {/* Floating Database Connection Status & Setting Trigger - Visible ONLY when MySQL is NOT connected */}

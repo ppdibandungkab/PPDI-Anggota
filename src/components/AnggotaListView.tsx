@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
 import { formatDateIndo } from '../utils/ppdiHelpers';
-import { getPhotoUrl, getSkFileUrl } from '../utils/fileHelpers';
+import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
 import { exportAnggotaToExcel, exportAnggotaToCSV } from '../utils/excelExport';
 import {
   Search,
@@ -24,6 +24,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
+import { PermissionGate } from './PermissionGate';
 
 interface AnggotaListViewProps {
   onOpenAddModal: () => void;
@@ -45,6 +46,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     jabatanList,
     deleteAnggota,
     currentUser,
+    hasPermission,
   } = usePPDI();
 
   // Search & Filter state
@@ -185,7 +187,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {currentUser.role !== 'Anggota' && (
+          <PermissionGate module="anggota" action="create">
             <button
               onClick={() => setIsImportModalOpen(true)}
               className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
@@ -193,32 +195,34 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
               <span>Import Data Excel</span>
             </button>
-          )}
+          </PermissionGate>
 
-          <button
-            onClick={handleExportExcel}
-            disabled={isExportingExcel}
-            title="Download Data Anggota Terfilter dalam Format Excel (.xlsx)"
-            className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-          >
-            {isExportingExcel ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-            ) : (
-              <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
-            )}
-            <span>{isExportingExcel ? 'Mengekspor...' : 'Ekspor Excel (.xlsx)'}</span>
-          </button>
+          <PermissionGate module="anggota" action="view">
+            <button
+              onClick={handleExportExcel}
+              disabled={isExportingExcel}
+              title="Download Data Anggota Terfilter dalam Format Excel (.xlsx)"
+              className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+            >
+              {isExportingExcel ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isExportingExcel ? 'Mengekspor...' : 'Ekspor Excel (.xlsx)'}</span>
+            </button>
 
-          <button
-            onClick={handleExportCSVClick}
-            title="Download Data Anggota Terfilter dalam Format CSV"
-            className="px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5 text-neutral-600" />
-            <span>Ekspor CSV</span>
-          </button>
+            <button
+              onClick={handleExportCSVClick}
+              title="Download Data Anggota Terfilter dalam Format CSV"
+              className="px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5 text-neutral-600" />
+              <span>Ekspor CSV</span>
+            </button>
+          </PermissionGate>
 
-          {currentUser.role !== 'Anggota' && (
+          <PermissionGate module="anggota" action="create">
             <button
               onClick={onOpenAddModal}
               className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
@@ -226,7 +230,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               <Plus className="w-4 h-4" />
               <span>Tambah Perangkat</span>
             </button>
-          )}
+          </PermissionGate>
         </div>
       </div>
 
@@ -424,9 +428,10 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2.5">
                           <img
-                            src={getPhotoUrl(item.anggota.foto)}
+                            src={getPhotoUrl(item.anggota.foto, item.anggota.jenis_kelamin)}
                             alt={item.anggota.nama_lengkap.toUpperCase()}
                             className="w-8 h-8 rounded-full object-cover shrink-0 border border-neutral-200"
+                            onError={(e) => handleImageError(e, item.anggota.jenis_kelamin)}
                             referrerPolicy="no-referrer"
                           />
                           <div>
@@ -543,24 +548,24 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                           >
                             <CreditCard className="w-4 h-4" />
                           </button>
-                          {currentUser.role !== 'Anggota' && (
-                            <>
-                              <button
-                                onClick={() => onOpenEditModal(item)}
-                                title="Edit Data"
-                                className="p-1 text-neutral-500 hover:text-blue-700 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setMemberToDelete(item)}
-                                title={`Hapus data ${item.anggota.nama_lengkap}`}
-                                className="p-1 text-neutral-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-600" />
-                              </button>
-                            </>
-                          )}
+                          <PermissionGate module="anggota" action="update">
+                            <button
+                              onClick={() => onOpenEditModal(item)}
+                              title="Edit Data"
+                              className="p-1 text-neutral-500 hover:text-blue-700 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          </PermissionGate>
+                          <PermissionGate module="anggota" action="delete">
+                            <button
+                              onClick={() => setMemberToDelete(item)}
+                              title={`Hapus data ${item.anggota.nama_lengkap}`}
+                              className="p-1 text-neutral-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-600" />
+                            </button>
+                          </PermissionGate>
                         </div>
                       </td>
                     </tr>

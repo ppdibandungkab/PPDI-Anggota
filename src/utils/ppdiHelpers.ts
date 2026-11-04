@@ -368,8 +368,25 @@ export async function safeFetchJson<T = any>(
     return s.startsWith('<!DOCTYPE') || s.startsWith('<!doctype') || s.startsWith('<html') || s.startsWith('<');
   };
 
+  // Automatically inject active user auth context headers for server-side permission checks
+  const headers = new Headers(init?.headers || {});
+  if (typeof localStorage !== 'undefined') {
+    const curUserId = localStorage.getItem('ppdi_current_user_id');
+    const curUserRole = localStorage.getItem('ppdi_current_user_role');
+    if (curUserId && !headers.has('x-user-id')) {
+      headers.set('x-user-id', curUserId);
+    }
+    if (curUserRole && !headers.has('x-user-role')) {
+      headers.set('x-user-role', curUserRole);
+    }
+  }
+  const secureInit: RequestInit = {
+    ...init,
+    headers,
+  };
+
   try {
-    let res = await fetch(targetUrl, init);
+    let res = await fetch(targetUrl, secureInit);
     let text = await res.text();
 
     // Auto-probe fallback:

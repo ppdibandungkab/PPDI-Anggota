@@ -22,7 +22,7 @@ import { UserAccount, UserRole } from '../types/ppdi';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const UserSettingsView: React.FC = () => {
-  const { users, currentUser, switchUser, createUser, updateUser, deleteUser, kecamatanList, desaList } = usePPDI();
+  const { users, currentUser, switchUser, createUser, updateUser, deleteUser, kecamatanList, desaList, hasPermission } = usePPDI();
 
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -50,11 +50,15 @@ export const UserSettingsView: React.FC = () => {
     return u.id_user === currentUser.id_user;
   });
 
+  const canAddUser = hasPermission('settings-user', 'add');
+  const canEditUser = hasPermission('settings-user', 'edit');
+  const canDeleteUser = hasPermission('settings-user', 'delete');
+
   const handleOpenAdd = () => {
-    if (!isKabupatenLevel) {
+    if (!canAddUser) {
       setFeedbackMsg({
         type: 'error',
-        text: 'Hanya Superadmin Kabupaten dan Admin Kabupaten yang dapat menambahkan akun pengguna baru.',
+        text: 'Akses Ditolak: Anda tidak memiliki izin untuk menambahkan akun pengguna baru.',
       });
       return;
     }

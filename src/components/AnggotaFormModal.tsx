@@ -978,16 +978,6 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                 </div>
 
                 <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-neutral-700 font-medium mb-1">Gelar Depan</label>
-                    <input
-                      type="text"
-                      value={gelarDepan}
-                      onChange={(e) => setGelarDepan(e.target.value)}
-                      placeholder="H., Drs."
-                      className="w-28 px-2.5 py-2 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-700 text-xs font-mono"
-                    />
-                  </div>
                   <div className="sm:col-span-2">
                     <label className="block text-neutral-700 font-medium mb-1">
                       Nama Lengkap (Tanpa Gelar) <span className="text-red-500">*</span>
@@ -1007,6 +997,17 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                 </div>
 
                 <div>
+                    <label className="block text-neutral-700 font-medium mb-1">Gelar Depan</label>
+                    <input
+                      type="text"
+                      value={gelarDepan}
+                      onChange={(e) => setGelarDepan(e.target.value)}
+                      placeholder="H., Drs."
+                      className="w-28 px-2.5 py-2 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-700 text-xs font-mono"
+                    />
+                  </div>
+                  
+                  <div>
                   <label className="block text-neutral-700 font-medium mb-1">Gelar Belakang</label>
                   <input
                     type="text"

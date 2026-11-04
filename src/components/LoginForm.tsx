@@ -328,9 +328,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               type="button"
               onClick={onOpenPublicVerify}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-[#F8F7F4] bg-white/10 hover:bg-white/15 border border-white/15 transition-all cursor-pointer backdrop-blur-md shadow-sm"
+              title="Cek keabsahan E-KTA dengan Scan QR atau masukkan Nomor KTA / NIK"
             >
               <QrCode className="w-4 h-4 text-[#FDE047]" />
-              <span>Registrasi Perangkat Desa (Formulir Induk)</span>
+              <span>REGISTRASI PERANGKAT DESA (FORMULIR INDUK)</span>
             </button>
 
             <button
