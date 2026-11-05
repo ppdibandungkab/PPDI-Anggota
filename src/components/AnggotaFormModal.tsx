@@ -223,8 +223,11 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
         setFileSkName(editMember.jabatanTerkini.file_sk || '');
       }
 
-      if (editMember.keanggotaan) {
-        setJabatanPengurus(editMember.keanggotaan.jabatan_pengurus);
+      const kta = editMember.keanggotaan || keanggotaanList.find((k) => k.id_anggota === editMember.anggota.id_anggota);
+      if (kta && kta.jabatan_pengurus) {
+        setJabatanPengurus(kta.jabatan_pengurus);
+      } else {
+        setJabatanPengurus('Anggota Biasa');
       }
     } else {
       // Defaults for new member
@@ -533,24 +536,27 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       setErrorMsg('');
 
       if (editMember) {
-        // Update existing member details
-        await updateAnggota(editMember.anggota.id_anggota, {
-          nik,
-          nipd: effectiveNiap,
-          nama_lengkap: namaLengkap.trim().toUpperCase(),
-          gelar_depan: gelarDepan ? gelarDepan.trim() : undefined,
-          gelar_belakang: gelarBelakang ? gelarBelakang.trim() : undefined,
-          tempat_lahir: tempatLahir,
-          tanggal_lahir: tanggalLahir,
-          jenis_kelamin: jenisKelamin,
-          agama,
-          pendidikan_terakhir: pendidikanTerakhir,
-          no_hp_wa: noHpWa,
-          email,
-          alamat_rumah: alamatRumah,
-          status_pernikahan: statusPernikahan,
-          foto: foto || undefined,
-        });
+        await updateAnggota(
+          editMember.anggota.id_anggota,
+          {
+            nik,
+            nipd: effectiveNiap,
+            nama_lengkap: namaLengkap.trim().toUpperCase(),
+            gelar_depan: gelarDepan ? gelarDepan.trim() : undefined,
+            gelar_belakang: gelarBelakang ? gelarBelakang.trim() : undefined,
+            tempat_lahir: tempatLahir,
+            tanggal_lahir: tanggalLahir,
+            jenis_kelamin: jenisKelamin,
+            agama,
+            pendidikan_terakhir: pendidikanTerakhir,
+            no_hp_wa: noHpWa,
+            email,
+            alamat_rumah: alamatRumah,
+            status_pernikahan: statusPernikahan,
+            foto: foto || undefined,
+          },
+          jabatanPengurus
+        );
 
         // Also update primary latest job if modified
         if (editMember.jabatanTerkini) {

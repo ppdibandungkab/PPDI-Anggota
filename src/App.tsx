@@ -20,6 +20,7 @@ import { AnggotaDetailModal } from './components/AnggotaDetailModal';
 import { PublicVerifyModal } from './components/PublicVerifyModal';
 import { DbConnectionModal } from './components/DbConnectionModal';
 import { DbSettingsView } from './components/DbSettingsView';
+import { StatistikWilayahView } from './components/StatistikWilayahView';
 import { AnggotaFullDetail } from './types/ppdi';
 
 const MainAppContent: React.FC = () => {
@@ -168,6 +169,7 @@ const MainAppContent: React.FC = () => {
           {activeTab === 'settings-role' && <RoleManagementView />}
           {activeTab === 'settings-db' && <DbSettingsView />}
           {activeTab === 'skema' && <SqlSchemaView />}
+          {activeTab === 'statistik-wilayah' && <StatistikWilayahView />}
         </main>
       </div>
 

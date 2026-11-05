@@ -21,8 +21,17 @@ import {
   X,
   Shield,
   Lock,
+  MessageSquare,
+  Send,
+  ExternalLink,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  SlidersHorizontal,
+  Layers,
 } from 'lucide-react';
 import { PendaftaranPerangkatDesa } from '../types/ppdi';
+import { getWhatsAppApprovalUrl, formatPhoneForWhatsApp } from '../utils/ppdiHelpers';
 
 interface PendaftaranApprovalViewProps {
   onOpenPublicForm?: () => void;
@@ -40,6 +49,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     currentUser,
     setActiveTab,
     hasPermission,
+    fullMembers,
   } = usePPDI();
 
   // Role detection
@@ -131,6 +141,31 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   const [filterDesa, setFilterDesa] = useState<string>('all');
   const [selectedItem, setSelectedItem] = useState<PendaftaranPerangkatDesa | null>(null);
 
+  // Sorting state for table columns
+  const [sortBy, setSortBy] = useState<'tgl' | 'nama' | 'kecamatan' | 'status'>('tgl');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Count pendaftar per kecamatan for badge counters
+  const kecamatanCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    roleScopedList.forEach((item) => {
+      if (activeFilterTab !== 'Semua' && item.status_approval !== activeFilterTab) return;
+      const cleanKec = (item.id_kecamatan || '').replace(/\./g, '').trim();
+      if (cleanKec) {
+        map[cleanKec] = (map[cleanKec] || 0) + 1;
+      }
+    });
+    return map;
+  }, [roleScopedList, activeFilterTab]);
+
+  // List of kecamatan with active registrations in current status tab
+  const activeKecamatanList = useMemo(() => {
+    return kecamatanList.filter((k) => {
+      const cleanKec = k.id_kecamatan.replace(/\./g, '').trim();
+      return (kecamatanCounts[cleanKec] || 0) > 0;
+    });
+  }, [kecamatanList, kecamatanCounts]);
+
   // Available desa options based on active kecamatan
   const availableDesaList = useMemo(() => {
     let targetKec = '';
@@ -156,6 +191,15 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
 
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Modal Notifikasi WA setelah approval berhasil
+  const [approvedSuccessData, setApprovedSuccessData] = useState<{
+    nama: string;
+    phone: string;
+    noKta: string;
+    desa?: string;
+    kecamatan?: string;
+  } | null>(null);
+
   // Statistik ringkasan scoped to current user's role
   const stats = useMemo(() => {
     const total = roleScopedList.length;
@@ -165,9 +209,19 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     return { total, pending, approved, rejected };
   }, [roleScopedList]);
 
-  // Filter list
+  // Handle Sort header toggle
+  const handleSortToggle = (field: 'tgl' | 'nama' | 'kecamatan' | 'status') => {
+    if (sortBy === field) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+  };
+
+  // Filter & Sort list
   const filteredList = useMemo(() => {
-    return roleScopedList.filter((item) => {
+    const list = roleScopedList.filter((item) => {
       // Status filter
       if (activeFilterTab !== 'Semua' && item.status_approval !== activeFilterTab) {
         return false;
@@ -198,7 +252,29 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
       }
       return true;
     });
-  }, [roleScopedList, activeFilterTab, isKabupatenLevel, filterKecamatan, filterDesa, searchTerm]);
+
+    // Sort list
+    return [...list].sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'nama') {
+        comparison = (a.nama_lengkap || '').localeCompare(b.nama_lengkap || '');
+      } else if (sortBy === 'kecamatan') {
+        const kecA = (a.nama_kecamatan || a.id_kecamatan || '').toLowerCase();
+        const kecB = (b.nama_kecamatan || b.id_kecamatan || '').toLowerCase();
+        const desaA = (a.nama_desa || a.id_desa || '').toLowerCase();
+        const desaB = (b.nama_desa || b.id_desa || '').toLowerCase();
+        comparison = kecA.localeCompare(kecB) || desaA.localeCompare(desaB);
+      } else if (sortBy === 'status') {
+        comparison = (a.status_approval || '').localeCompare(b.status_approval || '');
+      } else {
+        // 'tgl' - default by registration date or ID
+        const tglA = a.tgl_pendaftaran || String(a.id_pendaftaran);
+        const tglB = b.tgl_pendaftaran || String(b.id_pendaftaran);
+        comparison = tglA.localeCompare(tglB);
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+  }, [roleScopedList, activeFilterTab, isKabupatenLevel, filterKecamatan, filterDesa, searchTerm, sortBy, sortOrder]);
 
   // Handle Approve
   const handleConfirmApprove = async () => {
@@ -210,10 +286,22 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     setIsApproving(true);
     try {
       const result = await approvePendaftaran(approvingItem.id_pendaftaran, customKta.trim() || undefined);
+      const assignedNoKta = result.no_kta || customKta.trim() || 'KTA PPDI REGISTERED';
+
       setActionMessage({
         type: 'success',
         text: result.message || `Pendaftaran atas nama ${approvingItem.nama_lengkap.toUpperCase()} berhasil disetujui!`,
       });
+
+      // Pemicu modal notifikasi WhatsApp
+      setApprovedSuccessData({
+        nama: approvingItem.nama_lengkap,
+        phone: approvingItem.no_hp_wa,
+        noKta: assignedNoKta,
+        desa: approvingItem.nama_desa || approvingItem.id_desa || '',
+        kecamatan: approvingItem.nama_kecamatan || approvingItem.id_kecamatan || '',
+      });
+
       setApprovingItem(null);
       setCustomKta('');
       if (selectedItem?.id_pendaftaran === approvingItem.id_pendaftaran) {
@@ -471,7 +559,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
           })}
         </div>
 
-        {/* Inputs Filter & Search */}
+        {/* Inputs Filter & Search & Sort */}
         <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -487,7 +575,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Filter className="w-4 h-4 text-neutral-400" />
 
-            {/* Filter Kecamatan: Dropdown untuk Kabupaten, Terkunci untuk Kecamatan/Desa */}
+            {/* Filter Kecamatan: Dropdown untuk Kabupaten dengan Hitung Pendaftar */}
             {isKabupatenLevel ? (
               <select
                 value={filterKecamatan}
@@ -495,14 +583,18 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                   setFilterKecamatan(e.target.value);
                   setFilterDesa('all');
                 }}
-                className="border border-neutral-200 rounded-lg text-xs font-mono py-2 px-3 focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                className="border border-neutral-200 rounded-lg text-xs font-mono py-2 px-3 focus:ring-2 focus:ring-[#064E3B] outline-none bg-white font-semibold"
               >
-                <option value="all">Semua Kecamatan (31 Kec)</option>
-                {kecamatanList.map((k) => (
-                  <option key={k.id_kecamatan} value={k.id_kecamatan}>
-                    Kec. {k.nama_kecamatan}
-                  </option>
-                ))}
+                <option value="all">Semua Kecamatan ({kecamatanList.length} Kec)</option>
+                {kecamatanList.map((k) => {
+                  const cleanKec = k.id_kecamatan.replace(/\./g, '').trim();
+                  const count = kecamatanCounts[cleanKec] || 0;
+                  return (
+                    <option key={k.id_kecamatan} value={k.id_kecamatan}>
+                      Kec. {k.nama_kecamatan} {count > 0 ? `(${count})` : ''}
+                    </option>
+                  );
+                })}
               </select>
             ) : (
               <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-300 rounded-lg text-xs font-mono font-bold text-amber-900 shadow-2xs">
@@ -527,6 +619,33 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               </select>
             )}
 
+            {/* Sort Controls */}
+            <div className="flex items-center gap-1 bg-neutral-100 p-1 rounded-lg border border-neutral-200 text-xs font-mono">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-neutral-500 ml-1" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-transparent border-none text-xs font-mono font-semibold text-neutral-800 focus:outline-none cursor-pointer py-1"
+              >
+                <option value="tgl">Tgl Pendaftaran</option>
+                <option value="nama">Nama Lengkap (A-Z)</option>
+                <option value="kecamatan">Kecamatan & Desa</option>
+                <option value="status">Status Verifikasi</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                className="p-1 hover:bg-neutral-200 rounded text-neutral-700 cursor-pointer flex items-center justify-center transition-colors"
+                title={sortOrder === 'asc' ? 'Urutan Naik (Ascending)' : 'Urutan Turun (Descending)'}
+              >
+                {sortOrder === 'asc' ? (
+                  <ArrowUp className="w-3.5 h-3.5 text-emerald-700 font-bold" />
+                ) : (
+                  <ArrowDown className="w-3.5 h-3.5 text-emerald-700 font-bold" />
+                )}
+              </button>
+            </div>
+
             {/* Lock Indicator untuk Admin Desa */}
             {isAdminDesa && assignedDesa && (
               <div className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-xs font-mono font-bold text-blue-900 shadow-2xs">
@@ -536,6 +655,53 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
             )}
           </div>
         </div>
+
+        {/* Quick Kecamatan Filter Chips Bar */}
+        {isKabupatenLevel && activeKecamatanList.length > 0 && (
+          <div className="pt-2 border-t border-neutral-100 flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-mono text-neutral-500 font-semibold mr-1 flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-emerald-600" />
+              <span>Quick Filter Kecamatan:</span>
+            </span>
+            <button
+              onClick={() => {
+                setFilterKecamatan('all');
+                setFilterDesa('all');
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer font-semibold ${
+                filterKecamatan === 'all'
+                  ? 'bg-[#064E3B] text-white shadow-2xs'
+                  : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+              }`}
+            >
+              Semua ({roleScopedList.filter((p) => activeFilterTab === 'Semua' || p.status_approval === activeFilterTab).length})
+            </button>
+            {activeKecamatanList.map((k) => {
+              const cleanKec = k.id_kecamatan.replace(/\./g, '').trim();
+              const count = kecamatanCounts[cleanKec] || 0;
+              const isSelected = filterKecamatan === k.id_kecamatan;
+              return (
+                <button
+                  key={k.id_kecamatan}
+                  onClick={() => {
+                    setFilterKecamatan(isSelected ? 'all' : k.id_kecamatan);
+                    setFilterDesa('all');
+                  }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all cursor-pointer flex items-center gap-1 font-semibold ${
+                    isSelected
+                      ? 'bg-[#064E3B] text-white shadow-2xs'
+                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200/60 hover:bg-emerald-100'
+                  }`}
+                >
+                  <span>Kec. {k.nama_kecamatan}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[9.5px] ${isSelected ? 'bg-emerald-900 text-emerald-100' : 'bg-emerald-200 text-emerald-950 font-bold'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Table of Registrations */}
@@ -582,15 +748,67 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-neutral-100 text-neutral-600 border-b border-neutral-200 uppercase tracking-wider">
+              <thead className="bg-neutral-100 text-neutral-700 border-b border-neutral-200 uppercase tracking-wider font-bold">
                 <tr>
                   <th className="p-3 w-12 text-center">No</th>
-                  <th className="p-3">NIK & Tgl Daftar</th>
-                  <th className="p-3">Nama Lengkap</th>
-                  <th className="p-3">Wilayah Tugas</th>
+                  <th
+                    onClick={() => handleSortToggle('tgl')}
+                    className="p-3 cursor-pointer hover:bg-neutral-200/80 transition-colors group select-none"
+                    title="Klik untuk menyortir berdasarkan Tanggal Pendaftaran"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>NIK & Tgl Daftar</span>
+                      {sortBy === 'tgl' ? (
+                        sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#064E3B]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#064E3B]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSortToggle('nama')}
+                    className="p-3 cursor-pointer hover:bg-neutral-200/80 transition-colors group select-none"
+                    title="Klik untuk menyortir berdasarkan Nama Lengkap"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Nama Lengkap</span>
+                      {sortBy === 'nama' ? (
+                        sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#064E3B]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#064E3B]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSortToggle('kecamatan')}
+                    className="p-3 cursor-pointer hover:bg-neutral-200/80 transition-colors group select-none"
+                    title="Klik untuk menyortir berdasarkan Wilayah Kecamatan & Desa"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Wilayah Tugas</span>
+                      {sortBy === 'kecamatan' ? (
+                        sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#064E3B]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#064E3B]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
                   <th className="p-3">Jabatan</th>
                   <th className="p-3">Kontak</th>
-                  <th className="p-3 text-center">Status</th>
+                  <th
+                    onClick={() => handleSortToggle('status')}
+                    className="p-3 text-center cursor-pointer hover:bg-neutral-200/80 transition-colors group select-none"
+                    title="Klik untuk menyortir berdasarkan Status Approval"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Status</span>
+                      {sortBy === 'status' ? (
+                        sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#064E3B]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#064E3B]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
                   <th className="p-3 text-center">Aksi Verifikasi</th>
                 </tr>
               </thead>
@@ -713,6 +931,29 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                           {/* Indicator jika tidak memiliki hak approval (misal Admin Desa / Anggota) */}
                           {isPending && !canApprove && (
                             <span className="text-[10px] text-neutral-400 italic">Verifikasi PK/Kabupaten</span>
+                          )}
+
+                          {/* Tombol Kirim Notifikasi WA untuk Pendaftaran Disetujui */}
+                          {isApproved && item.no_hp_wa && (
+                            <button
+                              onClick={() => {
+                                const member = fullMembers.find((m) => m.anggota.nik === item.nik);
+                                const ktaStr = member?.keanggotaan?.no_kta || 'KTA PPDI REGISTERED';
+                                const waUrl = getWhatsAppApprovalUrl({
+                                  phone: item.no_hp_wa,
+                                  name: item.nama_lengkap,
+                                  noKta: ktaStr,
+                                  desa: item.nama_desa || item.id_desa,
+                                  kecamatan: item.nama_kecamatan || item.id_kecamatan,
+                                });
+                                window.open(waUrl, '_blank');
+                              }}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[11px] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title="Kirim Notifikasi WA Pengesahan Keanggotaan"
+                            >
+                              <MessageSquare className="w-3 h-3 text-emerald-100" />
+                              <span>Notif WA</span>
+                            </button>
                           )}
 
                           {/* Delete Button (Hanya Superadmin & Admin Kabupaten) */}
@@ -867,6 +1108,26 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               >
                 Tutup
               </button>
+              {selectedItem.status_approval === 'Disetujui' && selectedItem.no_hp_wa && (
+                <button
+                  onClick={() => {
+                    const member = fullMembers.find((m) => m.anggota.nik === selectedItem.nik);
+                    const ktaStr = member?.keanggotaan?.no_kta || 'KTA PPDI REGISTERED';
+                    const waUrl = getWhatsAppApprovalUrl({
+                      phone: selectedItem.no_hp_wa,
+                      name: selectedItem.nama_lengkap,
+                      noKta: ktaStr,
+                      desa: selectedItem.nama_desa || selectedItem.id_desa,
+                      kecamatan: selectedItem.nama_kecamatan || selectedItem.id_kecamatan,
+                    });
+                    window.open(waUrl, '_blank');
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs"
+                >
+                  <MessageSquare className="w-4 h-4 text-emerald-100" />
+                  <span>Kirim Notifikasi WA</span>
+                </button>
+              )}
               {selectedItem.status_approval === 'Menunggu' && canApprove && (
                 <button
                   onClick={() => {
@@ -993,6 +1254,72 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                 className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-md disabled:opacity-50"
               >
                 {isRejecting ? 'Menolak...' : 'Konfirmasi Tolak'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Notifikasi WhatsApp Pasca Approval */}
+      {approvedSuccessData && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-neutral-900 p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 border border-emerald-300">
+                <MessageSquare className="w-6 h-6 text-emerald-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-neutral-900">Pendaftaran Berhasil Disetujui!</h3>
+                <p className="text-xs text-neutral-500">
+                  Data telah diterbitkan ke Data Induk Anggota dan E-KTA resmi telah aktif.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg text-xs font-mono space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Nama Anggota:</span>
+                <span className="font-bold text-emerald-950 uppercase">{approvedSuccessData.nama}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Nomor KTA Digital:</span>
+                <span className="font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">{approvedSuccessData.noKta}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-500">No. WhatsApp:</span>
+                <span className="font-bold text-neutral-900">{approvedSuccessData.phone}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-600 leading-relaxed">
+              Kirimkan pesan konfirmasi resmi pengesahan keanggotaan dan nomor E-KTA langsung ke nomor WhatsApp anggota ini.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setApprovedSuccessData(null)}
+                className="px-4 py-2 bg-neutral-200 hover:bg-neutral-300 text-neutral-700 rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Nanti Saja
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const waUrl = getWhatsAppApprovalUrl({
+                    phone: approvedSuccessData.phone,
+                    name: approvedSuccessData.nama,
+                    noKta: approvedSuccessData.noKta,
+                    desa: approvedSuccessData.desa,
+                    kecamatan: approvedSuccessData.kecamatan,
+                  });
+                  window.open(waUrl, '_blank');
+                  setApprovedSuccessData(null);
+                }}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+              >
+                <Send className="w-4 h-4 text-emerald-100" />
+                <span>Kirim Notifikasi WA</span>
               </button>
             </div>
           </div>

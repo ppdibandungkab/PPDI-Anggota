@@ -383,10 +383,10 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   </div>
 
                   {/* Card Body: Photo & Credentials */}
-                  <div className="relative z-10 grid grid-cols-12 gap-3 items-center py-2">
+                  <div className="relative z-10 grid grid-cols-12 gap-3 items-center py-1.5">
                     {/* Photo slot */}
-                    <div className="col-span-4 flex flex-col items-center">
-                      <div className="w-20 sm:w-24 aspect-[3/4] rounded-lg overflow-hidden border-2 border-amber-300 shadow-md bg-neutral-800">
+                    <div className="col-span-4 flex flex-col items-center justify-center">
+                      <div className="w-20 sm:w-22 aspect-[3/4] rounded-xl overflow-hidden border-2 border-amber-300 shadow-lg bg-neutral-900">
                         <img
                           src={getPhotoUrl(currentMember.anggota.foto, currentMember.anggota.jenis_kelamin)}
                           alt={currentMember.anggota.nama_lengkap}
@@ -395,49 +395,48 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                           referrerPolicy="no-referrer"
                         />
                       </div>
-                     
                     </div>
 
                     {/* Member Details */}
-                    <div className="col-span-8 space-y-0,7 text-left">
+                    <div className="col-span-8 space-y-1 text-left min-w-0">
                       <div>
-                        <div className="text-[9px] text-emerald-200 uppercase tracking-wider">
+                        <div className="text-[8px] text-emerald-200 uppercase tracking-widest font-semibold">
                           Nama Perangkat Desa
                         </div>
-                        <div className="text-xs sm:text-sm font-bold text-amber-300 tracking-tight leading-tight uppercase">
+                        <div className="text-xs sm:text-sm font-extrabold text-amber-300 tracking-tight leading-snug uppercase truncate">
                           {fullNameWithTitles}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-x-1 gap-y-0.5 text-[10px]">
+                      <div className="flex items-center gap-3 text-[10px]">
+                        {currentMember.anggota.nipd && (
+                          <div>
+                            <span className="text-emerald-200 text-[8px] uppercase tracking-wider block">NIPD</span>
+                            <span className="font-mono font-semibold text-white">{currentMember.anggota.nipd}</span>
+                          </div>
+                        )}
                         <div>
-                          <span className="text-emerald-200 text-[8px] block">NIK KTP</span>
-                          <span className="font-mono font-semibold">{currentMember.anggota.nik}</span>
-                        </div>
-                        <div>
-                          <span className="text-emerald-200 text-[8px] block">NIPD</span>
-                          <span className="font-mono font-semibold">
-                            {currentMember.anggota.nipd || '-'}
-                          </span>
+                          <span className="text-emerald-200 text-[8px] uppercase tracking-wider block">Jabatan SOTK</span>
+                          <span className="font-semibold text-white">{currentMember.jabatanRef?.nama_jabatan || 'Perangkat Desa'}</span>
                         </div>
                       </div>
 
                       <div className="text-[10px]">
-                        <span className="text-emerald-300 text-[8px] block">Jabatan / Wilayah Tugas</span>
-                        <div className="font-semibold text-white leading-tight">
-                          {currentMember.jabatanRef?.nama_jabatan}
-                        </div>
-                        <div className="text-[9px] text-emerald-100">
+                        <span className="text-emerald-200 text-[8px] uppercase tracking-wider block">Wilayah Tugas</span>
+                        <div className="font-medium text-emerald-100 leading-tight truncate">
                           Desa {currentMember.desa?.nama_desa}, Kec. {currentMember.kecamatan?.nama_kecamatan}
                         </div>
                       </div>
 
-                      <div className="pt-0.5 flex items-center justify-between text-[9px] text-amber-200 border-t border-emerald-700/60 mt-1">
-                        <div>
-                          <span>Nomor KTA: </span>
-                          <strong className="font-mono text-white text-[10px]">
-                            {currentMember.keanggotaan?.no_kta}
-                          </strong>
+                      {/* PROMINENT NOMOR KTA HIGHLIGHT CONTAINER */}
+                      <div className="mt-1 p-2 rounded-xl bg-gradient-to-r from-emerald-950 via-[#022c22] to-emerald-950 border-2 border-amber-400/90 shadow-md flex items-center justify-between">
+                        <div className="min-w-0">
+                          <span className="text-[7.5px] text-amber-200 font-bold uppercase tracking-widest block leading-none mb-0.5">
+                            NOMOR KTA DIGITAL PPDI
+                          </span>
+                          <span className="font-mono text-xs sm:text-sm font-black text-amber-300 tracking-widest drop-shadow-xs truncate block">
+                            {currentMember.keanggotaan?.no_kta || '-'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -451,7 +450,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                         {currentMember.keanggotaan?.status_kta}
                       </strong>
                     </div>
-                    <div>Masa Berlaku: Selama Menjabat (Batas 60 Thn)</div>
+                    <div>Masa Berlaku: Selama Menjabat (Batas Usia 60 Thn)</div>
                   </div>
                 </div>
               </div>

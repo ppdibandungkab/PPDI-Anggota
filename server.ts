@@ -394,6 +394,33 @@ app.delete('/api/uploads/:folder/:fileName', (req, res) => {
   }
 });
 
+// Proxy external images to prevent cross-origin issues during PDF export / canvas render
+app.get('/api/proxy-image', async (req, res) => {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl || !imageUrl.startsWith('http')) {
+    return res.status(400).send('Invalid url');
+  }
+  try {
+    const fetchRes = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
+    });
+    if (!fetchRes.ok) {
+      return res.status(fetchRes.status).send('Failed to fetch image');
+    }
+    const contentType = fetchRes.headers.get('content-type') || 'image/png';
+    const buffer = Buffer.from(await fetchRes.arrayBuffer());
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.send(buffer);
+  } catch (err: any) {
+    return res.status(500).send(err.message || 'Error proxying image');
+  }
+});
+
 // ====================================================================
 // 1. DATABASE STATUS, HEALTH CHECK & HOSTING DIAGNOSTICS
 // ====================================================================
@@ -698,6 +725,11 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         UNIQUE KEY \`uq_ppdi_no_kta\` (\`no_kta\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Migration for keanggotaan_ppdi jabatan_pengurus column
+    try {
+      await conn.query(`ALTER TABLE keanggotaan_ppdi ADD COLUMN jabatan_pengurus VARCHAR(100) NOT NULL DEFAULT 'Anggota Biasa' AFTER tgl_bergabung`);
+    } catch (_) {}
 
     // 7. iuran_anggota
     await conn.query(`
@@ -1323,8 +1355,31 @@ app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, re
       ]
     );
 
+    // Update or insert keanggotaan_ppdi jabatan_pengurus if provided
+    const effectiveJabatanPengurus = data.jabatan_pengurus || data.jabatanPengurus;
+    if (effectiveJabatanPengurus) {
+      const [existingPpdi]: [any[], any] = await conn.query(
+        'SELECT id_ppdi FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
+        [id]
+      );
+      if (existingPpdi.length > 0) {
+        await conn.query(
+          'UPDATE keanggotaan_ppdi SET jabatan_pengurus = ? WHERE id_anggota = ?',
+          [effectiveJabatanPengurus, id]
+        );
+      } else {
+        const newIdPpdi = crypto.randomUUID();
+        const defaultKta = `32.04.PPDI.${Date.now().toString().slice(-6)}`;
+        await conn.query(
+          `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+           VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
+          [newIdPpdi, id, defaultKta, effectiveJabatanPengurus]
+        );
+      }
+    }
+
     conn.release();
-    return res.json({ success: true, message: 'Data anggota berhasil diperbarui di MySQL' });
+    return res.json({ success: true, message: 'Data anggota dan jabatan kepengurusan PPDI berhasil diperbarui di MySQL' });
   } catch (err: any) {
     if (conn) conn.release();
     return res.status(500).json({ success: false, error: err.message });
@@ -1506,6 +1561,43 @@ app.put('/api/kta/:idAnggota/status', requirePermission('ekta', 'edit'), async (
     await conn.query('UPDATE keanggotaan_ppdi SET status_kta = ? WHERE id_anggota = ?', [dbStatusKta, idAnggota]);
     conn.release();
     return res.json({ success: true, message: 'Status KTA diperbarui di MySQL' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Update PPDI Organization Role (Jabatan Kepengurusan PPDI)
+app.put('/api/kta/:idAnggota/jabatan-pengurus', requirePermission('anggota', 'edit'), async (req, res) => {
+  const { idAnggota } = req.params;
+  const { jabatan_pengurus, jabatanPengurus } = req.body;
+  const val = jabatan_pengurus || jabatanPengurus || 'Anggota Biasa';
+
+  try {
+    if (!pool) throw new Error('Pool not ready');
+    const conn = await pool.getConnection();
+
+    const [existingPpdi]: [any[], any] = await conn.query(
+      'SELECT id_ppdi FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
+      [idAnggota]
+    );
+
+    if (existingPpdi.length > 0) {
+      await conn.query(
+        'UPDATE keanggotaan_ppdi SET jabatan_pengurus = ? WHERE id_anggota = ?',
+        [val, idAnggota]
+      );
+    } else {
+      const newIdPpdi = crypto.randomUUID();
+      const defaultKta = `32.04.PPDI.${Date.now().toString().slice(-6)}`;
+      await conn.query(
+        `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+         VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
+        [newIdPpdi, idAnggota, defaultKta, val]
+      );
+    }
+
+    conn.release();
+    return res.json({ success: true, message: 'Jabatan kepengurusan PPDI berhasil diperbarui di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -2232,8 +2324,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     if (existingKta.length > 0) {
       finalKta = existingKta[0].no_kta;
       await conn.query(
-        'UPDATE keanggotaan_ppdi SET status_kta = "Aktif" WHERE id_anggota = ?',
-        [effectiveIdAnggota]
+        'UPDATE keanggotaan_ppdi SET status_kta = "Aktif", jabatan_pengurus = COALESCE(?, jabatan_pengurus) WHERE id_anggota = ?',
+        [p.jabatan_pengurus || null, effectiveIdAnggota]
       );
     } else {
       const [ktaCount]: [any[], any] = await conn.query('SELECT COUNT(*) as cnt FROM keanggotaan_ppdi');
@@ -2254,8 +2346,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
 
       await conn.query(
         `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
-         VALUES (?, ?, ?, CURDATE(), 'Anggota Biasa', 'Aktif')`,
-        [newIdPpdi, effectiveIdAnggota, finalKta]
+         VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
+        [newIdPpdi, effectiveIdAnggota, finalKta, p.jabatan_pengurus || 'Anggota Biasa']
       );
     }
 
@@ -2334,7 +2426,7 @@ app.delete('/api/pendaftaran/:id', requirePermission('pendaftaran', 'delete'), a
 const DEFAULT_SETTINGS = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
-  logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png',
+  logoUrl: '/logo_kabupaten_bandung.svg',
   loginBackgroundType: 'preset_emerald', // 'preset_emerald' | 'gradient_mesh' | 'custom_image' | 'dark_slate'
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
@@ -2346,11 +2438,15 @@ app.get('/api/settings', (_req, res) => {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+      const sanitizedLogo = data.logoUrl && data.logoUrl.includes('wikimedia.org')
+        ? '/logo_kabupaten_bandung.svg'
+        : (data.logoUrl || DEFAULT_SETTINGS.logoUrl);
       return res.json({
         success: true,
         settings: {
           ...DEFAULT_SETTINGS,
           ...data,
+          logoUrl: sanitizedLogo,
           rolePermissions: (data.rolePermissions && Object.keys(data.rolePermissions).length > 0)
             ? data.rolePermissions
             : DEFAULT_ROLE_PERMISSIONS,

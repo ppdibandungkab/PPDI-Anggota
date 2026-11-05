@@ -231,9 +231,7 @@ export const AppSettingsView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() =>
-                      setLogoUrl(
-                        'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png'
-                      )
+                      setLogoUrl('/logo_kabupaten_bandung.svg')
                     }
                     className="px-3 py-1 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded-md text-[11px] text-neutral-700 cursor-pointer font-medium"
                   >

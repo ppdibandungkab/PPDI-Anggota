@@ -176,14 +176,25 @@ export function getPhotoUrl(foto?: string | null, gender?: string | null): strin
     return getDefaultAvatar(gender);
   }
 
-  if (
-    clean.startsWith('http://') ||
-    clean.startsWith('https://') ||
-    clean.startsWith('data:') ||
-    clean.startsWith('/')
-  ) {
+  // Sanitize wikimedia logo if mistakenly used as photo
+  if (clean.includes('wikimedia.org')) {
+    return '/logo_kabupaten_bandung.svg';
+  }
+
+  if (clean.startsWith('data:') || clean.startsWith('/')) {
     return clean;
   }
+
+  if (clean.startsWith('http://') || clean.startsWith('https://')) {
+    if (typeof window !== 'undefined' && clean.startsWith(window.location.origin)) {
+      return clean;
+    }
+    if (clean.includes('/api/proxy-image')) {
+      return clean;
+    }
+    return `/api/proxy-image?url=${encodeURIComponent(clean)}`;
+  }
+
   return `/uploads/foto/${clean}`;
 }
 

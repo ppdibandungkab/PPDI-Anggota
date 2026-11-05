@@ -43,6 +43,7 @@ import {
   PieChart,
   Pie,
 } from 'recharts';
+import { StatistikWilayahView } from './StatistikWilayahView';
 
 // Custom Tooltip for Recharts
 const CustomChartTooltip = ({ active, payload, label }: any) => {
@@ -328,6 +329,17 @@ export const DashboardView: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const el = document.getElementById('sebaran-wilayah-chart');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            title="Lihat Visualisasi Bar Chart Sebaran 31 Kecamatan"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Grafik Wilayah (31 Kec)</span>
+          </button>
           <button
             onClick={() => setActiveTab('pensiun')}
             className="px-3 py-1.5 text-xs font-medium text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
@@ -911,85 +923,9 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabel Rekapitulasi Wilayah Kecamatan se-Kabupaten Bandung */}
-      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-        <div className="p-4 border-b border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-neutral-900">
-              Rekapitulasi Keanggotaan Teritorial Kecamatan
-            </h2>
-            <p className="text-xs text-neutral-500">
-              Pemetaan jumlah perangkat desa terdaftar, desa binaan, dan keaktifan KTA
-            </p>
-          </div>
-          <button
-            onClick={() => setActiveTab('anggota')}
-            className="text-xs font-semibold text-emerald-800 hover:text-emerald-900 flex items-center gap-1 cursor-pointer"
-          >
-            <span>Buka Data Lengkap</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-neutral-50 border-b border-neutral-200 text-neutral-600 font-semibold">
-                <th className="py-2.5 px-4">Kode Wilayah</th>
-                <th className="py-2.5 px-4">Nama Kecamatan</th>
-                <th className="py-2.5 px-4 text-center">Jml Desa</th>
-                <th className="py-2.5 px-4 text-center">Anggota Terdaftar</th>
-                <th className="py-2.5 px-4 text-center">KTA Terbit</th>
-                <th className="py-2.5 px-4 text-center">Purna (&lt;18 Bln)</th>
-                <th className="py-2.5 px-4 text-right">Status Wilayah</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-200/70 text-neutral-800">
-              {kecamatanList.map((kec) => {
-                const desaInKec = desaList.filter((d) => d.id_kecamatan === kec.id_kecamatan);
-                const membersInKec = fullMembers.filter((m) => m.kecamatan?.id_kecamatan === kec.id_kecamatan);
-                const activeKTA = membersInKec.filter((m) => m.keanggotaan?.status_kta === 'Aktif').length;
-                const retiring18Bln = membersInKec.filter((m) => {
-                  if (m.statusPensiun === 'Sudah Purna Tugas') return false;
-                  const totalMonths = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
-                  return totalMonths > 0 && totalMonths <= 18;
-                }).length;
-
-                return (
-                  <tr key={kec.id_kecamatan} className="hover:bg-neutral-50/80 transition-colors">
-                    <td className="py-2.5 px-4 font-mono text-neutral-500">{kec.id_kecamatan}</td>
-                    <td className="py-2.5 px-4 font-semibold text-neutral-900">
-                      Kec. {kec.nama_kecamatan}
-                    </td>
-                    <td className="py-2.5 px-4 text-center tabular-nums">{desaInKec.length} Desa</td>
-                    <td className="py-2.5 px-4 text-center font-semibold tabular-nums">{membersInKec.length} orang</td>
-                    <td className="py-2.5 px-4 text-center">
-                      <span className="inline-block px-2 py-0.5 rounded-xs text-[11px] font-medium bg-emerald-50 text-emerald-800">
-                        {activeKTA} KTA
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4 text-center">
-                      {retiring18Bln > 0 ? (
-                        <span className="inline-block px-2 py-0.5 rounded-xs text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                          {retiring18Bln} Orang
-                        </span>
-                      ) : (
-                        <span className="text-neutral-400">-</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums">
-                      {membersInKec.length > 0 ? (
-                        <span className="text-emerald-700 font-medium">Terverifikasi</span>
-                      ) : (
-                        <span className="text-neutral-400">Belum Terinput</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {/* Visualisasi Statistik Sebaran Wilayah Kecamatan se-Kabupaten Bandung (Recharts) */}
+      <div id="sebaran-wilayah-chart">
+        <StatistikWilayahView showCardWrapper={true} />
       </div>
     </div>
   );

@@ -644,4 +644,48 @@ export async function updateFaviconAndTitle(logoUrl?: string, title?: string): P
   linkApple.href = faviconDataUrl;
 }
 
+/**
+ * Formats phone number for WhatsApp deep links (e.g. 08123... -> 628123...)
+ */
+export function formatPhoneForWhatsApp(phone?: string | null): string {
+  if (!phone) return '';
+  let clean = phone.replace(/\D/g, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.slice(1);
+  } else if (!clean.startsWith('62') && clean.length > 5) {
+    clean = '62' + clean;
+  }
+  return clean;
+}
 
+/**
+ * Generates WhatsApp approval notification URL for approved members
+ */
+export function getWhatsAppApprovalUrl(params: {
+  phone: string;
+  name: string;
+  noKta: string;
+  desa?: string;
+  kecamatan?: string;
+}): string {
+  const cleanPhone = formatPhoneForWhatsApp(params.phone);
+  const formattedName = (params.name || '').toUpperCase().trim();
+  const desaName = params.desa ? `Desa ${params.desa.replace(/^desa\s+/i, '')}` : 'Desa';
+  const kecName = params.kecamatan ? `Kec. ${params.kecamatan.replace(/^kec(amatan)?\s+/i, '')}` : '';
+  const wilStr = [desaName, kecName].filter(Boolean).join(', ');
+
+  const message =
+    `*NOTIFIKASI RESMI PPDI KABUPATEN BANDUNG*\n\n` +
+    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
+    `Selamat! Formulir Pendaftaran Keanggotaan *PERSATUAN PERANGKAT DESA INDONESIA (PPDI)* Anda telah *DISETUJUI*.\n\n` +
+    `*INFORMASI E-KTA DIGITAL:*\n` +
+    `• Nama Lengkap: *${formattedName}*\n` +
+    `• Wilayah Tugas: *${wilStr}*\n` +
+    `• Nomor KTA Digital: *${params.noKta}*\n` +
+    `• Status Keanggotaan: *AKTIF*\n\n` +
+    `Kartu Tanda Anggota (E-KTA) Digital Anda telah resmi diterbitkan. Anda kini dapat login dan mengunduh E-KTA resmi di portal aplikasi PPDI.\n\n` +
+    `Salam Perjuangan,\n` +
+    `*Pengurus Daerah PPDI Kabupaten Bandung*`;
+
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}

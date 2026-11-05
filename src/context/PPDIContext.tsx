@@ -88,7 +88,8 @@ interface PPDIContextType {
     jabatanPengurus?: string
   ) => Promise<{ success: boolean; newId?: string; noKta: string }>;
   batchImportAnggota: (items: any[]) => Promise<{ success: boolean; insertedCount: number; skippedCount: number; skipped: any[]; message: string }>;
-  updateAnggota: (id: string, updated: Partial<Anggota>) => Promise<void>;
+  updateAnggota: (id: string, updated: Partial<Anggota>, jabatanPengurus?: string) => Promise<void>;
+  updateKeanggotaanJabatan: (idAnggota: string, jabatanPengurus: string) => Promise<void>;
   deleteAnggota: (id: string) => Promise<{ success: boolean; message: string }>;
   addRiwayatJabatan: (data: Omit<RiwayatJabatan, 'id_riwayat'>) => Promise<void>;
   updateRiwayatJabatan: (idRiwayat: string, updated: Partial<RiwayatJabatan>) => Promise<void>;
@@ -143,7 +144,7 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS: AppSettings = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
-  logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png',
+  logoUrl: '/logo_kabupaten_bandung.svg',
   loginBackgroundType: 'preset_emerald',
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
@@ -195,9 +196,13 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const sanitizedLogo = parsed.logoUrl && parsed.logoUrl.includes('wikimedia.org')
+          ? '/logo_kabupaten_bandung.svg'
+          : (parsed.logoUrl || DEFAULT_SETTINGS.logoUrl);
         return {
           ...DEFAULT_SETTINGS,
           ...parsed,
+          logoUrl: sanitizedLogo,
           rolePermissions: parsed.rolePermissions && Object.keys(parsed.rolePermissions).length > 0
             ? parsed.rolePermissions
             : DEFAULT_ROLE_PERMISSIONS,
@@ -413,17 +418,23 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 6. Process Settings
       if (setRes.status === 'fulfilled' && setRes.value.ok && setRes.value.data?.success && setRes.value.data.settings) {
         const incoming = setRes.value.data.settings;
-        setAppSettings((prev) => ({
-          ...DEFAULT_SETTINGS,
-          ...prev,
-          ...incoming,
-          rolePermissions:
-            incoming.rolePermissions && Object.keys(incoming.rolePermissions).length > 0
-              ? incoming.rolePermissions
-              : prev.rolePermissions && Object.keys(prev.rolePermissions).length > 0
-              ? prev.rolePermissions
-              : DEFAULT_ROLE_PERMISSIONS,
-        }));
+        setAppSettings((prev) => {
+          const logo = incoming.logoUrl && incoming.logoUrl.includes('wikimedia.org')
+            ? '/logo_kabupaten_bandung.svg'
+            : (incoming.logoUrl || prev.logoUrl || '/logo_kabupaten_bandung.svg');
+          return {
+            ...DEFAULT_SETTINGS,
+            ...prev,
+            ...incoming,
+            logoUrl: logo,
+            rolePermissions:
+              incoming.rolePermissions && Object.keys(incoming.rolePermissions).length > 0
+                ? incoming.rolePermissions
+                : prev.rolePermissions && Object.keys(prev.rolePermissions).length > 0
+                ? prev.rolePermissions
+                : DEFAULT_ROLE_PERMISSIONS,
+          };
+        });
       }
     } catch (err) {
       console.warn('Gagal memuat langsung dari MySQL, menggunakan cache lokal:', err);
@@ -1015,7 +1026,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateAnggota = async (id: string, updated: Partial<Anggota>) => {
+  const updateAnggota = async (id: string, updated: Partial<Anggota>, jabatanPengurus?: string) => {
     const formattedUpdated: Partial<Anggota> = { ...updated };
     if (updated.nama_lengkap) {
       formattedUpdated.nama_lengkap = updated.nama_lengkap.trim().toUpperCase();
@@ -1024,11 +1035,23 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       prev.map((item) => (item.id_anggota === id ? { ...item, ...formattedUpdated, updated_at: new Date().toISOString() } : item))
     );
 
+    if (jabatanPengurus) {
+      setKeanggotaanList((prev) =>
+        prev.map((k) =>
+          k.id_anggota === id ? { ...k, jabatan_pengurus: jabatanPengurus } : k
+        )
+      );
+    }
+
     try {
+      const payload: any = { ...formattedUpdated };
+      if (jabatanPengurus) {
+        payload.jabatan_pengurus = jabatanPengurus;
+      }
       const res = await safeFetchJson(`/api/anggota/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formattedUpdated),
+        body: JSON.stringify(payload),
       });
       const json = res.data;
       if (!res.ok || json.success === false) {
@@ -1038,6 +1061,24 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       console.warn('MySQL update error, keeping state updated:', err);
       throw err;
+    }
+  };
+
+  const updateKeanggotaanJabatan = async (idAnggota: string, jabatanPengurus: string) => {
+    setKeanggotaanList((prev) =>
+      prev.map((k) =>
+        k.id_anggota === idAnggota ? { ...k, jabatan_pengurus: jabatanPengurus } : k
+      )
+    );
+    try {
+      await safeFetchJson(`/api/kta/${idAnggota}/jabatan-pengurus`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jabatan_pengurus: jabatanPengurus }),
+      });
+      await refreshDataFromMySQL();
+    } catch (err) {
+      console.warn('Error updating jabatan pengurus:', err);
     }
   };
 
@@ -1525,6 +1566,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addAnggotaWithJobAndKta,
         batchImportAnggota,
         updateAnggota,
+        updateKeanggotaanJabatan,
         deleteAnggota,
         addRiwayatJabatan,
         updateRiwayatJabatan,
