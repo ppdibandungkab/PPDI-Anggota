@@ -260,18 +260,41 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         </div>
       )}
 
-      {/* Search and Filters Bar */}
-      <div className="bg-white p-3 rounded-xl border border-neutral-200 space-y-3">
-        {/* Search Input */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Cari berdasarkan NIK 16 digit, Nama Lengkap, NIAP/NIPD, No. KTA, atau Desa..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs bg-neutral-50 border border-neutral-200 rounded-lg text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-emerald-700 focus:bg-white"
-          />
+      {/* Real-time Quick Search & Filter Container */}
+      <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs space-y-3">
+        {/* Prominent Real-time Search Input Column */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs font-semibold text-neutral-700">
+            <span className="flex items-center gap-1.5 uppercase font-mono tracking-wider text-[11px] text-[#064E3B]">
+              <Search className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Pencarian Real-Time Anggota / Nomor KTA</span>
+            </span>
+            {searchQuery && (
+              <span className="text-[11px] font-mono text-emerald-800 font-bold bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                Ditemukan {filteredList.length} dari {visibleMembers.length} Anggota
+              </span>
+            )}
+          </div>
+          <div className="relative flex items-center">
+            <Search className="w-4.5 h-4.5 text-emerald-700 absolute left-3.5 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Ketik Nama Lengkap, Nomor KTA Digital (mis. 32.04...), NIK 16 digit, NIAP, Desa, atau Kecamatan..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-2.5 text-xs font-mono bg-emerald-50/40 border border-emerald-300/80 rounded-xl text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#064E3B] focus:border-transparent focus:bg-white shadow-2xs transition-all font-medium placeholder:text-neutral-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 p-1 text-neutral-400 hover:text-neutral-700 rounded-full hover:bg-neutral-200 transition-colors cursor-pointer"
+                title="Hapus kata kunci pencarian"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter Controls Row */}

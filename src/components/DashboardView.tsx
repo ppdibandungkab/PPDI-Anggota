@@ -81,7 +81,7 @@ export const DashboardView: React.FC = () => {
   // Regional Filter State for Recharts Data Visualization
   const [selectedKecamatanId, setSelectedKecamatanId] = useState<string>('');
   const [selectedDesaId, setSelectedDesaId] = useState<string>('');
-  const [activeChartTab, setActiveChartTab] = useState<'jabatan' | 'masakerja' | 'wilayah'>('jabatan');
+  const [activeChartTab, setActiveChartTab] = useState<'jabatan' | 'masakerja' | 'pensiun' | 'wilayah'>('jabatan');
   
   // Toggle for 18-Month Retirement Notification Banner
   const [showRetirementNotif, setShowRetirementNotif] = useState<boolean>(true);
@@ -265,6 +265,40 @@ export const DashboardView: React.FC = () => {
         .slice(0, 12);
     }
   }, [selectedKecamatanId, filteredDesaList, kecamatanList, chartFilteredMembers, visibleMembers]);
+
+  // 4. Data Pie Chart Purna Tugas & Usia Pensiun
+  const pensiunPieData = useMemo(() => {
+    let kritis = 0; // <6 Bln
+    let siaga = 0; // 6-12 Bln
+    let waspada = 0; // 12-18 Bln
+    let aktifNormal = 0; // >18 Bln / Masa Aktif Normal
+    let purnaTugas = 0; // Sudah Purna Tugas
+
+    chartFilteredMembers.forEach((m) => {
+      if (m.statusPensiun === 'Sudah Purna Tugas') {
+        purnaTugas++;
+      } else {
+        const totalSisaBulan = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
+        if (totalSisaBulan <= 6) {
+          kritis++;
+        } else if (totalSisaBulan <= 12) {
+          siaga++;
+        } else if (totalSisaBulan <= 18) {
+          waspada++;
+        } else {
+          aktifNormal++;
+        }
+      }
+    });
+
+    return [
+      { name: 'Kritis (<6 Bln)', value: kritis, color: '#dc2626' },
+      { name: 'Siaga (6-12 Bln)', value: siaga, color: '#d97706' },
+      { name: 'Waspada (12-18 Bln)', value: waspada, color: '#2563eb' },
+      { name: 'Usia Aktif Normal', value: aktifNormal, color: '#059669' },
+      { name: 'Sudah Purna Tugas', value: purnaTugas, color: '#6b7280' },
+    ].filter((item) => item.value > 0);
+  }, [chartFilteredMembers]);
 
   // Color Palette for Recharts Bars
   const BAR_COLORS = [
@@ -680,6 +714,17 @@ export const DashboardView: React.FC = () => {
               <span>Berdasarkan Masa Kerja</span>
             </button>
             <button
+              onClick={() => setActiveChartTab('pensiun')}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeChartTab === 'pensiun'
+                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                  : 'text-neutral-600 hover:text-neutral-900'
+              }`}
+            >
+              <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
+              <span>Pie Chart Masa Purna Tugas</span>
+            </button>
+            <button
               onClick={() => setActiveChartTab('wilayah')}
               className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeChartTab === 'wilayah'
@@ -835,6 +880,70 @@ export const DashboardView: React.FC = () => {
             ) : (
               <div className="p-8 text-center text-xs text-neutral-400 bg-neutral-50 rounded-xl border border-dashed border-neutral-300">
                 Tidak ada data wilayah pada filter terpilih.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CHART TAB 4: PIE CHART MASA PURNA TUGAS */}
+        {activeChartTab === 'pensiun' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs text-neutral-600">
+              <span>Visualisasi Distribusi Anggota Berdasarkan Periode Masa Tugas & Persiapan Purna Tugas (Usia 60 Thn)</span>
+              <span className="font-mono text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                {pensiunPieData.length} Kategori Status Usia
+              </span>
+            </div>
+
+            {pensiunPieData.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center pt-2">
+                <div className="h-72 md:col-span-2 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Tooltip content={<CustomChartTooltip />} />
+                      <Pie
+                        data={pensiunPieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={95}
+                        paddingAngle={4}
+                        label={({ name, value, percent }) => `${name}: ${value} (${((percent || 0) * 100).toFixed(0)}%)`}
+                      >
+                        {pensiunPieData.map((entry, index) => (
+                          <Cell key={`pie-cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="space-y-2 bg-neutral-50 p-4 rounded-xl border border-neutral-200 text-xs">
+                  <h4 className="font-bold text-neutral-800 text-[11px] uppercase tracking-wider pb-2 border-b border-neutral-200 flex items-center justify-between">
+                    <span>Ringkasan Masa Purna Tugas</span>
+                    <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
+                  </h4>
+                  {pensiunPieData.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-white border border-neutral-200/80 shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                        <span className="font-semibold text-neutral-800 text-[11px]">{item.name}</span>
+                      </div>
+                      <span className="font-mono font-bold text-neutral-900 bg-neutral-100 px-2 py-0.5 rounded text-[11px]">
+                        {item.value} Orang
+                      </span>
+                    </div>
+                  ))}
+                  <div className="pt-2 text-[10px] text-neutral-500 font-mono italic text-center">
+                    Berdasarkan Batas Usia Pensiun 60 Tahun (UU Desa)
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-xs text-neutral-400 bg-neutral-50 rounded-xl border border-dashed border-neutral-300">
+                Tidak ada data pensiun pada filter wilayah yang dipilih.
               </div>
             )}
           </div>

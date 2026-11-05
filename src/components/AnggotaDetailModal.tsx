@@ -19,7 +19,11 @@ import {
   CheckCircle,
   Plus,
   ExternalLink,
+  Printer,
+  Download,
+  RefreshCw,
 } from 'lucide-react';
+import { exportMemberProfileToPDF } from '../utils/pdfProfileExport';
 
 interface AnggotaDetailModalProps {
   member: AnggotaFullDetail | null;
@@ -48,6 +52,20 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   } = usePPDI();
 
   const [activeTab, setActiveTab] = useState<'bio' | 'karir' | 'kta' | 'iuran' | 'dokumen'>('bio');
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+
+  const handleDownloadPDF = () => {
+    if (!member) return;
+    try {
+      setIsExportingPDF(true);
+      exportMemberProfileToPDF(member);
+    } catch (err: any) {
+      console.error('Error generating member profile PDF:', err);
+      alert('Gagal membuat dokumen PDF: ' + (err.message || 'Error'));
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
 
   // Form state for adding new riwayat jabatan (mutasi/promosi)
   const [showAddRiwayat, setShowAddRiwayat] = useState(false);
@@ -126,7 +144,20 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isExportingPDF}
+              title="Unduh Profil Resmi & Biodata Anggota Format PDF"
+              className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+            >
+              {isExportingPDF ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <FileText className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isExportingPDF ? 'Mencetak...' : 'Cetak PDF Profil'}</span>
+            </button>
             <button
               onClick={() => {
                 onClose();
@@ -689,10 +720,22 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-neutral-200 flex justify-end">
+        <div className="px-6 py-3 border-t border-neutral-200 flex justify-between items-center bg-neutral-50 rounded-b-xl">
+          <button
+            onClick={handleDownloadPDF}
+            disabled={isExportingPDF}
+            className="px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+          >
+            {isExportingPDF ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+            ) : (
+              <FileText className="w-3.5 h-3.5 text-amber-300" />
+            )}
+            <span>{isExportingPDF ? 'Mencetak PDF...' : 'Cetak PDF Profil Resmi'}</span>
+          </button>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg cursor-pointer"
+            className="px-4 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-200 hover:bg-neutral-300 rounded-lg cursor-pointer"
           >
             Tutup
           </button>
