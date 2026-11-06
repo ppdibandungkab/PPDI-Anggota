@@ -13,6 +13,9 @@ import {
   Server,
   Shield,
   HelpCircle,
+  Users,
+  ClipboardCheck,
+  ClockAlert,
 } from 'lucide-react';
 import { DbConnectionModal } from './DbConnectionModal';
 
@@ -27,6 +30,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
     appSettings,
     kecamatanList,
     fullMembers,
+    pendaftaranList,
     dbStatus,
     isCheckingDb,
     checkDbStatus,
@@ -67,6 +71,38 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
       .map(([id, data]) => ({ id_kecamatan: id, ...data }))
       .sort((a, b) => b.count - a.count);
   }, [kecamatanList, fullMembers]);
+
+  // Quick Stats calculations for Ringkasan Cepat
+  const totalAnggotaAktif = React.useMemo(() => {
+    return (fullMembers || []).filter(
+      (m) => m.keanggotaan?.status_kta === 'Aktif' || (!m.keanggotaan || m.keanggotaan?.status_kta !== 'Non-Aktif')
+    ).length;
+  }, [fullMembers]);
+
+  const pendaftarMenunggu = React.useMemo(() => {
+    return (pendaftaranList || []).filter((p) => p.status_approval === 'Menunggu').length;
+  }, [pendaftaranList]);
+
+  const pensiunBulanIniCount = React.useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+
+    return (fullMembers || []).filter((m) => {
+      if (!m.anggota.tanggal_lahir) return false;
+      const birthDate = new Date(m.anggota.tanggal_lahir);
+      if (isNaN(birthDate.getTime())) return false;
+
+      const retirementYear = birthDate.getFullYear() + 60;
+      const retirementMonth = birthDate.getMonth() + 1;
+
+      return (
+        (retirementYear === currentYear && retirementMonth === currentMonth) ||
+        m.statusPensiun === 'Kritis (<6 Bln)' ||
+        m.statusPensiun === 'Siaga (<1 Thn)'
+      );
+    }).length;
+  }, [fullMembers]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -354,6 +390,79 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               </button>
             )}
           </div>
+
+          {/* RINGKASAN CEPAT (QUICK STATS) */}
+        <div className="col-span-1 lg:col-span-2 mb-2 animate-in fade-in slide-in-from-top-3 duration-300">
+          <div className="flex items-center justify-between mb-2.5 px-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <h2 className="text-xs font-mono uppercase tracking-widest text-emerald-300 font-bold">
+                RINGKASAN CEPAT PORTAL (QUICK STATS)
+              </h2>
+            </div>
+            <span className="text-[10px] font-mono text-white/70 bg-black/40 border border-white/10 px-2.5 py-0.5 rounded-md backdrop-blur-md">
+              UPDATE REAL-TIME
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            {/* Card 1: Total Anggota Aktif */}
+            <div className="p-4 rounded-xl bg-black/40 border border-emerald-500/40 backdrop-blur-md shadow-xl flex items-center justify-between text-white hover:bg-black/50 transition-all">
+              <div>
+                <div className="text-[11px] font-mono text-emerald-300 font-bold uppercase tracking-wider">
+                  Total Anggota Aktif
+                </div>
+                <div className="text-2xl font-black font-mono text-emerald-400 mt-1">
+                  {totalAnggotaAktif} <span className="text-xs font-normal text-emerald-200/70">Orang</span>
+                </div>
+                <div className="text-[10px] text-white/60 mt-0.5 font-sans">
+                  Perangkat desa terverifikasi & ber-KTA Digital
+                </div>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-emerald-950/80 border border-emerald-500/50 flex items-center justify-center shrink-0 text-emerald-300 shadow-inner">
+                <Users className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Card 2: Pendaftar Baru Menunggu Approval */}
+            <div className="p-4 rounded-xl bg-black/40 border border-amber-500/40 backdrop-blur-md shadow-xl flex items-center justify-between text-white hover:bg-black/50 transition-all">
+              <div>
+                <div className="text-[11px] font-mono text-amber-300 font-bold uppercase tracking-wider">
+                  Menunggu Approval
+                </div>
+                <div className="text-2xl font-black font-mono text-amber-400 mt-1">
+                  {pendaftarMenunggu} <span className="text-xs font-normal text-amber-200/70">Pendaftar</span>
+                </div>
+                <div className="text-[10px] text-white/60 mt-0.5 font-sans">
+                  Pengajuan anggota baru butuh verifikasi admin
+                </div>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-amber-950/80 border border-amber-500/50 flex items-center justify-center shrink-0 text-amber-300 shadow-inner">
+                <ClipboardCheck className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Card 3: Anggota Pensiun Bulan Ini */}
+            <div className="p-4 rounded-xl bg-black/40 border border-rose-500/40 backdrop-blur-md shadow-xl flex items-center justify-between text-white hover:bg-black/50 transition-all">
+              <div>
+                <div className="text-[11px] font-mono text-rose-300 font-bold uppercase tracking-wider">
+                  Pensiun Bulan Ini
+                </div>
+                <div className="text-2xl font-black font-mono text-rose-400 mt-1">
+                  {pensiunBulanIniCount} <span className="text-xs font-normal text-rose-200/70">Orang</span>
+                </div>
+                <div className="text-[10px] text-white/60 mt-0.5 font-sans">
+                  Mendekati / genap masa purna tugas 60 tahun
+                </div>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-rose-950/80 border border-rose-500/50 flex items-center justify-center shrink-0 text-rose-300 shadow-inner">
+                <ClockAlert className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+          
 
           {/* Rekapitulasi Anggota Per Kecamatan Table */}
           <div className="mt-8 bg-black/30 backdrop-blur-md rounded-xl border border-white/10 p-4 max-w-xl text-white">

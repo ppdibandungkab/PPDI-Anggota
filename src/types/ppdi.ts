@@ -152,6 +152,22 @@ export interface PendaftaranPerangkatDesa {
   nama_jabatan?: string;
 }
 
+export type AksiLog = 'TAMBAH' | 'EDIT' | 'HAPUS' | 'APPROVE' | 'REJECT' | 'IMPORT' | 'STATUS_KTA';
+
+export interface ActivityLogEntry {
+  id: string;
+  timestamp: string; // ISO or YYYY-MM-DD HH:mm:ss
+  user_id: number;
+  user_name: string;
+  user_role: UserRole;
+  aksi: AksiLog;
+  modul: string;
+  target_id?: string;
+  target_nama?: string;
+  deskripsi: string;
+  ip_address?: string;
+}
+
 export interface Permission {
   view: boolean;
   add: boolean;
@@ -175,6 +191,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'pensiun': { view: true, add: true, edit: true, delete: true },
     'arsip': { view: true, add: true, edit: true, delete: true },
     'iuran': { view: true, add: true, edit: true, delete: true },
+    'log-aktivitas': { view: true, add: true, edit: true, delete: true },
     'settings-app': { view: true, add: true, edit: true, delete: true },
     'settings-user': { view: true, add: true, edit: true, delete: true },
     'settings-role': { view: true, add: true, edit: true, delete: true },
@@ -189,6 +206,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: true, delete: true },
     'iuran': { view: true, add: true, edit: true, delete: true },
+    'log-aktivitas': { view: true, add: false, edit: false, delete: false },
     'settings-user': { view: true, add: true, edit: true, delete: true },
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
@@ -203,6 +221,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: true, delete: false },
+    'log-aktivitas': { view: true, add: false, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
@@ -217,6 +236,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: false, delete: false },
+    'log-aktivitas': { view: false, add: false, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
@@ -231,6 +251,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'pensiun': { view: false, add: false, edit: false, delete: false },
     'arsip': { view: false, add: false, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: false, delete: false },
+    'log-aktivitas': { view: false, add: false, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },

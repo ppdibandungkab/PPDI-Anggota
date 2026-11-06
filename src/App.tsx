@@ -21,6 +21,7 @@ import { PublicVerifyModal } from './components/PublicVerifyModal';
 import { DbConnectionModal } from './components/DbConnectionModal';
 import { DbSettingsView } from './components/DbSettingsView';
 import { StatistikWilayahView } from './components/StatistikWilayahView';
+import { LogAktivitasView } from './components/LogAktivitasView';
 import { AnggotaFullDetail } from './types/ppdi';
 
 const MainAppContent: React.FC = () => {
@@ -164,6 +165,7 @@ const MainAppContent: React.FC = () => {
           )}
           {activeTab === 'arsip' && <ArsipSKView />}
           {activeTab === 'iuran' && <IuranView />}
+          {activeTab === 'log-aktivitas' && <LogAktivitasView />}
           {(activeTab === 'settings' || activeTab === 'settings-app') && <AppSettingsView />}
           {activeTab === 'settings-user' && <UserSettingsView />}
           {activeTab === 'settings-role' && <RoleManagementView />}

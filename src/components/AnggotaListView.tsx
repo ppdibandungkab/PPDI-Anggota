@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
-import { formatDateIndo } from '../utils/ppdiHelpers';
+import { formatDateIndo, getWhatsAppKTAReminderUrl, getWhatsAppIuranReminderUrl, formatPhoneForWhatsApp } from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
 import { exportAnggotaToExcel, exportAnggotaToCSV } from '../utils/excelExport';
 import {
@@ -22,6 +22,9 @@ import {
   X,
   FileSpreadsheet,
   RefreshCw,
+  MessageSquare,
+  Send,
+  Wallet,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 import { PermissionGate } from './PermissionGate';
@@ -53,6 +56,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKecamatan, setFilterKecamatan] = useState('all');
   const [filterDesa, setFilterDesa] = useState('all');
+  const [filterKategori, setFilterKategori] = useState('all');
   const [filterJabatan, setFilterJabatan] = useState('all');
   const [filterStatusKTA, setFilterStatusKTA] = useState('all');
   const [filterStatusPensiun, setFilterStatusPensiun] = useState('all');
@@ -62,6 +66,10 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // WhatsApp Notification Dispatch Modal State
+  const [waModalMember, setWaModalMember] = useState<AnggotaFullDetail | null>(null);
+  const [waType, setWaType] = useState<'kta' | 'iuran'>('kta');
 
   const handleConfirmDelete = async () => {
     if (!memberToDelete) return;
@@ -121,9 +129,16 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         if (memberDesa !== cleanDesa) return false;
       }
 
-      // Jabatan filter
-      if (filterJabatan !== 'all' && String(m.jabatanRef?.id_jabatan) !== filterJabatan) {
-        return false;
+      // Kategori Jabatan / Unit Kerja filter
+      if (filterKategori !== 'all') {
+        const kat = m.jabatanRef?.kategori_jabatan;
+        if (kat !== filterKategori) return false;
+      }
+
+      // Specific Jabatan filter
+      if (filterJabatan !== 'all') {
+        const jId = String(m.jabatanRef?.id_jabatan || m.jabatanTerkini?.id_jabatan || '');
+        if (jId !== filterJabatan) return false;
       }
 
       // KTA status filter
@@ -148,6 +163,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     searchQuery,
     filterKecamatan,
     filterDesa,
+    filterKategori,
     filterJabatan,
     filterStatusKTA,
     filterStatusPensiun,
@@ -298,7 +314,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         </div>
 
         {/* Filter Controls Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
           {/* Kecamatan */}
           <div>
             <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1">
@@ -311,7 +327,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 setFilterKecamatan(e.target.value);
                 setFilterDesa('all');
               }}
-              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden"
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden font-mono"
             >
               <option value="all">Semua Kecamatan</option>
               {kecamatanList.map((k) => (
@@ -325,13 +341,13 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           {/* Desa */}
           <div>
             <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1">
-              Desa
+              Desa / Unit Wilayah
             </label>
             <select
               aria-label="Filter Desa"
               value={filterDesa}
               onChange={(e) => setFilterDesa(e.target.value)}
-              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden"
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden font-mono"
             >
               <option value="all">Semua Desa</option>
               {availableDesa.map((d) => (
@@ -342,16 +358,36 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             </select>
           </div>
 
-          {/* Jabatan */}
+          {/* Unit Kerja / Kategori Jabatan */}
           <div>
             <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1">
-              Jabatan
+              Unit Kerja Pemdes
             </label>
             <select
-              aria-label="Filter Jabatan"
+              aria-label="Filter Unit Kerja Pemdes"
+              value={filterKategori}
+              onChange={(e) => setFilterKategori(e.target.value)}
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden font-mono"
+            >
+              <option value="all">Semua Unit Kerja</option>
+              <option value="Kepala Desa">Kepala Desa</option>
+              <option value="Sekretariat">Sekretariat Desa (Kaur/Sekdes)</option>
+              <option value="Pelaksana Teknis">Pelaksana Teknis (Kasi)</option>
+              <option value="Pelaksana Kewilayahan">Pelaksana Kewilayahan (Kadus)</option>
+              <option value="Staf Desa">Staf Desa</option>
+            </select>
+          </div>
+
+          {/* Formasi Jabatan */}
+          <div>
+            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1">
+              Formasi Jabatan
+            </label>
+            <select
+              aria-label="Filter Formasi Jabatan"
               value={filterJabatan}
               onChange={(e) => setFilterJabatan(e.target.value)}
-              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden"
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden font-mono"
             >
               <option value="all">Semua Formasi</option>
               {jabatanList.map((j) => (
@@ -371,7 +407,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               aria-label="Filter Status KTA"
               value={filterStatusKTA}
               onChange={(e) => setFilterStatusKTA(e.target.value)}
-              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden"
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden font-mono"
             >
               <option value="all">Semua Status KTA</option>
               <option value="Aktif">Aktif</option>
@@ -383,13 +419,13 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           {/* Batas Pensiun */}
           <div>
             <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1">
-              Status Purna Tugas (60 Th)
+              Purna Tugas (60 Th)
             </label>
             <select
               aria-label="Filter Status Purna Tugas"
               value={filterStatusPensiun}
               onChange={(e) => setFilterStatusPensiun(e.target.value)}
-              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden"
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 text-xs text-neutral-800 focus:outline-hidden font-mono"
             >
               <option value="all">Semua Usia</option>
               <option value="kritis">Mendekati Pensiun (&lt; 1 Thn)</option>
@@ -397,6 +433,67 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             </select>
           </div>
         </div>
+
+        {/* Reset Filter Bar if any filter is active */}
+        {(filterKecamatan !== 'all' ||
+          filterDesa !== 'all' ||
+          filterKategori !== 'all' ||
+          filterJabatan !== 'all' ||
+          filterStatusKTA !== 'all' ||
+          filterStatusPensiun !== 'all' ||
+          searchQuery) && (
+          <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs animate-in fade-in duration-150">
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-600 font-mono">
+              <span className="font-bold text-emerald-800">Filter Aktif:</span>
+              {filterKecamatan !== 'all' && (
+                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                  Kec. {kecamatanList.find((k) => k.id_kecamatan === filterKecamatan)?.nama_kecamatan || filterKecamatan}
+                </span>
+              )}
+              {filterDesa !== 'all' && (
+                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                  Desa {desaList.find((d) => d.id_desa === filterDesa)?.nama_desa || filterDesa}
+                </span>
+              )}
+              {filterKategori !== 'all' && (
+                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                  Unit: {filterKategori}
+                </span>
+              )}
+              {filterJabatan !== 'all' && (
+                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                  Jabatan: {jabatanList.find((j) => String(j.id_jabatan) === filterJabatan)?.nama_jabatan || filterJabatan}
+                </span>
+              )}
+              {filterStatusKTA !== 'all' && (
+                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                  KTA: {filterStatusKTA}
+                </span>
+              )}
+              {filterStatusPensiun !== 'all' && (
+                <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300 font-bold">
+                  Pensiun: {filterStatusPensiun}
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setFilterKecamatan('all');
+                setFilterDesa('all');
+                setFilterKategori('all');
+                setFilterJabatan('all');
+                setFilterStatusKTA('all');
+                setFilterStatusPensiun('all');
+              }}
+              className="px-2.5 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer transition-colors shrink-0"
+            >
+              Reset Semua Filter
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Total Found Indicator */}
@@ -571,6 +668,18 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                           >
                             <CreditCard className="w-4 h-4" />
                           </button>
+                          {item.anggota.no_hp_wa && (
+                            <button
+                              onClick={() => {
+                                setWaModalMember(item);
+                                setWaType('kta');
+                              }}
+                              title="Kirim Notifikasi WhatsApp (E-KTA / Iuran)"
+                              className="p-1 text-[#064E3B] hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-colors cursor-pointer"
+                            >
+                              <MessageSquare className="w-4 h-4 text-emerald-700" />
+                            </button>
+                          )}
                           <PermissionGate module="anggota" action="update">
                             <button
                               onClick={() => onOpenEditModal(item)}
@@ -707,6 +816,144 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           });
         }}
       />
+
+      {/* MODAL KIRIM NOTIFIKASI WHATSAPP ANGGOTA */}
+      {waModalMember && (
+        <div className="fixed inset-0 z-50 bg-[#111113]/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-neutral-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150 text-neutral-900">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-neutral-100 flex items-start gap-3 bg-emerald-50/80">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 text-emerald-800 border border-emerald-300">
+                <MessageSquare className="w-5 h-5 text-emerald-700" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold text-neutral-900 uppercase">
+                  Kirim Notifikasi WhatsApp Anggota
+                </h3>
+                <p className="text-[11px] text-neutral-500 mt-0.5">
+                  Pengiriman pesan resmi pengurus via WhatsApp Web / Application
+                </p>
+              </div>
+              <button
+                onClick={() => setWaModalMember(null)}
+                className="text-neutral-400 hover:text-neutral-600 p-1 cursor-pointer rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs font-mono">
+              {/* Member Summary Card */}
+              <div className="p-3 rounded-xl border border-neutral-200 bg-neutral-50 flex items-center gap-3">
+                <img
+                  src={getPhotoUrl(waModalMember.anggota.foto, waModalMember.anggota.jenis_kelamin)}
+                  alt={waModalMember.anggota.nama_lengkap}
+                  className="w-10 h-10 rounded-full object-cover border border-neutral-300 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-neutral-900 truncate uppercase">
+                    {waModalMember.anggota.nama_lengkap}
+                  </div>
+                  <div className="text-[11px] text-emerald-800 font-semibold mt-0.5">
+                    No. WA: {waModalMember.anggota.no_hp_wa || 'Belum diisi'}
+                  </div>
+                  <div className="text-[10px] text-neutral-500 truncate mt-0.5">
+                    Desa {waModalMember.desa?.nama_desa}, Kec. {waModalMember.kecamatan?.nama_kecamatan}
+                  </div>
+                </div>
+              </div>
+
+              {/* Template Type Selector */}
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-bold text-neutral-800 uppercase tracking-wider block">
+                  Pilih Kategori Pesan Notifikasi:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setWaType('kta')}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      waType === 'kta'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold shadow-2xs'
+                        : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Status E-KTA & Keanggotaan</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setWaType('iuran')}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      waType === 'iuran'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold shadow-2xs'
+                        : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Wallet className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Pemberitahuan Iuran Kas</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Message Preview Box */}
+              <div className="p-3 bg-[#064E3B]/5 border border-emerald-200 rounded-xl space-y-1">
+                <span className="text-[10px] text-emerald-900 font-bold uppercase tracking-wider block">
+                  Pratinjau Format Pesan WhatsApp:
+                </span>
+                <p className="text-[11px] text-neutral-700 leading-relaxed font-mono whitespace-pre-line max-h-36 overflow-y-auto">
+                  {waType === 'kta'
+                    ? `Yth. ${waModalMember.anggota.nama_lengkap.toUpperCase()},\nInformasi E-KTA Digital PPDI Kab. Bandung:\n• No KTA: ${waModalMember.keanggotaan?.no_kta || '-'}\n• Status: ${(waModalMember.keanggotaan?.status_kta || 'Aktif').toUpperCase()}`
+                    : `Yth. ${waModalMember.anggota.nama_lengkap.toUpperCase()},\nPemberitahuan kewajiban iuran kas bulanan PPDI (Rp 35.000 / bulan).`}
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="p-4 bg-neutral-50 border-t border-neutral-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setWaModalMember(null)}
+                className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const url =
+                    waType === 'kta'
+                      ? getWhatsAppKTAReminderUrl({
+                          phone: waModalMember.anggota.no_hp_wa,
+                          name: waModalMember.anggota.nama_lengkap,
+                          noKta: waModalMember.keanggotaan?.no_kta,
+                          statusKta: waModalMember.keanggotaan?.status_kta,
+                          desa: waModalMember.desa?.nama_desa,
+                          kecamatan: waModalMember.kecamatan?.nama_kecamatan,
+                        })
+                      : getWhatsAppIuranReminderUrl({
+                          phone: waModalMember.anggota.no_hp_wa,
+                          name: waModalMember.anggota.nama_lengkap,
+                          desa: waModalMember.desa?.nama_desa,
+                        });
+                  window.open(url, '_blank');
+                  setWaModalMember(null);
+                }}
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+              >
+                <Send className="w-3.5 h-3.5 text-emerald-200" />
+                <span>Kirim via WhatsApp</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

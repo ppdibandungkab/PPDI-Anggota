@@ -689,3 +689,68 @@ export function getWhatsAppApprovalUrl(params: {
 
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
+
+/**
+ * Generates WhatsApp notification URL for KTA status and validity reminder
+ */
+export function getWhatsAppKTAReminderUrl(params: {
+  phone: string;
+  name: string;
+  noKta?: string;
+  statusKta?: string;
+  desa?: string;
+  kecamatan?: string;
+}): string {
+  const cleanPhone = formatPhoneForWhatsApp(params.phone);
+  const formattedName = (params.name || '').toUpperCase().trim();
+  const ktaStr = params.noKta || 'Belum Terbit / Pending';
+  const statusStr = (params.statusKta || 'Aktif').toUpperCase();
+  const desaName = params.desa ? `Desa ${params.desa.replace(/^desa\s+/i, '')}` : '';
+  const kecName = params.kecamatan ? `Kec. ${params.kecamatan.replace(/^kec(amatan)?\s+/i, '')}` : '';
+  const wilStr = [desaName, kecName].filter(Boolean).join(', ');
+
+  const message =
+    `*PENGINGAT RESMI KTA DIGITAL PPDI KABUPATEN BANDUNG*\n\n` +
+    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
+    `Informasi status Kartu Tanda Anggota (E-KTA) Digital Anda di sistem PPDI Kabupaten Bandung:\n\n` +
+    `• Nama Lengkap: *${formattedName}*\n` +
+    `• Wilayah Tugas: *${wilStr}*\n` +
+    `• Nomor KTA Digital: *${ktaStr}*\n` +
+    `• Status Keanggotaan: *${statusStr}*\n\n` +
+    `Pastikan profil dan data kependudukan Anda selalu diperbarui di portal aplikasi PPDI. Apabila membutuhkan bantuan cetak ulang E-KTA, silakan hubungi pengurus wilayah.\n\n` +
+    `Salam Perjuangan,\n` +
+    `*Pengurus Daerah PPDI Kabupaten Bandung*`;
+
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+/**
+ * Generates WhatsApp notification URL for Iuran dues/reminder
+ */
+export function getWhatsAppIuranReminderUrl(params: {
+  phone: string;
+  name: string;
+  periode?: string;
+  jumlah?: number;
+  desa?: string;
+}): string {
+  const cleanPhone = formatPhoneForWhatsApp(params.phone);
+  const formattedName = (params.name || '').toUpperCase().trim();
+  const nominalStr = params.jumlah ? `Rp ${params.jumlah.toLocaleString('id-ID')}` : 'Rp 35.000';
+  const periodeStr = params.periode || 'Bulan Berjalan';
+
+  const message =
+    `*PEMBERITAHUAN IURAN KAS PPDI KABUPATEN BANDUNG*\n\n` +
+    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
+    `Pemberitahuan kewajiban iuran kas anggota Persatuan Perangkat Desa Indonesia (PPDI):\n\n` +
+    `• Nama Anggota: *${formattedName}*\n` +
+    `• Wilayah Tugas: *Desa ${params.desa || '-'}*\n` +
+    `• Periode Iuran: *${periodeStr}*\n` +
+    `• Nominal Wajib: *${nominalStr}*\n\n` +
+    `Pembayaran iuran kas dapat disetorkan melalui Bendahara Pengurus Kecamatan / Desa atau diunggah pada aplikasi PPDI.\n\n` +
+    `Terima kasih atas partisipasi dan loyalitas Anda.\n\n` +
+    `Salam Perjuangan,\n` +
+    `*Pengurus Daerah PPDI Kabupaten Bandung*`;
+
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}

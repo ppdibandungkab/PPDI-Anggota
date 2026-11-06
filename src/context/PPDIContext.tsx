@@ -17,6 +17,9 @@ import {
   DbStatusInfo,
   DbConnectionLogEntry,
   DEFAULT_ROLE_PERMISSIONS,
+  ActivityLogEntry,
+  AksiLog,
+  UserRole,
 } from '../types/ppdi';
 import { REF_KECAMATAN, REF_DESA, REF_JABATAN } from '../data/bandungWilayah';
 import {
@@ -125,6 +128,17 @@ interface PPDIContextType {
   addDbLogEntry: (entry: Omit<DbConnectionLogEntry, 'id' | 'timestamp'>) => void;
   clearDbLogs: () => void;
 
+  // Audit Log Aktivitas Admin
+  activityLogs: ActivityLogEntry[];
+  addActivityLog: (
+    entry: Omit<ActivityLogEntry, 'id' | 'timestamp' | 'user_id' | 'user_name' | 'user_role'> & {
+      user_id?: number;
+      user_name?: string;
+      user_role?: UserRole;
+    }
+  ) => void;
+  clearActivityLogs: () => void;
+
   // Verification lookup
   findMemberByKtaOrNik: (query: string) => AnggotaFullDetail | null;
 }
@@ -139,7 +153,76 @@ const STORAGE_KEYS = {
   CURRENT_USER_ID: 'ppdi_bandung_curr_user_v3',
   AUTH: 'ppdi_bandung_auth_v3',
   SETTINGS: 'ppdi_app_settings_v2',
+  ACTIVITY_LOGS: 'ppdi_activity_logs_v1',
 };
+
+const INITIAL_ACTIVITY_LOGS: ActivityLogEntry[] = [
+  {
+    id: 'log_init_1',
+    timestamp: '05/11/2026, 14:30:15',
+    user_id: 1,
+    user_name: 'Administrator Kabupaten',
+    user_role: 'Superadmin_Kabupaten',
+    aksi: 'TAMBAH',
+    modul: 'Data Induk Anggota',
+    target_id: 'ANG-2026-001',
+    target_nama: 'ASEP RIDWAN, S.IP',
+    deskripsi: 'Menambahkan data anggota perangkat desa baru (Kec. Soreang, Desa Cingcin) dengan SK Pengangkatan No. 141/012/SK/2023.',
+    ip_address: '127.0.0.1 (Sesi Lokal)',
+  },
+  {
+    id: 'log_init_2',
+    timestamp: '05/11/2026, 15:10:42',
+    user_id: 1,
+    user_name: 'Administrator Kabupaten',
+    user_role: 'Superadmin_Kabupaten',
+    aksi: 'APPROVE',
+    modul: 'Registrasi & Approval',
+    target_id: 'REG-320401',
+    target_nama: 'DADANG HIDAYAT',
+    deskripsi: 'Menyetujui pendaftaran perangkat desa (Kec. Banjaran) dan menerbitkan E-KTA No. 32.04.02.2001.0045.',
+    ip_address: '127.0.0.1 (Sesi Lokal)',
+  },
+  {
+    id: 'log_init_3',
+    timestamp: '05/11/2026, 16:45:00',
+    user_id: 1,
+    user_name: 'Administrator Kabupaten',
+    user_role: 'Superadmin_Kabupaten',
+    aksi: 'EDIT',
+    modul: 'Data Induk Anggota',
+    target_id: 'ANG-2026-002',
+    target_nama: 'SITI NURHALIZA, S.PD',
+    deskripsi: 'Memperbarui informasi Jabatan Pengurus PPDI menjadi "Ketua Pengurus Kecamatan Soreang".',
+    ip_address: '127.0.0.1 (Sesi Lokal)',
+  },
+  {
+    id: 'log_init_4',
+    timestamp: '05/11/2026, 17:22:10',
+    user_id: 1,
+    user_name: 'Administrator Kabupaten',
+    user_role: 'Superadmin_Kabupaten',
+    aksi: 'STATUS_KTA',
+    modul: 'Status E-KTA',
+    target_id: 'ANG-2026-003',
+    target_nama: 'BUDI SANTOSO',
+    deskripsi: 'Memperbarui status E-KTA dari "Pending" menjadi "Aktif".',
+    ip_address: '127.0.0.1 (Sesi Lokal)',
+  },
+  {
+    id: 'log_init_5',
+    timestamp: '05/11/2026, 18:05:33',
+    user_id: 1,
+    user_name: 'Administrator Kabupaten',
+    user_role: 'Superadmin_Kabupaten',
+    aksi: 'IMPORT',
+    modul: 'Data Induk Anggota',
+    target_id: 'BATCH-EXCEL',
+    target_nama: 'Impor Data Kolektif',
+    deskripsi: 'Melakukan impor massal data perangkat desa dari berkas Excel spreadsheet.',
+    ip_address: '127.0.0.1 (Sesi Lokal)',
+  },
+];
 
 const DEFAULT_SETTINGS: AppSettings = {
   appName: 'PPDI KABUPATEN BANDUNG',
@@ -808,6 +891,65 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentUser]);
 
+  // Audit Log Aktivitas Admin State & Persistence
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ACTIVITY_LOGS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return INITIAL_ACTIVITY_LOGS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ACTIVITY_LOGS, JSON.stringify(activityLogs));
+    } catch (_) {}
+  }, [activityLogs]);
+
+  const addActivityLog = useCallback(
+    (
+      entry: Omit<ActivityLogEntry, 'id' | 'timestamp' | 'user_id' | 'user_name' | 'user_role'> & {
+        user_id?: number;
+        user_name?: string;
+        user_role?: UserRole;
+      }
+    ) => {
+      const nowFormatted = new Date().toLocaleString('id-ID', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      const newLog: ActivityLogEntry = {
+        id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        timestamp: nowFormatted,
+        user_id: entry.user_id ?? currentUser?.id_user ?? 1,
+        user_name: entry.user_name ?? currentUser?.nama ?? 'Administrator',
+        user_role: entry.user_role ?? currentUser?.role ?? 'Superadmin_Kabupaten',
+        aksi: entry.aksi,
+        modul: entry.modul,
+        target_id: entry.target_id,
+        target_nama: entry.target_nama,
+        deskripsi: entry.deskripsi,
+        ip_address: entry.ip_address || '127.0.0.1 (Sesi Lokal)',
+      };
+
+      setActivityLogs((prev) => [newLog, ...prev].slice(0, 500));
+    },
+    [currentUser]
+  );
+
+  const clearActivityLogs = useCallback(() => {
+    setActivityLogs([]);
+    localStorage.removeItem(STORAGE_KEYS.ACTIVITY_LOGS);
+  }, []);
+
   // Computed full details for all members
   const fullMembers = useMemo(() => {
     return anggotaList.map((ang) =>
@@ -976,6 +1118,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRiwayatList((prev) => [newRiwayat, ...prev]);
     setKeanggotaanList((prev) => [newKeanggotaan, ...prev]);
 
+    addActivityLog({
+      aksi: 'TAMBAH',
+      modul: 'Data Induk Anggota',
+      target_id: tempId,
+      target_nama: newAnggota.nama_lengkap,
+      deskripsi: `Menambahkan anggota baru "${newAnggota.nama_lengkap}" (NIK: ${newAnggota.nik}, No. KTA: ${autoKTA}).`,
+    });
+
     try {
       const res = await safeFetchJson('/api/anggota', {
         method: 'POST',
@@ -1018,6 +1168,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!res.ok || json.success === false) {
         throw new Error(json.message || json.error || res.error || 'Gagal mengimpor data ke server');
       }
+
+      addActivityLog({
+        aksi: 'IMPORT',
+        modul: 'Data Induk Anggota',
+        target_id: 'IMPORT_EXCEL',
+        target_nama: 'Impor Massal Excel',
+        deskripsi: `Berhasil mengimpor kolektif ${items.length} data perangkat desa dari berkas Excel spreadsheet.`,
+      });
+
       await refreshDataFromMySQL();
       return json;
     } catch (err: any) {
@@ -1042,6 +1201,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         )
       );
     }
+
+    addActivityLog({
+      aksi: 'EDIT',
+      modul: 'Data Induk Anggota',
+      target_id: id,
+      target_nama: formattedUpdated.nama_lengkap || id,
+      deskripsi: `Memperbarui profil/data anggota "${formattedUpdated.nama_lengkap || id}".`,
+    });
 
     try {
       const payload: any = { ...formattedUpdated };
@@ -1091,6 +1258,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRiwayatList((prev) => prev.filter((item) => item.id_anggota !== id));
     setKeanggotaanList((prev) => prev.filter((item) => item.id_anggota !== id));
     setIuranList((prev) => prev.filter((item) => item.id_anggota !== id));
+
+    addActivityLog({
+      aksi: 'HAPUS',
+      modul: 'Data Induk Anggota',
+      target_id: id,
+      target_nama: targetNama,
+      deskripsi: `Menghapus data anggota "${targetNama}" (NIK: ${targetNik || '-'}).`,
+    });
 
     try {
       const res = await safeFetchJson(`/api/anggota/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -1175,6 +1350,13 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setKeanggotaanList((prev) =>
       prev.map((k) => (k.id_anggota === idAnggota ? { ...k, status_kta: newStatus } : k))
     );
+
+    addActivityLog({
+      aksi: 'STATUS_KTA',
+      modul: 'Status E-KTA',
+      target_id: idAnggota,
+      deskripsi: `Memperbarui status E-KTA anggota ID ${idAnggota} menjadi "${newStatus}".`,
+    });
 
     try {
       await safeFetchJson(`/api/kta/${idAnggota}/status`, {
@@ -1349,6 +1531,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!res.ok || json.success === false) {
       throw new Error(json.message || res.error || 'Gagal menyetujui pendaftaran');
     }
+
+    addActivityLog({
+      aksi: 'APPROVE',
+      modul: 'Registrasi & Approval',
+      target_id: String(id),
+      target_nama: json.nama_lengkap || `Registrasi #${id}`,
+      deskripsi: `Menyetujui pendaftaran calon anggota dan menerbitkan E-KTA No. ${json.no_kta || noKtaCustom || '-'}.`,
+    });
+
     await refreshDataFromMySQL();
     return json;
   };
@@ -1366,6 +1557,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!res.ok || json.success === false) {
       throw new Error(json.message || res.error || 'Gagal menolak pendaftaran');
     }
+
+    addActivityLog({
+      aksi: 'REJECT',
+      modul: 'Registrasi & Approval',
+      target_id: String(id),
+      deskripsi: `Menolak pendaftaran calon anggota ID #${id}. Catatan: ${catatan || '-'}.`,
+    });
+
     await refreshDataFromMySQL();
     return json;
   };
@@ -1598,6 +1797,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         dbLogs,
         addDbLogEntry,
         clearDbLogs,
+        activityLogs,
+        addActivityLog,
+        clearActivityLogs,
       }}
     >
       {children}

@@ -18,6 +18,7 @@ import {
   Sliders,
   Shield,
   ClipboardCheck,
+  History,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -108,6 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
     },
     { id: 'arsip', label: 'e-Arsip Berkas SK', icon: FileText },
     { id: 'iuran', label: 'Kas & Iuran Anggota', icon: Wallet },
+    { id: 'log-aktivitas', label: 'Log Aktivitas Admin', icon: History },
   ].filter((item) => hasViewPermission(item.id));
 
   // Helper renderer for Nav Links & Submenu
