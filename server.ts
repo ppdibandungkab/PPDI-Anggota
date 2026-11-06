@@ -5,6 +5,7 @@ import fs from 'fs';
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { generateUniqueKTA } from './src/services/ktaService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -680,10 +681,15 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         \`foto\` VARCHAR(255) NULL,
         \`alamat_rumah\` TEXT NOT NULL,
         \`status_pernikahan\` VARCHAR(30) NOT NULL DEFAULT 'Kawin',
+        \`kode_kecamatan\` VARCHAR(10) NULL,
+        \`nomor_urut\` INT NULL,
+        \`no_kta\` VARCHAR(50) NULL,
         \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`id_anggota\`),
-        UNIQUE KEY \`uq_anggota_nik\` (\`nik\`)
+        UNIQUE KEY \`uq_anggota_nik\` (\`nik\`),
+        UNIQUE KEY \`uq_anggota_no_kta\` (\`no_kta\`),
+        KEY \`idx_anggota_kecamatan_urut\` (\`kode_kecamatan\`, \`nomor_urut\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
@@ -692,6 +698,11 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
     try { await conn.query(`ALTER TABLE anggota CHANGE COLUMN niap_nipd nipd VARCHAR(30) NULL`); } catch (_) {
       try { await conn.query(`ALTER TABLE anggota RENAME COLUMN niap_nipd TO nipd`); } catch (_) {}
     }
+    try { await conn.query(`ALTER TABLE anggota ADD COLUMN kode_kecamatan VARCHAR(10) NULL AFTER status_pernikahan`); } catch (_) {}
+    try { await conn.query(`ALTER TABLE anggota ADD COLUMN nomor_urut INT NULL AFTER kode_kecamatan`); } catch (_) {}
+    try { await conn.query(`ALTER TABLE anggota ADD COLUMN no_kta VARCHAR(50) NULL AFTER nomor_urut`); } catch (_) {}
+    try { await conn.query(`ALTER TABLE anggota ADD UNIQUE KEY uq_anggota_no_kta (no_kta)`); } catch (_) {}
+    try { await conn.query(`ALTER TABLE anggota ADD INDEX idx_anggota_kecamatan_urut (kode_kecamatan, nomor_urut)`); } catch (_) {}
 
     // 5. riwayat_jabatan
     await conn.query(`
@@ -2314,35 +2325,36 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       );
     }
 
-    // 3. Generate KTA & Insert/Update keanggotaan_ppdi
+    // 3. Generate Unique KTA & Insert/Update keanggotaan_ppdi and anggota
     const [existingKta]: [any[], any] = await conn.query(
       'SELECT id_ppdi, no_kta FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
       [effectiveIdAnggota]
     );
 
     let finalKta: string;
+    let finalKecCode: string;
+    let finalNomorUrut: number;
+
     if (existingKta.length > 0) {
       finalKta = existingKta[0].no_kta;
+      const ktaParts = finalKta.split('.');
+      finalKecCode = ktaParts.length >= 3 ? `32.04.${ktaParts[2]}` : (p.id_kecamatan || '32.04.05');
+      finalNomorUrut = ktaParts.length >= 5 ? parseInt(ktaParts[4], 10) || 1 : 1;
+
       await conn.query(
         'UPDATE keanggotaan_ppdi SET status_kta = "Aktif", jabatan_pengurus = COALESCE(?, jabatan_pengurus) WHERE id_anggota = ?',
         [p.jabatan_pengurus || null, effectiveIdAnggota]
       );
     } else {
-      const [ktaCount]: [any[], any] = await conn.query('SELECT COUNT(*) as cnt FROM keanggotaan_ppdi');
-      let seq = (ktaCount[0]?.cnt || 0) + 1;
-      const cleanKec = (p.id_kecamatan || validDesaId.slice(0, 6)).replace(/\./g, '').trim();
-      const kecCode = cleanKec.length >= 6 ? cleanKec.slice(4, 6) : (cleanKec.slice(-2) || '00');
-      const cleanDesa = validDesaId.replace(/\./g, '').trim();
-      const desaCode = cleanDesa.length >= 10 ? cleanDesa.slice(6, 10) : (cleanDesa.slice(-4) || '0000');
-      
-      let candidateKta = no_kta_custom || `32.04.${kecCode}.${desaCode}.${String(seq).padStart(4, '0')}`;
-      while (true) {
-        const [dup]: [any[], any] = await conn.query('SELECT id_ppdi FROM keanggotaan_ppdi WHERE no_kta = ? LIMIT 1', [candidateKta]);
-        if (dup.length === 0) break;
-        seq++;
-        candidateKta = `32.04.${kecCode}.${desaCode}.${String(seq).padStart(4, '0')}`;
-      }
-      finalKta = candidateKta;
+      const ktaResult = await generateUniqueKTA(
+        conn,
+        p.id_kecamatan || validDesaId,
+        validDesaId,
+        no_kta_custom
+      );
+      finalKta = ktaResult.noKta;
+      finalKecCode = ktaResult.kodeKecamatan;
+      finalNomorUrut = ktaResult.nomorUrut;
 
       await conn.query(
         `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
@@ -2350,6 +2362,14 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
         [newIdPpdi, effectiveIdAnggota, finalKta, p.jabatan_pengurus || 'Anggota Biasa']
       );
     }
+
+    // Sync kode_kecamatan, nomor_urut, and no_kta to anggota table
+    try {
+      await conn.query(
+        `UPDATE anggota SET kode_kecamatan = ?, nomor_urut = ?, no_kta = ? WHERE id_anggota = ?`,
+        [finalKecCode, finalNomorUrut, finalKta, effectiveIdAnggota]
+      );
+    } catch (_) {}
 
     // 4. Update status pendaftaran to Disetujui
     await conn.query(

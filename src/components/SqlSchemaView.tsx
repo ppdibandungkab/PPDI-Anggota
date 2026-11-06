@@ -262,8 +262,10 @@ export const SqlSchemaView: React.FC = () => {
               </div>
               <div className="text-neutral-800 font-semibold">🔑 id_anggota (PK)</div>
               <div className="text-amber-800">⚡ nik (16 digit UNIQUE)</div>
-              <div className="text-neutral-600">nipd</div>
-              <div className="text-neutral-600">nama_lengkap</div>
+              <div className="text-emerald-700 font-semibold">⚡ no_kta (UNIQUE)</div>
+              <div className="text-neutral-600">kode_kecamatan, nomor_urut</div>
+              <div className="text-xs text-blue-700 font-mono">⚡ idx (kode_kec, no_urut)</div>
+              <div className="text-neutral-600">nama_lengkap, nipd</div>
               <div className="text-amber-700 font-semibold">tanggal_lahir (60 Th)</div>
               <div className="text-neutral-600">no_hp_wa</div>
             </div>

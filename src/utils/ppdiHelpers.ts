@@ -216,7 +216,7 @@ export function generateNextKTA(
   existingList: KeanggotaanPPDI[]
 ): string {
   // Pattern: 32.04.[KodeKec 2 digit].[KodeDesa 4 digit].[NoUrut 4 digit]
-  let kecCode = '00';
+  let kecCode = '05';
   if (idKecamatan) {
     const cleanKec = idKecamatan.replace(/\./g, '').trim();
     if (cleanKec.length >= 6) {
@@ -228,7 +228,7 @@ export function generateNextKTA(
     }
   }
 
-  let desaCode = '0000';
+  let desaCode = '2001';
   if (idDesa) {
     const cleanDesa = idDesa.replace(/\./g, '').trim();
     if (cleanDesa.length >= 10) {
@@ -240,8 +240,24 @@ export function generateNextKTA(
     }
   }
 
-  const count = existingList.length + 1;
-  const numStr = String(count).padStart(4, '0');
+  // Filter KTA list strictly for THIS kecamatan (match prefix "32.04.[kecCode].")
+  const prefixKec = `32.04.${kecCode}.`;
+  let maxSeqInKecamatan = 0;
+
+  (existingList || []).forEach((k) => {
+    if (k.no_kta && k.no_kta.startsWith(prefixKec)) {
+      const parts = k.no_kta.split('.');
+      if (parts.length >= 5) {
+        const seqNum = parseInt(parts[4], 10);
+        if (!isNaN(seqNum) && seqNum > maxSeqInKecamatan) {
+          maxSeqInKecamatan = seqNum;
+        }
+      }
+    }
+  });
+
+  const nextSeq = maxSeqInKecamatan + 1;
+  const numStr = String(nextSeq).padStart(4, '0');
   return `32.04.${kecCode}.${desaCode}.${numStr}`;
 }
 
