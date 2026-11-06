@@ -1090,9 +1090,12 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-700"
                   >
                     <option value="SMA/SMK">SMA / SMK Sederajat</option>
+                    <option value="D1">Diploma 1 (D1)</option>
+                    <option value="D2">Diploma 2 (D2)</option>
                     <option value="D3">Diploma 3 (D3)</option>
                     <option value="S1">Strata 1 (S1) / Sarjana</option>
                     <option value="S2">Strata 2 (S2) / Magister</option>
+                    <option value="S3">Strata 3 (S3) / Doktor</option>
                   </select>
                 </div>
 

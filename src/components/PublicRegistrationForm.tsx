@@ -334,8 +334,10 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                   <option value="SD">SD / Sederajat</option>
                   <option value="SMP">SMP / Sederajat</option>
                   <option value="SMA/SMK">SMA / SMK / Sederajat (Default)</option>
-                  <option value="D1">D1 / D2 / D3 (Diploma)</option>
-                  <option value="S1">S1 (Sarjana)</option>
+                  <option value="D1">D1 (Diploma)</option>
+                  <option value="D2">D2 (Diploma)</option>
+                  <option value="D3">D3 (Diploma)</option>
+                  <option value="S1">D4/S1 (Sarjana)</option>
                   <option value="S2">S2 (Magister)</option>
                   <option value="S3">S3 (Doktor)</option>
                 </select>
