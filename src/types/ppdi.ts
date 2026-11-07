@@ -166,6 +166,8 @@ export interface ActivityLogEntry {
   target_nama?: string;
   deskripsi: string;
   ip_address?: string;
+  data_sebelum?: any;
+  data_sesudah?: any;
 }
 
 export interface Permission {

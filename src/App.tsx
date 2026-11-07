@@ -22,6 +22,7 @@ import { DbConnectionModal } from './components/DbConnectionModal';
 import { DbSettingsView } from './components/DbSettingsView';
 import { StatistikWilayahView } from './components/StatistikWilayahView';
 import { LogAktivitasView } from './components/LogAktivitasView';
+import { DatabaseStatusIndicator } from './components/DatabaseStatusIndicator';
 import { AnggotaFullDetail } from './types/ppdi';
 
 const MainAppContent: React.FC = () => {
@@ -212,19 +213,11 @@ const MainAppContent: React.FC = () => {
         initialQuery={verifyInitialQuery}
       />
 
-      {/* Floating Database Connection Status & Setting Trigger - Visible ONLY when MySQL is NOT connected */}
-      {!dbStatus?.success && (
-        <aside aria-label="Status Koneksi Database" className="fixed bottom-4 right-4 z-40 no-print flex items-center gap-2">
-          <button
-            onClick={() => setIsDbModalOpen(true)}
-            title="Koneksi MySQL Terputus - Klik untuk membuka Setting Database & Diagnostik"
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-950/95 text-red-100 border border-red-500/80 hover:bg-red-900 shadow-2xl backdrop-blur-md text-xs font-mono transition-all cursor-pointer animate-pulse font-bold"
-          >
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-            <span>Setting Database (Offline)</span>
-          </button>
-        </aside>
-      )}
+      {/* Real-Time Database & Backend Diagnostic Status Indicator */}
+      <DatabaseStatusIndicator
+        onOpenDbModal={() => setIsDbModalOpen(true)}
+        pollIntervalMs={12000}
+      />
     </div>
   );
 };

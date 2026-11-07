@@ -173,31 +173,76 @@ export const LogAktivitasView: React.FC = () => {
     }
   };
 
-  // CSV Export for Audit Logs
-  const handleExportCSV = () => {
-    if (filteredLogs.length === 0) return;
-    const headers = ['ID Log', 'Waktu Timestamp', 'User Admin', 'Role', 'Tipe Aksi', 'Modul', 'Target Data', 'Deskripsi Audit', 'IP Address'];
-    const rows = filteredLogs.map((log) => [
-      log.id,
-      log.timestamp,
-      log.user_name,
-      log.user_role,
-      log.aksi,
-      log.modul,
-      log.target_nama || log.target_id || '-',
-      `"${(log.deskripsi || '').replace(/"/g, '""')}"`,
-      log.ip_address || '-',
-    ]);
+  // CSV Export for Audit Logs with full metadata & audit trail details
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
-    const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Audit_Log_Aktivitas_PPDI_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportCSV = () => {
+    if (filteredLogs.length === 0) {
+      alert('Tidak ada data log aktivitas yang cocok dengan filter untuk diekspor.');
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+
+      const headers = [
+        'ID Log',
+        'Waktu Timestamp',
+        'User Admin',
+        'User ID',
+        'Peran User',
+        'Tipe Aksi',
+        'Modul Sistem',
+        'Target ID',
+        'Target Nama',
+        'Deskripsi Lengkap',
+        'Data Sebelum (Snapshot)',
+        'Data Sesudah (Snapshot)',
+        'IP Address',
+      ];
+
+      const rows = filteredLogs.map((log) => {
+        const safeString = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+        const dataSebelumStr = log.data_sebelum ? JSON.stringify(log.data_sebelum) : '-';
+        const dataSesudahStr = log.data_sesudah ? JSON.stringify(log.data_sesudah) : '-';
+
+        return [
+          safeString(log.id),
+          safeString(log.timestamp),
+          safeString(log.user_name),
+          safeString(log.user_id || '-'),
+          safeString(log.user_role),
+          safeString(log.aksi),
+          safeString(log.modul),
+          safeString(log.target_id || '-'),
+          safeString(log.target_nama || '-'),
+          safeString(log.deskripsi || '-'),
+          safeString(dataSebelumStr),
+          safeString(dataSesudahStr),
+          safeString(log.ip_address || '-'),
+        ];
+      });
+
+      const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\r\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      link.setAttribute('download', `Audit_Log_Aktivitas_PPDI_Kab_Bandung_${dateStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setExportNotice(`Berhasil mengekspor ${filteredLogs.length} entri log aktivitas audit ke format CSV.`);
+      setTimeout(() => setExportNotice(null), 4000);
+    } catch (err: any) {
+      alert('Gagal mengekspor berkas CSV: ' + (err.message || 'Error'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -229,10 +274,11 @@ export const LogAktivitasView: React.FC = () => {
           <button
             type="button"
             onClick={handleExportCSV}
-            className="px-4 py-2 text-xs font-bold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-xl flex items-center gap-2 cursor-pointer transition-colors shadow-2xs"
+            disabled={isExporting}
+            className="px-4 py-2 text-xs font-bold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-xl flex items-center gap-2 cursor-pointer transition-colors shadow-2xs disabled:opacity-60"
           >
-            <Download className="w-4 h-4 text-emerald-700" />
-            <span>Ekspor Audit (CSV)</span>
+            <Download className={`w-4 h-4 text-emerald-700 ${isExporting ? 'animate-bounce' : ''}`} />
+            <span>{isExporting ? 'Mengekspor...' : 'Ekspor Audit (CSV)'}</span>
           </button>
 
           {isSuperadmin && (
@@ -247,6 +293,23 @@ export const LogAktivitasView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Export Success Feedback Notification */}
+      {exportNotice && (
+        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-medium flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>{exportNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900 p-1 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Overview Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
