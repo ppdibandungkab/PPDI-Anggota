@@ -89,6 +89,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
     const currentYear = now.getFullYear();
 
     return (fullMembers || []).filter((m) => {
+      const isKades = 
+        m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+      if (isKades) return false;
+
       if (!m.anggota.tanggal_lahir) return false;
       const birthDate = new Date(m.anggota.tanggal_lahir);
       if (isNaN(birthDate.getTime())) return false;

@@ -423,8 +423,67 @@ app.get('/api/proxy-image', async (req, res) => {
 });
 
 // ====================================================================
-// 1. DATABASE STATUS, HEALTH CHECK & HOSTING DIAGNOSTICS
+// 1. BACKEND SERVICE & PROXY HANDSHAKE DIAGNOSTICS
 // ====================================================================
+app.get('/api/diagnostic', async (req, res) => {
+  const mem = process.memoryUsage();
+  const dbConfig = getDbConfig();
+  let dbReachable = false;
+  let dbLatencyMs = 0;
+  let dbError = null;
+
+  try {
+    const t0 = Date.now();
+    const currentPool = createOrGetPool();
+    const conn = await currentPool.getConnection();
+    await conn.query('SELECT 1');
+    conn.release();
+    dbLatencyMs = Date.now() - t0;
+    dbReachable = true;
+  } catch (err: any) {
+    dbError = err.message || 'Database unreachable';
+  }
+
+  return res.json({
+    success: true,
+    status: 'ONLINE',
+    service: 'PPDI Kabupaten Bandung Backend Service',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    server: {
+      port: PORT,
+      pid: process.pid,
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      env: process.env.NODE_ENV || 'development',
+      memoryMb: {
+        rss: Math.round(mem.rss / 1024 / 1024),
+        heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+      },
+    },
+    clientRequest: {
+      ip: req.ip,
+      host: req.headers.host,
+      forwardedFor: req.headers['x-forwarded-for'] || null,
+      userAgent: req.headers['user-agent'] || null,
+    },
+    database: {
+      configuredHost: dbConfig.host || 'localhost',
+      port: dbConfig.port,
+      databaseName: dbConfig.database,
+      reachable: dbReachable,
+      latencyMs: dbLatencyMs,
+      error: dbError,
+    },
+    handshake: {
+      message: 'Backend Express service handshake successful. Connection is healthy.',
+      proxyTargetRecommendation: `http://127.0.0.1:${PORT}`,
+    },
+  });
+});
+
 app.get('/api/db/status', async (_req, res) => {
   const startTime = Date.now();
   const currentConfig = getDbConfig();
@@ -2356,10 +2415,26 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       finalKecCode = ktaResult.kodeKecamatan;
       finalNomorUrut = ktaResult.nomorUrut;
 
+      // Check if applicant is Kepala Desa
+      const [jabatanInfo]: [any[], any] = await conn.query(
+        'SELECT nama_jabatan, kategori_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1',
+        [p.id_jabatan || 1]
+      );
+      const isKades = jabatanInfo.length > 0 && (
+        jabatanInfo[0].kategori_jabatan === 'Kepala Desa' ||
+        String(jabatanInfo[0].nama_jabatan || '').toLowerCase().includes('kepala desa') ||
+        String(jabatanInfo[0].nama_jabatan || '').toLowerCase().includes('kades')
+      );
+
+      let effectiveJabatanPengurus = p.jabatan_pengurus || (isKades ? 'Anggota Istimewa' : 'Anggota Biasa');
+      if (isKades && effectiveJabatanPengurus !== 'Penasehat' && effectiveJabatanPengurus !== 'Anggota Istimewa') {
+        effectiveJabatanPengurus = 'Anggota Istimewa';
+      }
+
       await conn.query(
         `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
          VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
-        [newIdPpdi, effectiveIdAnggota, finalKta, p.jabatan_pengurus || 'Anggota Biasa']
+        [newIdPpdi, effectiveIdAnggota, finalKta, effectiveJabatanPengurus]
       );
     }
 

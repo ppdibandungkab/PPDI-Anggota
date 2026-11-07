@@ -246,6 +246,18 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
       );
       const idJabatan = matchedJabatan ? matchedJabatan.id_jabatan : 2; // Default Sekretaris Desa
 
+      const isKades = matchedJabatan?.kategori_jabatan === 'Kepala Desa' ||
+        matchedJabatan?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+        namaJabatan.toLowerCase().includes('kepala desa') ||
+        namaJabatan.toLowerCase().includes('kades');
+
+      let effectiveJabatanPengurus = jabatanPengurus;
+      if (isKades) {
+        if (effectiveJabatanPengurus !== 'Penasehat' && effectiveJabatanPengurus !== 'Anggota Istimewa') {
+          effectiveJabatanPengurus = 'Anggota Istimewa';
+        }
+      }
+
       fileNikSet.add(nik);
 
       rows.push({
@@ -270,7 +282,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         noSk: noSk || `141.1/Kep.${Math.floor(Math.random() * 80 + 10)}-Desa/${new Date().getFullYear()}`,
         tglSk,
         tmtJabatan,
-        jabatanPengurus,
+        jabatanPengurus: effectiveJabatanPengurus,
         isValid: errors.length === 0,
         errors,
       });

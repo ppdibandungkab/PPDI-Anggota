@@ -438,7 +438,20 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                 <select 
                   className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white" 
                   value={formData.selectedJabatan} 
-                  onChange={e => setFormData(prev => ({ ...prev, selectedJabatan: Number(e.target.value) }))} 
+                  onChange={e => {
+                    const newJId = Number(e.target.value);
+                    const matchedJ = jabatanList.find(j => j.id_jabatan === newJId);
+                    const isKades = matchedJ?.kategori_jabatan === 'Kepala Desa' ||
+                      matchedJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                      matchedJ?.nama_jabatan?.toLowerCase().includes('kades');
+                    setFormData(prev => ({
+                      ...prev,
+                      selectedJabatan: newJId,
+                      jabatanPengurus: isKades 
+                        ? (prev.jabatanPengurus === 'Penasehat' ? 'Penasehat' : 'Anggota Istimewa')
+                        : prev.jabatanPengurus
+                    }));
+                  }} 
                   required
                 >
                   {jabatanList.map(j => (
@@ -451,8 +464,19 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
 
               {/* Jabatan Kepengurusan PPDI */}
               <div className="md:col-span-2 space-y-1">
-                <label className="text-xs font-bold text-neutral-700 uppercase">
-                  Jabatan Kepengurusan PPDI <span className="text-red-500">*</span>
+                <label className="text-xs font-bold text-neutral-700 uppercase flex items-center justify-between">
+                  <span>Jabatan Kepengurusan PPDI <span className="text-red-500">*</span></span>
+                  {(() => {
+                    const matchedJ = jabatanList.find(j => j.id_jabatan === formData.selectedJabatan);
+                    const isKades = matchedJ?.kategori_jabatan === 'Kepala Desa' ||
+                      matchedJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                      matchedJ?.nama_jabatan?.toLowerCase().includes('kades');
+                    return isKades ? (
+                      <span className="text-[11px] font-normal text-amber-700 lowercase">
+                        (Khusus Kepala Desa: Anggota Istimewa / Penasehat)
+                      </span>
+                    ) : null;
+                  })()}
                 </label>
                 <select 
                   className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white font-medium" 
@@ -460,11 +484,29 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                   onChange={e => setFormData(prev => ({ ...prev, jabatanPengurus: e.target.value }))} 
                   required
                 >
-                  <option value="Anggota Biasa">Anggota Biasa</option>
-                  <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
-                  <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
-                  <option value="Anggota Istimewa">Anggota Istimewa</option>
-                  <option value="Penasehat">Penasehat</option>
+                  {(() => {
+                    const matchedJ = jabatanList.find(j => j.id_jabatan === formData.selectedJabatan);
+                    const isKades = matchedJ?.kategori_jabatan === 'Kepala Desa' ||
+                      matchedJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                      matchedJ?.nama_jabatan?.toLowerCase().includes('kades');
+                    if (isKades) {
+                      return (
+                        <>
+                          <option value="Anggota Istimewa">Anggota Istimewa</option>
+                          <option value="Penasehat">Penasehat</option>
+                        </>
+                      );
+                    }
+                    return (
+                      <>
+                        <option value="Anggota Biasa">Anggota Biasa</option>
+                        <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
+                        <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
+                        <option value="Anggota Istimewa">Anggota Istimewa</option>
+                        <option value="Penasehat">Penasehat</option>
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 

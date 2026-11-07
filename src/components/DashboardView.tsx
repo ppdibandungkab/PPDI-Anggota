@@ -139,6 +139,11 @@ export const DashboardView: React.FC = () => {
   // -------------------------------------------------------------
   const retirement18MonthsMembers = useMemo(() => {
     return visibleMembers.filter(m => {
+      const isKades = 
+        m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+      if (isKades) return false;
       if (m.statusPensiun === 'Sudah Purna Tugas') return false;
       const totalSisaBulan = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
       return totalSisaBulan > 0 && totalSisaBulan <= 18;
@@ -275,6 +280,12 @@ export const DashboardView: React.FC = () => {
     let purnaTugas = 0; // Sudah Purna Tugas
 
     chartFilteredMembers.forEach((m) => {
+      const isKades = 
+        m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+      if (isKades) return; // Kepala Desa tidak masuk ke dalam kalkulasi masa pensiun perangkat desa
+
       if (m.statusPensiun === 'Sudah Purna Tugas') {
         purnaTugas++;
       } else {

@@ -224,10 +224,18 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       }
 
       const kta = editMember.keanggotaan || keanggotaanList.find((k) => k.id_anggota === editMember.anggota.id_anggota);
+      const isInitialKades = editMember.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+        editMember.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+        editMember.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+
       if (kta && kta.jabatan_pengurus) {
-        setJabatanPengurus(kta.jabatan_pengurus);
+        if (isInitialKades && kta.jabatan_pengurus !== 'Anggota Istimewa' && kta.jabatan_pengurus !== 'Penasehat') {
+          setJabatanPengurus('Anggota Istimewa');
+        } else {
+          setJabatanPengurus(kta.jabatan_pengurus);
+        }
       } else {
-        setJabatanPengurus('Anggota Biasa');
+        setJabatanPengurus(isInitialKades ? 'Anggota Istimewa' : 'Anggota Biasa');
       }
     } else {
       // Defaults for new member
@@ -1487,7 +1495,19 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     </label>
                     <select
                       value={selectedJabatan}
-                      onChange={(e) => setSelectedJabatan(Number(e.target.value))}
+                      onChange={(e) => {
+                        const newJabId = Number(e.target.value);
+                        setSelectedJabatan(newJabId);
+                        const matchedJ = jabatanList.find((j) => j.id_jabatan === newJabId);
+                        const isKades = matchedJ?.kategori_jabatan === 'Kepala Desa' ||
+                          matchedJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                          matchedJ?.nama_jabatan?.toLowerCase().includes('kades');
+                        if (isKades) {
+                          if (jabatanPengurus !== 'Anggota Istimewa' && jabatanPengurus !== 'Penasehat') {
+                            setJabatanPengurus('Anggota Istimewa');
+                          }
+                        }
+                      }}
                       className="w-full px-3 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-700"
                     >
                       {jabatanList.map((j) => (
@@ -1644,18 +1664,46 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
 
                   <div>
                     <label className="block text-neutral-700 font-medium mb-1">
-                      Jabatan Kepengurusan PPDI
+                      Jabatan Kepengurusan PPDI {(() => {
+                        const curJ = jabatanList.find((j) => j.id_jabatan === selectedJabatan);
+                        const isKades = curJ?.kategori_jabatan === 'Kepala Desa' ||
+                          curJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                          curJ?.nama_jabatan?.toLowerCase().includes('kades');
+                        return isKades ? (
+                          <span className="text-[11px] font-normal text-amber-700 ml-1">
+                            (Khusus Kepala Desa: Anggota Istimewa / Penasehat)
+                          </span>
+                        ) : null;
+                      })()}
                     </label>
                     <select
                       value={jabatanPengurus}
                       onChange={(e) => setJabatanPengurus(e.target.value)}
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-700"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-700 bg-white"
                     >
-                      <option value="Anggota Biasa">Anggota Biasa</option>
-                      <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
-                      <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
-                      <option value="Anggota Istimewa">Anggota Istimewa</option>
-                      <option value="Penasehat">Penasehat</option>
+                      {(() => {
+                        const curJ = jabatanList.find((j) => j.id_jabatan === selectedJabatan);
+                        const isKades = curJ?.kategori_jabatan === 'Kepala Desa' ||
+                          curJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                          curJ?.nama_jabatan?.toLowerCase().includes('kades');
+                        if (isKades) {
+                          return (
+                            <>
+                              <option value="Anggota Istimewa">Anggota Istimewa</option>
+                              <option value="Penasehat">Penasehat</option>
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <option value="Anggota Biasa">Anggota Biasa</option>
+                            <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
+                            <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
+                            <option value="Anggota Istimewa">Anggota Istimewa</option>
+                            <option value="Penasehat">Penasehat</option>
+                          </>
+                        );
+                      })()}
                     </select>
                   </div>
                 </div>

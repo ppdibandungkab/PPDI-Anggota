@@ -1105,12 +1105,25 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       keterangan: 'Pendaftaran Anggota Baru PPDI',
     };
 
+    // Enforce role rule for Kepala Desa: hanya Anggota Istimewa / Penasehat
+    const matchedJab = jabatanList.find(j => Number(j.id_jabatan) === Number(riwayatData.id_jabatan));
+    const isKades = matchedJab?.kategori_jabatan === 'Kepala Desa' ||
+      matchedJab?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+      matchedJab?.nama_jabatan?.toLowerCase().includes('kades');
+
+    let sanitizedJabatanPengurus = jabatanPengurus;
+    if (isKades) {
+      if (sanitizedJabatanPengurus !== 'Penasehat' && sanitizedJabatanPengurus !== 'Anggota Istimewa') {
+        sanitizedJabatanPengurus = 'Anggota Istimewa';
+      }
+    }
+
     const newKeanggotaan: KeanggotaanPPDI = {
       id_ppdi: `ppdi-${Date.now().toString().slice(-6)}`,
       id_anggota: tempId,
       no_kta: autoKTA,
       tgl_bergabung: new Date().toISOString().split('T')[0],
-      jabatan_pengurus: jabatanPengurus,
+      jabatan_pengurus: sanitizedJabatanPengurus,
       status_kta: 'Aktif',
     };
 
@@ -1232,16 +1245,28 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateKeanggotaanJabatan = async (idAnggota: string, jabatanPengurus: string) => {
+    // Check if member is Kepala Desa
+    const activeRw = riwayatList.find(r => r.id_anggota === idAnggota && r.status_aktif === 'Aktif');
+    const matchedJab = jabatanList.find(j => Number(j.id_jabatan) === Number(activeRw?.id_jabatan));
+    const isKades = matchedJab?.kategori_jabatan === 'Kepala Desa' ||
+      matchedJab?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+      matchedJab?.nama_jabatan?.toLowerCase().includes('kades');
+
+    let sanitized = jabatanPengurus;
+    if (isKades && sanitized !== 'Penasehat' && sanitized !== 'Anggota Istimewa') {
+      sanitized = 'Anggota Istimewa';
+    }
+
     setKeanggotaanList((prev) =>
       prev.map((k) =>
-        k.id_anggota === idAnggota ? { ...k, jabatan_pengurus: jabatanPengurus } : k
+        k.id_anggota === idAnggota ? { ...k, jabatan_pengurus: sanitized } : k
       )
     );
     try {
       await safeFetchJson(`/api/kta/${idAnggota}/jabatan-pengurus`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jabatan_pengurus: jabatanPengurus }),
+        body: JSON.stringify({ jabatan_pengurus: sanitized }),
       });
       await refreshDataFromMySQL();
     } catch (err) {

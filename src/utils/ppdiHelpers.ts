@@ -191,6 +191,17 @@ export function buildFullMember(
 
   const retirement = calculateAgeAndRetirement(upperAnggota.tanggal_lahir);
 
+  const isKepalaDesa = 
+    jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+    jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+    jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+
+  // Jabatan Kepala Desa mengikuti periodisasi masa jabatan (UU Desa), bukan batas usia pensiun 60 tahun perangkat desa.
+  // Oleh karena itu Kepala Desa tidak dimasukkan ke dalam filter/peringatan dini masa purna tugas.
+  const effectiveStatusPensiun = isKepalaDesa
+    ? 'Aman'
+    : (activeRiwayat?.status_aktif === 'Purna Tugas' ? 'Sudah Purna Tugas' : retirement.statusPensiun);
+
   const totalIuranLunas = iuranList
     .filter((i) => i.id_anggota === upperAnggota.id_anggota && i.status_verifikasi === 'Lunas')
     .reduce((sum, item) => sum + item.jumlah, 0);
@@ -203,9 +214,9 @@ export function buildFullMember(
     jabatanRef,
     keanggotaan,
     usia: retirement.usia,
-    sisaMasaPensiunTahun: retirement.sisaTahun,
-    sisaMasaPensiunBulan: retirement.sisaBulan,
-    statusPensiun: activeRiwayat?.status_aktif === 'Purna Tugas' ? 'Sudah Purna Tugas' : retirement.statusPensiun,
+    sisaMasaPensiunTahun: isKepalaDesa ? 99 : retirement.sisaTahun,
+    sisaMasaPensiunBulan: isKepalaDesa ? 999 : retirement.sisaBulan,
+    statusPensiun: effectiveStatusPensiun,
     totalIuranLunas,
   };
 }

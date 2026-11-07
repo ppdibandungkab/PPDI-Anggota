@@ -23,12 +23,22 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
 
   const [activeCategory, setActiveCategory] = useState<'all' | 'kritis' | 'siaga' | 'waspada' | 'sudah'>('all');
 
-  // Categorize members
+  const isKepalaDesaMember = (m: AnggotaFullDetail) => {
+    return (
+      m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+      m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+      m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades')
+    );
+  };
+
+  // Categorize members (Kepala Desa dikecualikan karena bukan perangkat desa pensiun 60 tahun)
   const categorized = useMemo(() => {
-    const kritis = visibleMembers.filter((m) => m.statusPensiun === 'Kritis (<6 Bln)');
-    const siaga = visibleMembers.filter((m) => m.statusPensiun === 'Siaga (<1 Thn)');
-    const waspada = visibleMembers.filter((m) => m.statusPensiun === 'Waspada (<2 Thn)');
-    const sudah = visibleMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas');
+    const nonKadesMembers = visibleMembers.filter((m) => !isKepalaDesaMember(m));
+
+    const kritis = nonKadesMembers.filter((m) => m.statusPensiun === 'Kritis (<6 Bln)');
+    const siaga = nonKadesMembers.filter((m) => m.statusPensiun === 'Siaga (<1 Thn)');
+    const waspada = nonKadesMembers.filter((m) => m.statusPensiun === 'Waspada (<2 Thn)');
+    const sudah = nonKadesMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas');
 
     return {
       kritis,
@@ -96,9 +106,12 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="px-3 py-1.5 bg-neutral-100 rounded-lg text-neutral-700 font-medium">
-            Regulasi: Batas 60 Tahun
+            Regulasi: Batas 60 Tahun (Perangkat Desa)
+          </span>
+          <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg font-medium">
+            Jabatan Kepala Desa Dikecualikan
           </span>
         </div>
       </div>

@@ -47,6 +47,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     addRiwayatJabatan,
     updateRiwayatStatus,
     updateKTAStatus,
+    updateKeanggotaanJabatan,
     currentUser,
     hasPermission,
   } = usePPDI();
@@ -288,28 +289,55 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
 
                   {/* Retirement Card */}
                   <div className="mt-4 p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
-                    <div className="text-[10px] uppercase font-semibold text-neutral-500">
-                      Evaluasi Batas Usia Pensiun (60 Tahun)
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-neutral-900">{member.usia} Tahun</span>
-                      <span
-                        className={`px-2 py-0.5 rounded-sm font-semibold text-[10px] ${
-                          member.statusPensiun === 'Kritis (<6 Bln)'
-                            ? 'bg-red-50 text-red-800'
-                            : member.statusPensiun === 'Siaga (<1 Thn)'
-                            ? 'bg-amber-50 text-amber-800'
-                            : member.statusPensiun === 'Sudah Purna Tugas'
-                            ? 'bg-neutral-100 text-neutral-700'
-                            : 'bg-emerald-50 text-emerald-800'
-                        }`}
-                      >
-                        {member.statusPensiun}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-neutral-500">
-                      Sisa masa jabatan: {member.sisaMasaPensiunTahun} tahun {member.sisaMasaPensiunBulan % 12} bulan
-                    </div>
+                    {(() => {
+                      const isKades = member.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+                        member.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                        member.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+                      if (isKades) {
+                        return (
+                          <>
+                            <div className="text-[10px] uppercase font-semibold text-neutral-500">
+                              Status Jabatan Kepala Desa
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-neutral-900">{member.usia} Tahun</span>
+                              <span className="px-2 py-0.5 rounded-sm font-semibold text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                Periodisasi Masa Jabatan
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-neutral-500">
+                              Masa jabatan Kepala Desa diatur berdasarkan SK & UU Desa (bukan batas usia 60 tahun).
+                            </div>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <div className="text-[10px] uppercase font-semibold text-neutral-500">
+                            Evaluasi Batas Usia Pensiun (60 Tahun)
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-neutral-900">{member.usia} Tahun</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-sm font-semibold text-[10px] ${
+                                member.statusPensiun === 'Kritis (<6 Bln)'
+                                  ? 'bg-red-50 text-red-800'
+                                  : member.statusPensiun === 'Siaga (<1 Thn)'
+                                  ? 'bg-amber-50 text-amber-800'
+                                  : member.statusPensiun === 'Sudah Purna Tugas'
+                                  ? 'bg-neutral-100 text-neutral-700'
+                                  : 'bg-emerald-50 text-emerald-800'
+                              }`}
+                            >
+                              {member.statusPensiun}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-neutral-500">
+                            Sisa masa jabatan: {member.sisaMasaPensiunTahun} tahun {member.sisaMasaPensiunBulan % 12} bulan
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -550,11 +578,45 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         {formatDateIndo(member.keanggotaan?.tgl_bergabung)}
                       </span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="text-neutral-500">Jabatan Pengurus PPDI</span>
-                      <span className="font-semibold text-neutral-900">
-                        {member.keanggotaan?.jabatan_pengurus || 'Anggota Biasa'}
-                      </span>
+                      {currentUser.role !== 'Anggota' ? (
+                        <select
+                          aria-label="Ubah Jabatan Pengurus PPDI"
+                          value={member.keanggotaan?.jabatan_pengurus || 'Anggota Biasa'}
+                          onChange={(e) =>
+                            updateKeanggotaanJabatan(member.anggota.id_anggota, e.target.value)
+                          }
+                          className="text-xs bg-neutral-50 border border-neutral-300 rounded px-2 py-1 font-semibold text-neutral-900"
+                        >
+                          {(() => {
+                            const isKades = member.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
+                              member.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
+                              member.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+                            if (isKades) {
+                              return (
+                                <>
+                                  <option value="Anggota Istimewa">Anggota Istimewa</option>
+                                  <option value="Penasehat">Penasehat</option>
+                                </>
+                              );
+                            }
+                            return (
+                              <>
+                                <option value="Anggota Biasa">Anggota Biasa</option>
+                                <option value="Pengurus Kecamatan">Pengurus Kecamatan</option>
+                                <option value="Pengurus Daerah Kab. Bandung">Pengurus Daerah Kab. Bandung</option>
+                                <option value="Anggota Istimewa">Anggota Istimewa</option>
+                                <option value="Penasehat">Penasehat</option>
+                              </>
+                            );
+                          })()}
+                        </select>
+                      ) : (
+                        <span className="font-semibold text-neutral-900">
+                          {member.keanggotaan?.jabatan_pengurus || 'Anggota Biasa'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-neutral-500">Status Keabsahan KTA</span>
