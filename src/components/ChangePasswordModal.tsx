@@ -104,7 +104,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   isDefaultPasswordMandatory = false,
   onPasswordChanged,
 }) => {
-  const { currentUser, changePassword } = usePPDI();
+  const { currentUser, changePassword, logout } = usePPDI();
 
   // If no targetUser passed, default to currentUser
   const user = targetUser || currentUser;
@@ -112,11 +112,11 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   // If editing self, always require old password
   const mustRequireOld = requireOldPassword || isSelf;
 
-  // Deteksi apakah pengguna masih menggunakan password bawaan 'PPDIJaya2026'
+  // Deteksi apakah pengguna masih menggunakan password bawaan
   const isDefaultPasswordDetected =
     isDefaultPasswordMandatory ||
     user?.is_default_password === true ||
-    user?.password === 'PPDIJaya2026';
+    user?.password === 'PPDIJaya#2006';
 
   // Form states
   const [oldPassword, setOldPassword] = useState('');
@@ -133,10 +133,10 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Reset form when modal opens/closes & auto-fill PPDIJaya2026 if default password detected
+  // Reset form when modal opens/closes & auto-fill if default password detected
   useEffect(() => {
     if (isOpen) {
-      setOldPassword(isDefaultPasswordDetected ? 'PPDIJaya2026' : '');
+      setOldPassword(isDefaultPasswordDetected ? 'PPDIJaya#2006' : '');
       setNewPassword('');
       setConfirmPassword('');
       setShowOldPassword(false);
@@ -191,9 +191,9 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       return;
     }
 
-    if (newPassword.trim() === 'PPDIJaya2026') {
+    if (newPassword.trim() === 'PPDIJaya#2006') {
       setErrorMsg(
-        'Password baru tidak boleh menggunakan kata sandi default "PPDIJaya2026". Silakan buat kombinasi baru yang aman dan unik.'
+        'Password baru tidak boleh menggunakan kata sandi default. Silakan buat kombinasi baru yang aman dan unik.'
       );
       return;
     }
@@ -230,9 +230,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
   const handleCloseClick = () => {
     if (isDefaultPasswordDetected) {
-      setErrorMsg(
-        'Peringatan: Akun Anda masih menggunakan password default. Anda diwajibkan mengganti kata sandi demi keamanan data sistem.'
-      );
+      // Jika pengguna saat pertama kali login memilih Batal tanpa mengganti password default, otomatis langsung logout
+      logout();
       return;
     }
     onClose();
@@ -267,7 +266,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               </div>
               <p className="text-xs text-emerald-100 font-mono mt-0.5">
                 {isDefaultPasswordDetected
-                  ? 'Ganti kata sandi bawaan "PPDIJaya2026" untuk melanjutkan'
+                  ? 'Ganti kata sandi bawaan untuk melanjutkan'
                   : isSelf
                   ? 'Perbarui kata sandi akun Anda'
                   : `Atur ulang password: ${user.username}`}
@@ -305,7 +304,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               <div className="space-y-1">
                 <div className="font-bold text-amber-900">Validasi Keamanan Akun</div>
                 <div className="text-[11px] text-amber-800 leading-relaxed">
-                  Akun Anda saat ini masih menggunakan password default sistem (<span className="font-mono font-bold bg-amber-200/80 px-1 py-0.2 rounded text-amber-950">PPDIJaya2026</span>). Demi menjaga kerahasiaan data anggota dan hak akses sistem, Anda diwajibkan mengganti password sekarang.
+                  Akun Anda saat ini masih menggunakan password default sistem. Demi menjaga kerahasiaan data anggota dan hak akses sistem, Anda diwajibkan mengganti password sekarang.
                 </div>
               </div>
             </div>
@@ -461,8 +460,9 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               onClick={handleCloseClick}
               disabled={isSubmitting}
               className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors cursor-pointer"
+              title={isDefaultPasswordDetected ? 'Klik untuk membatalkan dan keluar (logout) dari sistem' : 'Batal'}
             >
-              Batal
+              {isDefaultPasswordDetected ? 'Batal (Logout)' : 'Batal'}
             </button>
             <button
               type="submit"

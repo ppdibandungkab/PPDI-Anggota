@@ -199,7 +199,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
           {isCheckingDb ? (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/40 backdrop-blur-md border border-amber-400/40 text-amber-300 text-xs font-mono shadow-xs">
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-              <span className="hidden sm:inline">Mengecek Koneksi MySQL...</span>
+              <span className="hidden sm:inline">Mengecek Koneksi DB...</span>
               <span className="sm:hidden">Cek DB...</span>
             </div>
           ) : dbStatus?.success ? (
@@ -690,7 +690,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               textAlign: 'center',
             }}
           >
-            Password bawaan pengguna baru: <strong style={{ color: 'var(--accent)' }}></strong>. Pengguna wajib mengganti password saat login pertama kali.
+          <strong style={{ color: 'var(--accent)' }}></strong>. Pengguna wajib mengganti password saat login pertama kali.
           </div>
 
           <div

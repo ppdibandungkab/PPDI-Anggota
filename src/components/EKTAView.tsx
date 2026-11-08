@@ -199,7 +199,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
           <CreditCard className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-neutral-800">Belum Ada Data Anggota di Database</h3>
           <p className="text-xs text-neutral-500 max-w-md mx-auto mt-1">
-            Data anggota sekarang dimuat secara live dari database MySQL. Daftarkan perangkat desa baru melalui menu Data Induk Anggota atau Impor Excel untuk menerbitkan E-KTA resmi.
+            Data anggota sekarang dimuat secara live dari database. Daftarkan perangkat desa baru melalui menu Data Induk Anggota atau Impor Excel untuk menerbitkan E-KTA resmi.
           </p>
         </div>
       </div>

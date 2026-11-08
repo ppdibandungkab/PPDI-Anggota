@@ -1787,7 +1787,7 @@ app.post('/api/auth/login', async (req, res) => {
           });
         }
 
-        const isDefaultPassword = cleanReqPass === 'PPDIJaya2006' || storedPass === 'PPDIJaya2006';
+        const isDefaultPassword = cleanReqPass === 'PPDIJaya#2006' || storedPass === 'PPDIJaya#2006';
 
         return res.json({
           success: true,
@@ -1876,7 +1876,7 @@ app.post('/api/auth/login', async (req, res) => {
   const matchedDefault = defaultAccounts[clean];
   if (matchedDefault) {
     const cleanPass = String(password).trim();
-    const isDefault = cleanPass === 'PPDIJaya2026';
+    const isDefault = cleanPass === 'PPDIJaya#2006';
     const isPassValid = cleanPass === matchedDefault.pass || isDefault;
     if (!isPassValid) {
       return res.status(401).json({
@@ -1936,7 +1936,7 @@ app.get('/api/users', async (_req, res) => {
         u.id_desa,
         u.created_at,
         u.update_at,
-        (u.password = 'PPDIJaya2026') as is_default_password
+        (u.password = 'PPDIJaya#2026') as is_default_password
       FROM users u
       LEFT JOIN roles r ON (CAST(u.id_role AS CHAR) = CAST(r.id_role AS CHAR) OR u.id_role = r.nama_role)
       ORDER BY u.id_user ASC

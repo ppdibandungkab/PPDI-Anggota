@@ -223,7 +223,7 @@ const MainAppContent: React.FC = () => {
         pollIntervalMs={12000}
       />
 
-      {/* Modal Popup Ganti Password Akun - Posisi Ditengah (Otomatis Aktif jika User Menggunakan Password Default PPDIJaya2026) */}
+      {/* Modal Popup Ganti Password Akun - Posisi Ditengah (Otomatis Aktif jika User Menggunakan Password Default) */}
       <ChangePasswordModal
         isOpen={isChangePasswordModalOpen}
         onClose={closeChangePasswordModal}

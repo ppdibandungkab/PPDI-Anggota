@@ -668,7 +668,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                 Perangkat Desa Berhasil Didaftarkan!
               </h3>
               <p className="text-xs text-neutral-500 max-w-md mx-auto">
-                Data induk perangkat desa telah tersimpan secara resmi di database MySQL. Nomor E-KTA PPDI telah diterbitkan dengan validasi QR Code.
+                Data induk perangkat desa telah tersimpan secara resmi di database. Nomor E-KTA PPDI telah diterbitkan dengan validasi QR Code.
               </p>
             </div>
 

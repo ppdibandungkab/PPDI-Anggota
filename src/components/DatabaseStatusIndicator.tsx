@@ -230,7 +230,7 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-neutral-400 font-sans uppercase font-bold">MySQL Live DB</span>
+                  <span className="text-[10px] text-neutral-400 font-sans uppercase font-bold">Live DB</span>
                   <Database className={`w-3.5 h-3.5 ${isDbReachable ? 'text-emerald-400' : 'text-amber-400'}`} />
                 </div>
                 <div className="font-bold text-white text-xs">

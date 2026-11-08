@@ -921,11 +921,11 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentUser]);
 
-  // Otomatis deteksi jika pengguna yang telah login masih menggunakan password default (PPDIJaya2026)
+  // Otomatis deteksi jika pengguna yang telah login masih menggunakan password default
   useEffect(() => {
     if (isAuthenticated && currentUser) {
       const isDefault =
-        currentUser.password === 'PPDIJaya2026' ||
+        currentUser.password === 'PPDIJaya#2006' ||
         currentUser.is_default_password === true;
       if (isDefault) {
         setMustChangeDefaultPassword(true);
