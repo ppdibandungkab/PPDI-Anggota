@@ -23,6 +23,7 @@ import { DbSettingsView } from './components/DbSettingsView';
 import { StatistikWilayahView } from './components/StatistikWilayahView';
 import { LogAktivitasView } from './components/LogAktivitasView';
 import { DatabaseStatusIndicator } from './components/DatabaseStatusIndicator';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AnggotaFullDetail } from './types/ppdi';
 
 const MainAppContent: React.FC = () => {
@@ -36,6 +37,9 @@ const MainAppContent: React.FC = () => {
     isCheckingDb,
     checkDbStatus,
     currentUser,
+    isChangePasswordModalOpen,
+    closeChangePasswordModal,
+    mustChangeDefaultPassword,
   } = usePPDI();
 
   // Modal states
@@ -217,6 +221,15 @@ const MainAppContent: React.FC = () => {
       <DatabaseStatusIndicator
         onOpenDbModal={() => setIsDbModalOpen(true)}
         pollIntervalMs={12000}
+      />
+
+      {/* Modal Popup Ganti Password Akun - Posisi Ditengah (Otomatis Aktif jika User Menggunakan Password Default PPDIJaya2026) */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordModalOpen}
+        onClose={closeChangePasswordModal}
+        targetUser={currentUser}
+        requireOldPassword={true}
+        isDefaultPasswordMandatory={mustChangeDefaultPassword}
       />
     </div>
   );

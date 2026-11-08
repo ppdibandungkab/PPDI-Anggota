@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS \`users\` (
   \`id_kecamatan\` VARCHAR(10) NULL,
   \`id_desa\` VARCHAR(20) NULL,
   \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  \`update_at\` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (\`id_user\`),
   UNIQUE KEY \`uq_user_username\` (\`username\`),
   UNIQUE KEY \`uq_user_email\` (\`email\`),

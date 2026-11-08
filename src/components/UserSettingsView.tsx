@@ -22,7 +22,7 @@ import { UserAccount, UserRole } from '../types/ppdi';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const UserSettingsView: React.FC = () => {
-  const { users, currentUser, switchUser, createUser, updateUser, deleteUser, kecamatanList, desaList, hasPermission } = usePPDI();
+  const { users, currentUser, switchUser, createUser, updateUser, deleteUser, kecamatanList, desaList, fullMembers, hasPermission } = usePPDI();
 
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,12 +37,32 @@ export const UserSettingsView: React.FC = () => {
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedIdAnggota, setSelectedIdAnggota] = useState<string>('');
   const [role, setRole] = useState<UserRole>('Admin_Kecamatan');
   const [idKecamatan, setIdKecamatan] = useState<string>(kecamatanList[0]?.id_kecamatan || '320437');
   const [idDesa, setIdDesa] = useState<string>('');
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleAnggotaSelect = (idAnggota: string) => {
+    setSelectedIdAnggota(idAnggota);
+    if (!idAnggota) return;
+    const found = fullMembers.find((m) => m.anggota.id_anggota === idAnggota);
+    if (found) {
+      // Otomatis isikan Nama Lengkap dari data Anggota Induk
+      setNama(found.anggota.nama_lengkap.toUpperCase());
+      if (found.anggota.email && (!email || email.includes('example.com'))) {
+        setEmail(found.anggota.email);
+      }
+      if (found.jabatanTerkini?.id_desa) {
+        setIdDesa(found.jabatanTerkini.id_desa);
+      }
+      if (found.kecamatan?.id_kecamatan) {
+        setIdKecamatan(found.kecamatan.id_kecamatan);
+      }
+    }
+  };
 
   const isKabupatenLevel = currentUser.role === 'Superadmin_Kabupaten' || currentUser.role === 'Admin_Kabupaten';
   const visibleUsers = users.filter((u) => {
@@ -67,6 +87,7 @@ export const UserSettingsView: React.FC = () => {
     setNama('');
     setEmail('');
     setPassword('');
+    setSelectedIdAnggota('');
     setRole(currentUser.role === 'Superadmin_Kabupaten' ? 'Admin_Kabupaten' : 'Admin_Kecamatan');
     setIdKecamatan(kecamatanList[0]?.id_kecamatan || '320437');
     setIdDesa(desaList[0]?.id_desa || '');
@@ -97,6 +118,7 @@ export const UserSettingsView: React.FC = () => {
     setNama(u.nama);
     setEmail(u.email);
     setPassword(''); // leave blank if unchanged
+    setSelectedIdAnggota(u.id_anggota || '');
     setRole(u.role);
     setIdKecamatan(u.id_kecamatan || kecamatanList[0]?.id_kecamatan || '320437');
     setIdDesa(u.id_desa || desaList[0]?.id_desa || '');
@@ -155,12 +177,15 @@ export const UserSettingsView: React.FC = () => {
         nama: nama.trim().toUpperCase(),
         email: email.trim(),
         role: finalRole,
+        id_anggota: selectedIdAnggota ? selectedIdAnggota.trim() : null,
         id_kecamatan: finalRole === 'Admin_Kecamatan' || finalRole === 'Admin_Desa' ? idKecamatan : undefined,
         id_kecamatan_scope: finalRole === 'Admin_Kecamatan' || finalRole === 'Admin_Desa' ? idKecamatan : null,
         id_desa: finalRole === 'Admin_Desa' ? idDesa : undefined,
       };
       if (password.trim()) {
         payload.password = password.trim();
+      } else if (!editingUser) {
+        payload.password = 'PPDIJaya2026';
       }
 
       if (editingUser) {
@@ -471,6 +496,7 @@ export const UserSettingsView: React.FC = () => {
                     <th className="p-3">Email</th>
                     <th className="p-3">Tingkatan (Role)</th>
                     <th className="p-3">Wilayah Scope</th>
+                    <th className="p-3">Update Terakhir</th>
                     <th className="p-3 text-center">Aksi CRUD</th>
                   </tr>
                 </thead>
@@ -493,7 +519,15 @@ export const UserSettingsView: React.FC = () => {
                         <td className="p-3 font-bold text-neutral-500">#{u.id_user}</td>
                         <td className="p-3 font-bold text-[#064E3B]">{u.username}</td>
                         <td className="p-3 text-neutral-900 font-bold uppercase tracking-wide">
-                          {u.nama.toUpperCase()}
+                          <div>{u.nama.toUpperCase()}</div>
+                          {u.id_anggota ? (
+                            <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-100 text-emerald-900 border border-emerald-300">
+                              <UserCheck className="w-3 h-3 text-emerald-700 shrink-0" />
+                              <span>ID Anggota: {u.id_anggota}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-neutral-400 font-normal italic block">Akun Non-Anggota</span>
+                          )}
                         </td>
                         <td className="p-3 text-neutral-600">{u.email}</td>
                         <td className="p-3">
@@ -526,6 +560,32 @@ export const UserSettingsView: React.FC = () => {
                             <span className="text-neutral-800">Kec. {kecName}</span>
                           ) : (
                             <span className="text-neutral-400">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {u.update_at || u.updated_at ? (
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-neutral-800">
+                                {new Date(u.update_at || u.updated_at!).toLocaleDateString('id-ID', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                              <span className="text-[10px] text-neutral-500">
+                                {new Date(u.update_at || u.updated_at!).toLocaleTimeString('id-ID', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-neutral-400 italic text-[11px]">-</span>
+                          )}
+                          {(u.password === 'PPDIJaya2026' || u.is_default_password) && (
+                            <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              Default Password
+                            </span>
                           )}
                         </td>
                         <td className="p-3">
@@ -717,6 +777,47 @@ export const UserSettingsView: React.FC = () => {
             </div>
 
             <form onSubmit={handleSave} className="p-6 space-y-4 font-mono text-xs">
+              {/* Integrasi Data Anggota (Tabel Anggota Induk) */}
+              <div className="space-y-1 bg-emerald-50/80 p-3 rounded-xl border border-emerald-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-[#064E3B] font-bold uppercase text-[11px] flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                    Integrasi Data Anggota (Tabel Anggota)
+                  </label>
+                  {selectedIdAnggota && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedIdAnggota('')}
+                      className="text-[10px] text-red-600 hover:underline font-bold cursor-pointer"
+                    >
+                      Batal Hubungkan
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={selectedIdAnggota}
+                  onChange={(e) => handleAnggotaSelect(e.target.value)}
+                  className="w-full p-2.5 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white font-semibold text-xs cursor-pointer"
+                >
+                  <option value="">-- Ketik Nama Manual / Tidak Terhubung ke Anggota Induk --</option>
+                  {fullMembers.map((m) => (
+                    <option key={m.anggota.id_anggota} value={m.anggota.id_anggota}>
+                      {m.anggota.nama_lengkap.toUpperCase()} (NIK: {m.anggota.nik} | KTA: {m.keanggotaan?.no_kta || 'Tanpa KTA'})
+                    </option>
+                  ))}
+                </select>
+                {selectedIdAnggota ? (
+                  <div className="text-[10px] text-emerald-900 font-semibold bg-emerald-100/90 p-2 rounded-md border border-emerald-300 flex items-center gap-1.5 mt-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span>Terhubung ke ID Anggota: <strong className="font-mono text-emerald-950">{selectedIdAnggota}</strong>. Nama Lengkap terisi otomatis!</span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-neutral-500">
+                    Pilih nama anggota di atas untuk mengaitkan akun Pengguna (User) dengan record Anggota di database secara otomatis.
+                  </p>
+                )}
+              </div>
+
               {/* Nama Lengkap */}
               <div className="space-y-1">
                 <label className="text-neutral-700 font-bold uppercase block text-[11px]">
@@ -769,7 +870,7 @@ export const UserSettingsView: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  placeholder={editingUser ? '•••••••• (Biarkan kosong)' : 'Masukkan password pengguna'}
+                  placeholder={editingUser ? '•••••••• (Biarkan kosong jika tidak diubah)' : 'PPDIJaya2026 (Default sistem jika kosong)'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full p-2.5 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 font-mono"

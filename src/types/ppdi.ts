@@ -102,6 +102,10 @@ export interface UserAccount {
   id_kecamatan?: string; // For Admin_Kecamatan restriction
   id_kecamatan_scope?: string; // For Admin_Kecamatan scope restriction
   id_desa?: string; // For Admin_Desa restriction
+  created_at?: string;
+  update_at?: string;
+  updated_at?: string;
+  is_default_password?: boolean;
 }
 
 // Composite views for UI display

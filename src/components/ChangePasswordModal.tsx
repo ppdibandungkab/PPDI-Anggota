@@ -8,6 +8,7 @@ import {
   EyeOff,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   X,
   ShieldCheck,
   User,
@@ -18,13 +19,90 @@ interface ChangePasswordModalProps {
   onClose: () => void;
   targetUser?: UserAccount | null;
   requireOldPassword?: boolean;
+  isDefaultPasswordMandatory?: boolean;
+  onPasswordChanged?: () => void;
 }
+
+export const PasswordStrengthMeter: React.FC<{ password: string }> = ({ password }) => {
+  if (!password) return null;
+
+  const minLen = password.length >= 6;
+  const goodLen = password.length >= 8;
+  const hasMixed = /[A-Z]/.test(password) && /[a-z]/.test(password);
+  const hasNumberOrSpecial = /[0-9]/.test(password) || /[^A-Za-z0-9]/.test(password);
+
+  let score = 0;
+  if (minLen) score += 1;
+  if (goodLen) score += 1;
+  if (hasMixed) score += 1;
+  if (hasNumberOrSpecial) score += 1;
+
+  let label = 'Lemah';
+  let badgeStyle = 'bg-red-100 text-red-800 border-red-300';
+  let barColor = 'bg-red-500';
+  let fillWidth = 'w-1/3';
+
+  if (score >= 4) {
+    label = 'Kuat';
+    badgeStyle = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+    barColor = 'bg-emerald-600';
+    fillWidth = 'w-full';
+  } else if (score >= 2) {
+    label = 'Sedang';
+    badgeStyle = 'bg-amber-100 text-amber-800 border-amber-300';
+    barColor = 'bg-amber-500';
+    fillWidth = 'w-2/3';
+  }
+
+  return (
+    <div className="mt-2.5 p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-2 animate-in fade-in duration-200">
+      <div className="flex items-center justify-between text-xs font-mono">
+        <span className="text-neutral-700 font-bold flex items-center gap-1.5">
+          <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+          Kekuatan Password:
+        </span>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border ${badgeStyle} uppercase tracking-wider`}>
+          {label}
+        </span>
+      </div>
+
+      {/* Visual Progress Bar */}
+      <div className="w-full bg-neutral-200 h-2 rounded-full overflow-hidden p-0.5">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${fillWidth} ${barColor}`}
+        />
+      </div>
+
+      {/* Requirements Checklist */}
+      <div className="grid grid-cols-2 gap-1.5 pt-1 text-[10px] font-mono">
+        <div className={`flex items-center gap-1.5 ${minLen ? 'text-emerald-700 font-bold' : 'text-neutral-400'}`}>
+          <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${minLen ? 'text-emerald-600' : 'text-neutral-300'}`} />
+          <span>Min. 6 Karakter</span>
+        </div>
+        <div className={`flex items-center gap-1.5 ${goodLen ? 'text-emerald-700 font-bold' : 'text-neutral-400'}`}>
+          <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${goodLen ? 'text-emerald-600' : 'text-neutral-300'}`} />
+          <span>8+ Karakter</span>
+        </div>
+        <div className={`flex items-center gap-1.5 ${hasMixed ? 'text-emerald-700 font-bold' : 'text-neutral-400'}`}>
+          <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${hasMixed ? 'text-emerald-600' : 'text-neutral-300'}`} />
+          <span>Huruf Besar & Kecil</span>
+        </div>
+        <div className={`flex items-center gap-1.5 ${hasNumberOrSpecial ? 'text-emerald-700 font-bold' : 'text-neutral-400'}`}>
+          <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${hasNumberOrSpecial ? 'text-emerald-600' : 'text-neutral-300'}`} />
+          <span>Angka / Simbol</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   isOpen,
   onClose,
   targetUser,
   requireOldPassword = true,
+  isDefaultPasswordMandatory = false,
+  onPasswordChanged,
 }) => {
   const { currentUser, changePassword } = usePPDI();
 
@@ -33,6 +111,12 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const isSelf = user.id_user === currentUser.id_user;
   // If editing self, always require old password
   const mustRequireOld = requireOldPassword || isSelf;
+
+  // Deteksi apakah pengguna masih menggunakan password bawaan 'PPDIJaya2026'
+  const isDefaultPasswordDetected =
+    isDefaultPasswordMandatory ||
+    user?.is_default_password === true ||
+    user?.password === 'PPDIJaya2026';
 
   // Form states
   const [oldPassword, setOldPassword] = useState('');
@@ -49,10 +133,10 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Reset form when modal opens/closes
+  // Reset form when modal opens/closes & auto-fill PPDIJaya2026 if default password detected
   useEffect(() => {
     if (isOpen) {
-      setOldPassword('');
+      setOldPassword(isDefaultPasswordDetected ? 'PPDIJaya2026' : '');
       setNewPassword('');
       setConfirmPassword('');
       setShowOldPassword(false);
@@ -61,7 +145,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       setErrorMsg(null);
       setSuccessMsg(null);
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, isDefaultPasswordDetected]);
 
   if (!isOpen) return null;
 
@@ -107,6 +191,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       return;
     }
 
+    if (newPassword.trim() === 'PPDIJaya2026') {
+      setErrorMsg(
+        'Password baru tidak boleh menggunakan kata sandi default "PPDIJaya2026". Silakan buat kombinasi baru yang aman dan unik.'
+      );
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       setErrorMsg('Pengetikan ulang password baru (konfirmasi) tidak cocok. Pastikan kedua input sama persis.');
       return;
@@ -122,15 +213,29 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         requireOldPassword: mustRequireOld,
       });
 
-      setSuccessMsg(res.message || 'Password berhasil diperbarui! Silakan gunakan password baru ini.');
+      setSuccessMsg(
+        res.message ||
+          'Password berhasil diperbarui dan update_at telah tercatat di tabel users! Modal ditutup otomatis.'
+      );
       setTimeout(() => {
+        onPasswordChanged?.();
         onClose();
-      }, 1600);
+      }, 1400);
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal mengubah password. Silakan coba kembali.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCloseClick = () => {
+    if (isDefaultPasswordDetected) {
+      setErrorMsg(
+        'Peringatan: Akun Anda masih menggunakan password default. Anda diwajibkan mengganti kata sandi demi keamanan data sistem.'
+      );
+      return;
+    }
+    onClose();
   };
 
   return (
@@ -142,22 +247,35 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         aria-labelledby="modal-title"
       >
         {/* Header */}
-        <div className="bg-[#064E3B] text-white px-6 py-4 flex items-center justify-between">
+        <div className={`text-white px-6 py-4 flex items-center justify-between ${
+          isDefaultPasswordDetected ? 'bg-gradient-to-r from-amber-700 via-amber-800 to-amber-900' : 'bg-[#064E3B]'
+        }`}>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-white/10 rounded-lg">
-              <Key className="w-5 h-5 text-amber-300" />
+            <div className={`p-2 rounded-lg ${isDefaultPasswordDetected ? 'bg-amber-400/20 text-amber-200' : 'bg-white/10 text-amber-300'}`}>
+              {isDefaultPasswordDetected ? <AlertTriangle className="w-5 h-5 text-amber-300" /> : <Key className="w-5 h-5" />}
             </div>
             <div>
-              <h2 id="modal-title" className="text-base font-bold tracking-tight">
-                Ganti Password Akun
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 id="modal-title" className="text-base font-bold tracking-tight">
+                  {isDefaultPasswordDetected ? 'Ubah Password Default (Wajib)' : 'Ganti Password Akun'}
+                </h2>
+                {isDefaultPasswordDetected && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-300 text-amber-950 uppercase tracking-wider">
+                    Keamanan
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-emerald-100 font-mono mt-0.5">
-                {isSelf ? 'Perbarui kata sandi akun Anda' : `Atur ulang password: ${user.username}`}
+                {isDefaultPasswordDetected
+                  ? 'Ganti kata sandi bawaan "PPDIJaya2026" untuk melanjutkan'
+                  : isSelf
+                  ? 'Perbarui kata sandi akun Anda'
+                  : `Atur ulang password: ${user.username}`}
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleCloseClick}
             type="button"
             className="text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition-colors cursor-pointer"
             aria-label="Tutup Modal"
@@ -180,6 +298,19 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Default Password Security Notice Banner */}
+          {isDefaultPasswordDetected && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-amber-900">Validasi Keamanan Akun</div>
+                <div className="text-[11px] text-amber-800 leading-relaxed">
+                  Akun Anda saat ini masih menggunakan password default sistem (<span className="font-mono font-bold bg-amber-200/80 px-1 py-0.2 rounded text-amber-950">PPDIJaya2026</span>). Demi menjaga kerahasiaan data anggota dan hak akses sistem, Anda diwajibkan mengganti password sekarang.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error Message Alert */}
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-start gap-2.5">
@@ -261,25 +392,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               </button>
             </div>
 
-            {/* Password strength meter */}
-            {newPassword.length > 0 && (
-              <div className="space-y-1 pt-1">
-                <div className="flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-neutral-500">Kekuatan Password:</span>
-                  <span className="font-semibold text-neutral-700">{strengthLabels[strength]}</span>
-                </div>
-                <div className="w-full bg-neutral-200 h-1.5 rounded-full overflow-hidden flex gap-0.5">
-                  {[1, 2, 3, 4].map((step) => (
-                    <div
-                      key={step}
-                      className={`h-full flex-1 transition-all duration-300 ${
-                        strength >= step ? strengthColors[strength] : 'bg-neutral-200'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Real-time Password Strength Meter */}
+            <PasswordStrengthMeter password={newPassword} />
 
             {mustRequireOld && oldPassword && newPassword && oldPassword === newPassword && (
               <p className="text-[10px] text-red-600 font-medium">
@@ -344,7 +458,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
           <div className="pt-3 border-t border-neutral-100 flex items-center justify-end gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseClick}
               disabled={isSubmitting}
               className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors cursor-pointer"
             >

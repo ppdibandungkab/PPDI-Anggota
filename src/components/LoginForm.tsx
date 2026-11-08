@@ -210,8 +210,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <Database className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline font-semibold">MySQL Terhubung ({dbStatus.latencyMs}ms)</span>
-              <span className="sm:hidden font-semibold">MySQL Aktif</span>
+              <span className="hidden sm:inline font-semibold">Online ({dbStatus.latencyMs}ms)</span>
+              <span className="sm:hidden font-semibold">Aktif</span>
             </button>
           ) : (
             <button
@@ -326,30 +326,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               <span className="text-xs font-mono tracking-widest uppercase text-emerald-300/90 font-bold block">
                 PORTAL RESMI KEANGGOTAAN
               </span>
-              <span className="text-[11px] font-mono text-white/70 block uppercase">
-                {appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}
-              </span>
-            </div>
-          </div>
-
-          <h1
-            className="uppercase tracking-tight font-extrabold"
+              <h3 className="uppercase tracking-tight font-extrabold"
             style={{
               color: 'var(--accent)',
-              fontSize: 'clamp(2.75rem, 7vw, 5.5rem)',
+              fontSize: 'clamp(2.75rem, 5vw, 2.5rem)',
               lineHeight: 0.9,
               letterSpacing: '-0.04em',
               marginBottom: '1.5rem',
-            }}
-          >
-            {appSettings?.appName ? appSettings.appName : (
-              <>
-                PPDI
-                <br />
-                KAB. BANDUNG
-              </>
-            )}
-          </h1>
+            }}>
+                {appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}
+              </h3>
+            </div>
+          </div>
 
           <p
             style={{
@@ -369,19 +357,21 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
             <button
               type="button"
               onClick={onOpenPublicVerify}
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-[#F8F7F4] bg-white/10 hover:bg-white/15 border border-white/15 transition-all cursor-pointer backdrop-blur-md shadow-sm"
-              title="Cek keabsahan E-KTA dengan Scan QR atau masukkan Nomor KTA / NIK"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-mono uppercase tracking-wider text-black transition-all cursor-pointer shadow-md font-bold"
+              style={{ backgroundColor: '#FCC800', fontWeight: 'bold', fontSize: '13px', color: '#000000' }}
+              title="REGISTRASI PERANGKAT DESA (FORMULIR INDUK)"
             >
-              <QrCode className="w-4 h-4 text-[#FDE047]" />
-              <span>REGISTRASI PERANGKAT DESA (FORMULIR INDUK)</span>
+              <QrCode className="w-4 h-4 text-[#051812]" />
+              <span style={{ color: '#000000' }}>REGISTRASI PERANGKAT DESA (FORMULIR INDUK)</span>
             </button>
 
             <button
               type="button"
               onClick={() => setIsLoginPopupOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-neutral-900 bg-[#FDE047] hover:bg-[#fcc800] transition-all cursor-pointer shadow-md font-bold"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-mono uppercase tracking-wider text-white transition-all cursor-pointer shadow-md font-bold"
+              style={{ backgroundColor: '#8f0817', fontWeight: 'bold', fontSize: '13px' }}
             >
-              <span>Login Sistem</span>
+              <span>Login Admin</span>
             </button>
 
             {!dbStatus?.success && (
@@ -403,12 +393,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
               <h2 className="text-xs font-mono uppercase tracking-widest text-emerald-300 font-bold">
-                RINGKASAN CEPAT PORTAL (QUICK STATS)
+                RINGKASAN
               </h2>
             </div>
-            <span className="text-[10px] font-mono text-white/70 bg-black/40 border border-white/10 px-2.5 py-0.5 rounded-md backdrop-blur-md">
-              UPDATE REAL-TIME
-            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -690,12 +677,29 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
           </form>
 
           <div
+            style={{
+              marginTop: '1.25rem',
+              padding: '0.6rem 0.75rem',
+              background: 'rgba(253, 224, 71, 0.08)',
+              border: '1px solid rgba(253, 224, 71, 0.25)',
+              borderRadius: '0.5rem',
+              fontSize: '0.65rem',
+              fontFamily: "'JetBrains Mono', monospace",
+              color: 'rgba(248, 247, 244, 0.85)',
+              lineHeight: 1.4,
+              textAlign: 'center',
+            }}
+          >
+            Password bawaan pengguna baru: <strong style={{ color: 'var(--accent)' }}></strong>. Pengguna wajib mengganti password saat login pertama kali.
+          </div>
+
+          <div
             className="meta"
             style={{
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: '0.7rem',
               opacity: 0.5,
-              marginTop: '1.5rem',
+              marginTop: '1.25rem',
               textAlign: 'center',
               letterSpacing: '0.05em',
             }}

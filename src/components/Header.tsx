@@ -14,7 +14,6 @@ import {
   Check,
   Key,
 } from 'lucide-react';
-import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const Header: React.FC<{
   onOpenAddModal: () => void;
@@ -37,10 +36,10 @@ export const Header: React.FC<{
     setActiveTab,
     kecamatanList,
     desaList,
+    openChangePasswordModal,
   } = usePPDI();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
   // Close profile dropdown when clicking outside or pressing Escape
@@ -184,12 +183,12 @@ export const Header: React.FC<{
                 <button
                   type="button"
                   disabled
-                  title={`Status: Database MySQL Terhubung Aktif (${dbStatus.latencyMs} ms) - Tombol Pengaturan Nonaktif Saat Terhubung`}
+                  title={`Status: Database Terhubung Aktif (${dbStatus.latencyMs} ms) - Tombol Pengaturan Nonaktif Saat Terhubung`}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono bg-emerald-50 text-emerald-900 border border-emerald-300 opacity-80 cursor-not-allowed select-none"
                 >
                   <Database className="w-3 h-3 text-[#064E3B]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                  <span>MySQL Terhubung ({dbStatus.latencyMs || 0}ms)</span>
+                  <span>Online ({dbStatus.latencyMs || 0}ms)</span>
                 </button>
               ) : (
                 <button
@@ -332,11 +331,11 @@ export const Header: React.FC<{
                       </div>
                     </button>
 
-                    {/* Akses Ganti Password (Popup Modal) */}
+                    {/* Akses Ganti Password (Popup Modal Ditengah) */}
                     <button
                       type="button"
                       onClick={() => {
-                        setIsChangePasswordOpen(true);
+                        openChangePasswordModal();
                         setIsProfileOpen(false);
                       }}
                       className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[#111113]/80 hover:text-[#064E3B] hover:bg-emerald-50/70 rounded-md transition-colors cursor-pointer text-left group"
@@ -427,14 +426,6 @@ export const Header: React.FC<{
           </div>
         </div>
       </div>
-
-      {/* Modal Popup Ganti Password Akun */}
-      <ChangePasswordModal
-        isOpen={isChangePasswordOpen}
-        onClose={() => setIsChangePasswordOpen(false)}
-        targetUser={currentUser}
-        requireOldPassword={true}
-      />
     </header>
   );
 };
