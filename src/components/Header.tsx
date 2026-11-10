@@ -179,18 +179,7 @@ export const Header: React.FC<{
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                   <span>Cek DB...</span>
                 </div>
-              ) : dbStatus?.success ? (
-                <button
-                  type="button"
-                  disabled
-                  title={`Status: Database Terhubung Aktif (${dbStatus.latencyMs} ms) - Tombol Pengaturan Nonaktif Saat Terhubung`}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono bg-emerald-50 text-emerald-900 border border-emerald-300 opacity-80 cursor-not-allowed select-none"
-                >
-                  <Database className="w-3 h-3 text-[#064E3B]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                  <span>Online ({dbStatus.latencyMs || 0}ms)</span>
-                </button>
-              ) : (
+              ) : dbStatus?.success ? null : (
                 <button
                   type="button"
                   onClick={onOpenDbModal}

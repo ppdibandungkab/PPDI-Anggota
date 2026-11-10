@@ -203,8 +203,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               <span className="sm:hidden">Cek DB...</span>
             </div>
           ) : dbStatus?.success ? (
-            <button
-              onClick={() => setIsDbModalOpen(true)}
+            <span
+              onClick={() => setIsDbModalOpen(false)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/70 hover:bg-emerald-900/90 backdrop-blur-md border border-emerald-500/50 text-emerald-200 text-xs font-mono shadow-sm transition-all cursor-pointer"
               title="Status: Database MySQL Terhubung Aktif. Klik untuk membuka diagnostik & setting database."
             >
@@ -212,7 +212,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               <Database className="w-3.5 h-3.5 text-emerald-400" />
               <span className="hidden sm:inline font-semibold">Online ({dbStatus.latencyMs}ms)</span>
               <span className="sm:hidden font-semibold">Aktif</span>
-            </button>
+            </span>
           ) : (
             <button
               onClick={() => setIsDbModalOpen(true)}
