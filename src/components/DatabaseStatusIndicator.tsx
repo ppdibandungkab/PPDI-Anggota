@@ -27,6 +27,7 @@ export interface DiagnosticData {
     port: number;
     pid: number;
     nodeVersion: string;
+    targetNodeVersion?: string;
     platform: string;
     arch: string;
     env: string;
@@ -267,10 +268,10 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
               <div className="flex justify-between text-neutral-400">
                 <span className="flex items-center gap-1.5 font-sans">
                   <Server className="w-3 h-3 text-neutral-500" />
-                  <span>Proses PID & Node</span>
+                  <span>Proses & Node.js</span>
                 </span>
-                <span className="text-neutral-300">
-                  PID {diagnostic?.server?.pid || '-'} ({diagnostic?.server?.nodeVersion || 'Node'})
+                <span className="text-neutral-300 font-mono text-[11px]">
+                  PID {diagnostic?.server?.pid || '-'} ({diagnostic?.server?.nodeVersion || 'v22.23.4'})
                 </span>
               </div>
             </div>

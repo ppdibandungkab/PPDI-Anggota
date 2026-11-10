@@ -454,6 +454,7 @@ app.get('/api/diagnostic', async (req, res) => {
       port: PORT,
       pid: process.pid,
       nodeVersion: process.version,
+      targetNodeVersion: '22.23.4',
       platform: process.platform,
       arch: process.arch,
       env: process.env.NODE_ENV || 'development',
@@ -3051,7 +3052,7 @@ async function startServer() {
   }
 
   const server = app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Server PPDI Kab. Bandung berjalan pada port ${PORT}`);
+    console.log(`Server PPDI Kab. Bandung berjalan pada port ${PORT} [Node.js ${process.version} / Target: 22.23.4]`);
     console.log(`MySQL Live Connected: ${activeDbConfig.user}@${activeDbConfig.host}:${activeDbConfig.port}/${activeDbConfig.database}`);
   });
 

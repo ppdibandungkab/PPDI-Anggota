@@ -351,11 +351,12 @@ DB_NAME="db_ppdi"
       ],
     },
     {
-      title: '5. Restart Node.js Application di cPanel',
-      desc: 'Setelah mengubah file .env di cPanel:',
+      title: '5. Setup & Restart Node.js Application di cPanel',
+      desc: 'Pengaturan versi runtime Node.js di cPanel hosting:',
       steps: [
         'Buka cPanel -> menu "Setup Node.js App".',
-        'Cari aplikasi Anda, lalu klik tombol icon "Restart" (putar) agar server Node.js membaca file .env yang baru.',
+        'Pilih Node.js Version: 22.x (target rekomendasi 22.23.4), Application root ke folder proyek, dan Application startup file: server.js.',
+        'Klik tombol "Restart" (ikon putar) agar server Node.js membaca file .env dan memulai service.',
       ],
     },
   ];
