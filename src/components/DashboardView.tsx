@@ -359,21 +359,21 @@ export const DashboardView: React.FC = () => {
   const purnaTugasCount = visibleMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas').length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Top Banner & Context */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-neutral-200 gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3.5 sm:pb-4 border-b border-neutral-200 gap-3">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900 tracking-tight flex items-center gap-2">
+          <h1 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight flex flex-wrap items-center gap-2 leading-snug">
             <span>Dashboard Statistik & Visualisasi Data Wilayah</span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
               Recharts Live
             </span>
           </h1>
-          <p className="text-xs text-neutral-500 mt-0.5">
+          <p className="text-xs sm:text-[13px] text-neutral-500 mt-1 leading-relaxed">
             Monitoring data induk perangkat desa, sebaran KTA digital, visualisasi jabatan & masa kerja se-Kabupaten Bandung
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => {
               const el = document.getElementById('sebaran-wilayah-chart');
@@ -406,15 +406,15 @@ export const DashboardView: React.FC = () => {
       {/* NOTIFIKASI OTOMATIS: PERANGKAT PURNA TUGAS DALAM 18 BULAN      */}
       {/* ------------------------------------------------------------- */}
       {retirement18MonthsMembers.length > 0 && (
-        <div className="bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border-l-4 border-amber-600 bg-amber-50/70 p-4 rounded-r-xl border border-amber-200 shadow-sm transition-all">
+        <div className="bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border-l-4 border-amber-600 bg-amber-50/70 p-3.5 sm:p-4 rounded-r-xl border border-amber-200 shadow-sm transition-all">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
-                <BellRing className="w-5 h-5 animate-pulse" />
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <div className="p-2 sm:p-2.5 bg-amber-500 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                <BellRing className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-bold text-amber-950 uppercase tracking-wide flex items-center gap-1.5">
+                  <h2 className="text-xs sm:text-sm font-bold text-amber-950 uppercase tracking-wide flex items-center gap-1.5 leading-snug">
                     <span>Notifikasi Otomatis Purna Tugas (18 Bulan Ke Depan)</span>
                   </h2>
                   <span className="px-2.5 py-0.5 bg-amber-200 text-amber-950 rounded-full text-[11px] font-mono font-bold border border-amber-300">
@@ -514,9 +514,9 @@ export const DashboardView: React.FC = () => {
                     >
                       <div>
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-bold text-xs truncate">{m.anggota.nama_lengkap}</span>
+                          <span className="font-bold text-xs sm:text-[13px] truncate">{m.anggota.nama_lengkap}</span>
                           <span
-                            className={`px-2 py-0.5 rounded-xs font-mono text-[10px] font-bold shrink-0 ${
+                            className={`px-2 py-0.5 rounded-xs font-mono text-[11px] font-bold shrink-0 ${
                               isKritis
                                 ? 'bg-red-200 text-red-900 border border-red-300'
                                 : isSiaga
@@ -527,29 +527,29 @@ export const DashboardView: React.FC = () => {
                             {sisaTotalBulan} Bln Lagi
                           </span>
                         </div>
-                        <div className="text-[11px] text-neutral-600 mt-1 flex items-center gap-1 font-medium">
-                          <Briefcase className="w-3 h-3 text-neutral-400 shrink-0" />
+                        <div className="text-xs text-neutral-600 mt-1 flex items-center gap-1.5 font-medium">
+                          <Briefcase className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
                           <span className="truncate">{m.jabatanRef?.nama_jabatan || 'Perangkat Desa'}</span>
                         </div>
-                        <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-neutral-400 shrink-0" />
+                        <div className="text-xs text-neutral-500 mt-0.5 flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
                           <span className="truncate">
                             {m.desa?.nama_desa || '-'}, Kec. {m.kecamatan?.nama_kecamatan || '-'}
                           </span>
                         </div>
                       </div>
 
-                      <div className="mt-2.5 pt-2 border-t border-neutral-200/60 flex items-center justify-between text-[10px] text-neutral-500 font-mono">
+                      <div className="mt-2.5 pt-2 border-t border-neutral-200/60 flex items-center justify-between text-[11px] text-neutral-600 font-mono">
                         <span>Purna: {formatDateIndo(m.anggota.tanggal_lahir ? new Date(new Date(m.anggota.tanggal_lahir).setFullYear(new Date(m.anggota.tanggal_lahir).getFullYear() + 60)).toISOString() : undefined)}</span>
                         {m.anggota.no_hp_wa && (
                           <a
                             href={`https://wa.me/${m.anggota.no_hp_wa.replace(/\D/g, '')}?text=${encodeURIComponent(`Halo ${m.anggota.nama_lengkap}, pemberitahuan resmi PPDI Kab. Bandung mengenai persiapan berkas purna tugas (${sisaTotalBulan} bulan ke depan).`)}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-emerald-700 font-bold hover:underline flex items-center gap-0.5 font-sans"
+                            className="text-emerald-700 font-bold hover:underline flex items-center gap-1 font-sans"
                             title="Kirim Pesan WhatsApp Pengingat"
                           >
-                            <Phone className="w-2.5 h-2.5 text-emerald-600" />
+                            <Phone className="w-3 h-3 text-emerald-600" />
                             <span>WA</span>
                           </a>
                         )}
@@ -564,17 +564,17 @@ export const DashboardView: React.FC = () => {
       )}
 
       {/* 4 Primary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Metric 1 */}
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-2">
+        <div className="bg-white p-3.5 sm:p-4 lg:p-5 rounded-xl border border-neutral-200 shadow-2xs">
+          <div className="flex items-center justify-between text-neutral-600 text-xs sm:text-[13px] font-semibold mb-1.5 sm:mb-2">
             <span>Total Perangkat Terdata</span>
-            <Users className="w-4 h-4 text-emerald-700" />
+            <Users className="w-4 h-4 text-emerald-700 shrink-0" />
           </div>
-          <div className="text-2xl font-bold text-neutral-900 tabular-nums">
-            {totalAnggota} <span className="text-xs font-normal text-neutral-500">Anggota</span>
+          <div className="text-2xl sm:text-[26px] font-extrabold text-neutral-900 tabular-nums tracking-tight leading-tight">
+            {totalAnggota} <span className="text-xs sm:text-sm font-medium text-neutral-500">Anggota</span>
           </div>
-          <div className="text-[11px] text-neutral-500 mt-2 flex items-center gap-2">
+          <div className="text-xs text-neutral-500 mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 leading-snug">
             <span>{visibleMembers.filter((m) => m.jabatanTerkini?.status_aktif === 'Aktif').length} Berstatus Aktif</span>
             <span>·</span>
             <span>{purnaTugasCount} Purna</span>
@@ -582,15 +582,15 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Metric 2 */}
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-2">
+        <div className="bg-white p-3.5 sm:p-4 lg:p-5 rounded-xl border border-neutral-200 shadow-2xs">
+          <div className="flex items-center justify-between text-neutral-600 text-xs sm:text-[13px] font-semibold mb-1.5 sm:mb-2">
             <span>E-KTA Diterbitkan</span>
-            <CreditCard className="w-4 h-4 text-emerald-700" />
+            <CreditCard className="w-4 h-4 text-emerald-700 shrink-0" />
           </div>
-          <div className="text-2xl font-bold text-neutral-900 tabular-nums">
-            {ktaAktifCount} <span className="text-xs font-normal text-neutral-500">({ktaPercentage}%)</span>
+          <div className="text-2xl sm:text-[26px] font-extrabold text-neutral-900 tabular-nums tracking-tight leading-tight">
+            {ktaAktifCount} <span className="text-xs sm:text-sm font-medium text-neutral-500">({ktaPercentage}%)</span>
           </div>
-          <div className="text-[11px] text-neutral-500 mt-2 flex items-center gap-2">
+          <div className="text-xs text-neutral-500 mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 leading-snug">
             <span>{ktaPendingCount} Menunggu Validasi</span>
             <span>·</span>
             <span>QR Code Siap</span>
@@ -598,15 +598,15 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Metric 3 */}
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-2">
+        <div className="bg-white p-3.5 sm:p-4 lg:p-5 rounded-xl border border-neutral-200 shadow-2xs">
+          <div className="flex items-center justify-between text-neutral-600 text-xs sm:text-[13px] font-semibold mb-1.5 sm:mb-2">
             <span>Kas Iuran Terkumpul</span>
-            <Wallet className="w-4 h-4 text-emerald-700" />
+            <Wallet className="w-4 h-4 text-emerald-700 shrink-0" />
           </div>
-          <div className="text-2xl font-bold text-neutral-900 tabular-nums">
+          <div className="text-xl sm:text-2xl font-extrabold text-neutral-900 tabular-nums tracking-tight leading-tight break-words">
             {formatRupiah(totalIuranTerkumpul)}
           </div>
-          <div className="text-[11px] text-neutral-500 mt-2 flex items-center gap-2">
+          <div className="text-xs text-neutral-500 mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 leading-snug">
             <span>{pendingIuranCount} Verifikasi Pending</span>
             <span>·</span>
             <span>Rp 35.000 / bln</span>
@@ -614,15 +614,15 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Metric 4 */}
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-2">
+        <div className="bg-white p-3.5 sm:p-4 lg:p-5 rounded-xl border border-neutral-200 shadow-2xs">
+          <div className="flex items-center justify-between text-neutral-600 text-xs sm:text-[13px] font-semibold mb-1.5 sm:mb-2">
             <span>Purna Tugas (&lt; 18 Bln)</span>
-            <ClockAlert className="w-4 h-4 text-amber-700" />
+            <ClockAlert className="w-4 h-4 text-amber-700 shrink-0" />
           </div>
-          <div className="text-2xl font-bold text-neutral-900 tabular-nums">
-            {retirement18MonthsMembers.length} <span className="text-xs font-normal text-amber-700">Perangkat</span>
+          <div className="text-2xl sm:text-[26px] font-extrabold text-neutral-900 tabular-nums tracking-tight leading-tight">
+            {retirement18MonthsMembers.length} <span className="text-xs sm:text-sm font-medium text-amber-700">Perangkat</span>
           </div>
-          <div className="text-[11px] text-neutral-500 mt-2 flex items-center gap-2">
+          <div className="text-xs text-neutral-500 mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 leading-snug">
             <span>{retirementBreakdown.kritis.length} Kritis &lt;6 Bln</span>
             <span>·</span>
             <span>Batas Usia 60 Th</span>
@@ -633,25 +633,25 @@ export const DashboardView: React.FC = () => {
       {/* ------------------------------------------------------------- */}
       {/* SEKSI VISUALISASI DATA DENGAN RECHARTS                        */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-xs space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-200">
+      <div className="bg-white border border-neutral-200 rounded-2xl p-3.5 sm:p-5 shadow-xs space-y-4 sm:space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 pb-3.5 sm:pb-4 border-b border-neutral-200">
           <div>
             <div className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-emerald-800" />
-              <h2 className="text-base font-bold text-neutral-900 tracking-tight">
+              <BarChart3 className="w-5 h-5 text-emerald-800 shrink-0" />
+              <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
                 Visualisasi Data Interaktif (Recharts)
               </h2>
             </div>
-            <p className="text-xs text-neutral-500 mt-0.5">
+            <p className="text-xs sm:text-[13px] text-neutral-500 mt-0.5 leading-relaxed">
               Grafik distribusi jumlah anggota berdasarkan Jabatan, Masa Kerja, dan Sebaran Teritorial Per Desa / Kecamatan
             </p>
           </div>
 
           {/* Filter Controls Bar */}
-          <div className="flex flex-wrap items-center gap-2.5 bg-neutral-50 p-2 rounded-xl border border-neutral-200">
-            <div className="flex items-center gap-1.5 text-xs text-neutral-600 font-semibold px-1">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 bg-neutral-50 p-2.5 sm:p-2 rounded-xl border border-neutral-200">
+            <div className="flex items-center gap-1.5 text-xs text-neutral-600 font-semibold px-0.5 sm:px-1">
               <Filter className="w-3.5 h-3.5 text-emerald-700" />
-              <span className="hidden sm:inline">Filter Wilayah:</span>
+              <span>Filter Wilayah:</span>
             </div>
 
             {/* Kecamatan Filter Dropdown */}
@@ -661,7 +661,7 @@ export const DashboardView: React.FC = () => {
                 setSelectedKecamatanId(e.target.value);
                 setSelectedDesaId('');
               }}
-              className="text-xs bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-neutral-800 font-medium focus:ring-2 focus:ring-[#064E3B] outline-none"
+              className="w-full sm:w-auto text-xs bg-white border border-neutral-300 rounded-lg px-2.5 py-2 sm:py-1.5 text-neutral-800 font-medium focus:ring-2 focus:ring-[#064E3B] outline-none"
             >
               <option value="">Semua Kecamatan ({kecamatanList.length})</option>
               {kecamatanList.map((k) => (
@@ -676,7 +676,7 @@ export const DashboardView: React.FC = () => {
               value={selectedDesaId}
               onChange={(e) => setSelectedDesaId(e.target.value)}
               disabled={!selectedKecamatanId}
-              className="text-xs bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-neutral-800 font-medium focus:ring-2 focus:ring-[#064E3B] outline-none disabled:opacity-50"
+              className="w-full sm:w-auto text-xs bg-white border border-neutral-300 rounded-lg px-2.5 py-2 sm:py-1.5 text-neutral-800 font-medium focus:ring-2 focus:ring-[#064E3B] outline-none disabled:opacity-50"
             >
               <option value="">
                 {selectedKecamatanId ? `Semua Desa in Kec (${filteredDesaList.length})` : 'Pilih Kec Dulu'}
@@ -691,7 +691,7 @@ export const DashboardView: React.FC = () => {
             {(selectedKecamatanId || selectedDesaId) && (
               <button
                 onClick={handleResetFilter}
-                className="text-xs px-2.5 py-1.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-800 rounded-lg font-medium transition-colors cursor-pointer"
+                className="text-xs px-3 py-1.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-800 rounded-lg font-medium transition-colors cursor-pointer self-start sm:self-auto"
               >
                 Reset
               </button>
@@ -700,55 +700,57 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Chart View Selector Tabs */}
-        <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
-          <div className="flex items-center gap-1 bg-neutral-100 p-1 rounded-lg text-xs font-semibold">
-            <button
-              onClick={() => setActiveChartTab('jabatan')}
-              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeChartTab === 'jabatan'
-                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-            >
-              <Briefcase className="w-3.5 h-3.5" />
-              <span>Berdasarkan Jabatan</span>
-            </button>
-            <button
-              onClick={() => setActiveChartTab('masakerja')}
-              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeChartTab === 'masakerja'
-                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-            >
-              <Award className="w-3.5 h-3.5" />
-              <span>Berdasarkan Masa Kerja</span>
-            </button>
-            <button
-              onClick={() => setActiveChartTab('pensiun')}
-              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeChartTab === 'pensiun'
-                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-            >
-              <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
-              <span>Pie Chart Masa Purna Tugas</span>
-            </button>
-            <button
-              onClick={() => setActiveChartTab('wilayah')}
-              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeChartTab === 'wilayah'
-                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              <span>{selectedKecamatanId ? 'Per Desa' : 'Per Kecamatan'}</span>
-            </button>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-200 pb-2.5">
+          <div className="w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+            <div className="inline-flex items-center gap-1 bg-neutral-100 p-1 rounded-lg text-xs font-semibold min-w-max">
+              <button
+                onClick={() => setActiveChartTab('jabatan')}
+                className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  activeChartTab === 'jabatan'
+                    ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                <span>Berdasarkan Jabatan</span>
+              </button>
+              <button
+                onClick={() => setActiveChartTab('masakerja')}
+                className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  activeChartTab === 'masakerja'
+                    ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>Berdasarkan Masa Kerja</span>
+              </button>
+              <button
+                onClick={() => setActiveChartTab('pensiun')}
+                className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  activeChartTab === 'pensiun'
+                    ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
+                <span>Pie Chart Masa Purna Tugas</span>
+              </button>
+              <button
+                onClick={() => setActiveChartTab('wilayah')}
+                className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  activeChartTab === 'wilayah'
+                    ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>{selectedKecamatanId ? 'Per Desa' : 'Per Kecamatan'}</span>
+              </button>
+            </div>
           </div>
 
-          <span className="text-xs text-neutral-500 font-mono hidden sm:inline">
+          <span className="text-xs text-neutral-500 font-mono shrink-0">
             Sampel Data: <strong className="text-neutral-800">{chartFilteredMembers.length} Perangkat</strong>
           </span>
         </div>
@@ -756,15 +758,15 @@ export const DashboardView: React.FC = () => {
         {/* CHART TAB 1: BERDASARKAN JABATAN */}
         {activeChartTab === 'jabatan' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-neutral-600">
-              <span>Distribui Jabatan Perangkat Desa di Wilayah Terpilih (Top 10 Jabatan)</span>
-              <span className="font-mono text-[11px] text-emerald-800 font-semibold">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-neutral-600">
+              <span>Distribusi Jabatan Perangkat Desa di Wilayah Terpilih (Top 10 Jabatan)</span>
+              <span className="font-mono text-[11px] text-emerald-800 font-semibold shrink-0">
                 {jabatanChartData.length} Jenis Formasi
               </span>
             </div>
 
             {jabatanChartData.length > 0 ? (
-              <div className="h-72 w-full pt-2">
+              <div className="h-64 sm:h-72 w-full pt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={jabatanChartData}
@@ -800,15 +802,15 @@ export const DashboardView: React.FC = () => {
         {/* CHART TAB 2: BERDASARKAN MASA KERJA */}
         {activeChartTab === 'masakerja' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-neutral-600">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-neutral-600">
               <span>Distribusi Anggota Berdasarkan Kelompok Masa Kerja (TMT Terhitung Mulai Tanggal)</span>
-              <span className="font-mono text-[11px] text-emerald-800 font-semibold">
+              <span className="font-mono text-[11px] text-emerald-800 font-semibold shrink-0">
                 6 Rentang Pengalaman
               </span>
             </div>
 
             {chartFilteredMembers.length > 0 ? (
-              <div className="h-72 w-full pt-2">
+              <div className="h-64 sm:h-72 w-full pt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={masaKerjaChartData}
@@ -852,19 +854,19 @@ export const DashboardView: React.FC = () => {
         {/* CHART TAB 3: SEBARAN WILAYAH (DESA / KECAMATAN) */}
         {activeChartTab === 'wilayah' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-neutral-600">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-neutral-600">
               <span>
                 {selectedKecamatanId
                   ? 'Jumlah Anggota & Rata-rata Masa Kerja Per Desa'
                   : 'Jumlah Anggota & Rata-rata Masa Kerja Per Kecamatan (Top 12)'}
               </span>
-              <span className="font-mono text-[11px] text-emerald-800 font-semibold">
+              <span className="font-mono text-[11px] text-emerald-800 font-semibold shrink-0">
                 {wilayahChartData.length} Lokasi Terdata
               </span>
             </div>
 
             {wilayahChartData.length > 0 ? (
-              <div className="h-72 w-full pt-2">
+              <div className="h-64 sm:h-72 w-full pt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={wilayahChartData}
@@ -899,16 +901,16 @@ export const DashboardView: React.FC = () => {
         {/* CHART TAB 4: PIE CHART MASA PURNA TUGAS */}
         {activeChartTab === 'pensiun' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between text-xs text-neutral-600">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-neutral-600">
               <span>Visualisasi Distribusi Anggota Berdasarkan Periode Masa Tugas & Persiapan Purna Tugas (Usia 60 Thn)</span>
-              <span className="font-mono text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+              <span className="font-mono text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 shrink-0">
                 {pensiunPieData.length} Kategori Status Usia
               </span>
             </div>
 
             {pensiunPieData.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center pt-2">
-                <div className="h-72 md:col-span-2 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 items-center pt-2">
+                <div className="h-64 sm:h-72 md:col-span-2 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Tooltip content={<CustomChartTooltip />} />
@@ -918,10 +920,10 @@ export const DashboardView: React.FC = () => {
                         nameKey="name"
                         cx="50%"
                         cy="50%"
-                        innerRadius={55}
-                        outerRadius={95}
+                        innerRadius={45}
+                        outerRadius={78}
                         paddingAngle={4}
-                        label={({ name, value, percent }) => `${name}: ${value} (${((percent || 0) * 100).toFixed(0)}%)`}
+                        label={({ value, percent }) => `${value} (${((percent || 0) * 100).toFixed(0)}%)`}
                       >
                         {pensiunPieData.map((entry, index) => (
                           <Cell key={`pie-cell-${index}`} fill={entry.color} />
@@ -931,23 +933,23 @@ export const DashboardView: React.FC = () => {
                   </ResponsiveContainer>
                 </div>
 
-                <div className="space-y-2 bg-neutral-50 p-4 rounded-xl border border-neutral-200 text-xs">
-                  <h4 className="font-bold text-neutral-800 text-[11px] uppercase tracking-wider pb-2 border-b border-neutral-200 flex items-center justify-between">
+                <div className="space-y-2 bg-neutral-50 p-3 sm:p-4 rounded-xl border border-neutral-200 text-xs">
+                  <h4 className="font-bold text-neutral-800 text-xs uppercase tracking-wider pb-2 border-b border-neutral-200 flex items-center justify-between">
                     <span>Ringkasan Masa Purna Tugas</span>
                     <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
                   </h4>
                   {pensiunPieData.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-white border border-neutral-200/80 shadow-2xs">
-                      <div className="flex items-center gap-2">
+                    <div key={idx} className="flex items-center justify-between p-2.5 sm:p-2 rounded-lg bg-white border border-neutral-200/80 shadow-2xs">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                        <span className="font-semibold text-neutral-800 text-[11px]">{item.name}</span>
+                        <span className="font-semibold text-neutral-800 text-xs truncate">{item.name}</span>
                       </div>
-                      <span className="font-mono font-bold text-neutral-900 bg-neutral-100 px-2 py-0.5 rounded text-[11px]">
+                      <span className="font-mono font-bold text-neutral-900 bg-neutral-100 px-2 py-0.5 rounded text-xs shrink-0">
                         {item.value} Orang
                       </span>
                     </div>
                   ))}
-                  <div className="pt-2 text-[10px] text-neutral-500 font-mono italic text-center">
+                  <div className="pt-2 text-[11px] text-neutral-500 font-mono italic text-center">
                     Berdasarkan Batas Usia Pensiun 60 Tahun (UU Desa)
                   </div>
                 </div>
@@ -962,20 +964,20 @@ export const DashboardView: React.FC = () => {
       </div>
 
       {/* Registrasi & Approval Scoped KPI Section */}
-      <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-2xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-100 gap-2">
-          <div className="flex items-center gap-2">
-            <ClipboardCheck className="w-5 h-5 text-emerald-800" />
+      <div className="bg-white border border-neutral-200 rounded-xl p-3.5 sm:p-4 shadow-2xs space-y-3 sm:space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-100 gap-2.5">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <ClipboardCheck className="w-5 h-5 text-emerald-800 shrink-0 mt-0.5 sm:mt-0" />
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-neutral-900 tracking-tight">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
                   Status Registrasi & Approval Perangkat Desa
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-neutral-100 text-neutral-700 border border-neutral-200">
+                <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-neutral-100 text-neutral-700 border border-neutral-200">
                   {roleScopeLabel}
                 </span>
               </div>
-              <p className="text-xs text-neutral-500 mt-0.5">
+              <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
                 Rekapitulasi berkas formulir induk pendaftaran mandiri perangkat desa sesuai kewenangan wilayah role pengguna
               </p>
             </div>
@@ -989,56 +991,64 @@ export const DashboardView: React.FC = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
           {/* Card 1: Total Registrasi */}
-          <div className="bg-neutral-50/70 p-3 rounded-lg border border-neutral-200 flex items-center justify-between">
-            <div>
-              <div className="text-[11px] text-neutral-500 font-medium">Total Registrasi Masuk</div>
-              <div className="text-xl font-bold text-neutral-900 font-mono mt-0.5">{totalRegistrasi}</div>
-              <div className="text-[10px] text-neutral-400 mt-0.5">Formulir di wilayah tugas</div>
+          <div className="bg-neutral-50/70 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-xs text-neutral-600 font-semibold leading-tight">Total Registrasi</span>
+              <FileText className="w-4 h-4 text-neutral-400 shrink-0" />
             </div>
-            <FileText className="w-5 h-5 text-neutral-400 shrink-0" />
+            <div>
+              <div className="text-xl sm:text-2xl font-extrabold text-neutral-900 font-mono leading-tight">{totalRegistrasi}</div>
+              <div className="text-[11px] sm:text-xs text-neutral-500 mt-0.5 leading-snug">Formulir di wilayah tugas</div>
+            </div>
           </div>
 
           {/* Card 2: Menunggu Approval */}
-          <div className="bg-amber-50/70 p-3 rounded-lg border border-amber-200 flex items-center justify-between">
-            <div>
-              <div className="text-[11px] text-amber-800 font-bold flex items-center gap-1">
-                <span>Menunggu Approval</span>
+          <div className="bg-amber-50/70 p-3 sm:p-3.5 rounded-xl border border-amber-200 flex flex-col justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-xs text-amber-800 font-bold flex items-center gap-1.5 leading-tight">
+                <span>Menunggu</span>
                 {pendingApprovalCount > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
                 )}
-              </div>
-              <div className="text-xl font-extrabold text-amber-900 font-mono mt-0.5">
+              </span>
+              <ClockAlert className="w-4 h-4 text-amber-600 shrink-0" />
+            </div>
+            <div>
+              <div className="text-xl sm:text-2xl font-extrabold text-amber-900 font-mono leading-tight">
                 {pendingApprovalCount}
               </div>
-              <div className="text-[10px] text-amber-700 font-medium mt-0.5">Perlu diverifikasi & disetujui</div>
+              <div className="text-[11px] sm:text-xs text-amber-700 font-medium mt-0.5 leading-snug">Perlu diverifikasi</div>
             </div>
-            <ClockAlert className="w-5 h-5 text-amber-600 shrink-0" />
           </div>
 
           {/* Card 3: Telah Disetujui */}
-          <div className="bg-emerald-50/70 p-3 rounded-lg border border-emerald-200 flex items-center justify-between">
+          <div className="bg-emerald-50/70 p-3 sm:p-3.5 rounded-xl border border-emerald-200 flex flex-col justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-xs text-emerald-800 font-bold leading-tight">Disetujui</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            </div>
             <div>
-              <div className="text-[11px] text-emerald-800 font-bold">Telah Disetujui</div>
-              <div className="text-xl font-extrabold text-emerald-900 font-mono mt-0.5">
+              <div className="text-xl sm:text-2xl font-extrabold text-emerald-900 font-mono leading-tight">
                 {approvedPendaftaranCount}
               </div>
-              <div className="text-[10px] text-emerald-700 font-medium mt-0.5">Tercatat di Data Induk</div>
+              <div className="text-[11px] sm:text-xs text-emerald-700 font-medium mt-0.5 leading-snug">Tercatat di Data Induk</div>
             </div>
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           </div>
 
           {/* Card 4: Ditolak */}
-          <div className="bg-red-50/70 p-3 rounded-lg border border-red-200 flex items-center justify-between">
+          <div className="bg-red-50/70 p-3 sm:p-3.5 rounded-xl border border-red-200 flex flex-col justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-xs text-red-800 font-semibold leading-tight">Ditolak</span>
+              <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+            </div>
             <div>
-              <div className="text-[11px] text-red-800 font-medium">Berkas Ditolak</div>
-              <div className="text-xl font-extrabold text-red-900 font-mono mt-0.5">
+              <div className="text-xl sm:text-2xl font-extrabold text-red-900 font-mono leading-tight">
                 {rejectedPendaftaranCount}
               </div>
-              <div className="text-[10px] text-red-700 mt-0.5">Perlu perbaikan oleh pendaftar</div>
+              <div className="text-[11px] sm:text-xs text-red-700 mt-0.5 leading-snug">Perlu perbaikan berkas</div>
             </div>
-            <XCircle className="w-5 h-5 text-red-600 shrink-0" />
           </div>
         </div>
       </div>

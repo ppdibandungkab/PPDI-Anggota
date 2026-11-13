@@ -321,19 +321,19 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
   };
 
   const content = (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {/* 1. Header & Title Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-200">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 pb-3.5 sm:pb-4 border-b border-neutral-200">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-emerald-900 text-amber-300 rounded-xl shadow-xs">
-              <BarChart3 className="w-5 h-5" />
+          <div className="flex items-start sm:items-center gap-2.5">
+            <div className="p-2 bg-emerald-900 text-amber-300 rounded-xl shadow-xs shrink-0">
+              <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-neutral-900 tracking-tight">
+              <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight leading-snug">
                 Statistik Sebaran Anggota Antar Kecamatan (Recharts)
               </h2>
-              <p className="text-xs text-neutral-500 mt-0.5">
+              <p className="text-xs sm:text-[13px] text-neutral-500 mt-0.5 leading-relaxed">
                 Visualisasi komparatif jumlah perangkat desa terdata pada 31 kecamatan di wilayah Kabupaten Bandung
               </p>
             </div>
@@ -368,70 +368,78 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
       </div>
 
       {/* 2. Top KPI Metric Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-1">
-            <span>Total Kecamatan</span>
-            <Building2 className="w-4 h-4 text-emerald-700" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5">
+        <div className="bg-neutral-50 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-neutral-600 text-xs font-semibold mb-1.5 gap-1">
+            <span className="leading-tight">Total Kecamatan</span>
+            <Building2 className="w-4 h-4 text-emerald-700 shrink-0" />
           </div>
-          <div className="text-lg font-bold font-mono text-neutral-900 tabular-nums">
-            {kecamatanStats.length} <span className="text-xs font-sans font-normal text-neutral-500">Kec.</span>
-          </div>
-          <div className="text-[11px] text-emerald-800 mt-0.5">
-            {kecamatanStats.filter((k) => k.totalAnggota > 0).length} Aktif Terdata
-          </div>
-        </div>
-
-        <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-1">
-            <span>Total Perangkat Desa</span>
-            <Users className="w-4 h-4 text-emerald-700" />
-          </div>
-          <div className="text-lg font-bold font-mono text-emerald-900 tabular-nums">
-            {totalAnggotaKabupaten} <span className="text-xs font-sans font-normal text-neutral-500">Orang</span>
-          </div>
-          <div className="text-[11px] text-neutral-500 mt-0.5">
-            Rata-rata {avgAnggotaPerKecamatan} / kec.
+          <div>
+            <div className="text-xl sm:text-2xl font-bold font-mono text-neutral-900 tabular-nums leading-tight">
+              {kecamatanStats.length} <span className="text-xs font-sans font-normal text-neutral-500">Kec.</span>
+            </div>
+            <div className="text-[11px] sm:text-xs text-emerald-800 mt-1 font-medium">
+              {kecamatanStats.filter((k) => k.totalAnggota > 0).length} Aktif Terdata
+            </div>
           </div>
         </div>
 
-        <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-1">
-            <span>Kecamatan Terbanyak</span>
-            <Award className="w-4 h-4 text-amber-600" />
+        <div className="bg-neutral-50 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-neutral-600 text-xs font-semibold mb-1.5 gap-1">
+            <span className="leading-tight">Total Perangkat</span>
+            <Users className="w-4 h-4 text-emerald-700 shrink-0" />
           </div>
-          <div className="text-sm font-bold text-neutral-900 truncate">
-            {kecamatanStats[0]?.nama_kecamatan || '-'}
-          </div>
-          <div className="text-[11px] font-mono text-amber-700 font-semibold mt-0.5">
-            {kecamatanStats[0]?.totalAnggota || 0} Perangkat Desa
+          <div>
+            <div className="text-xl sm:text-2xl font-bold font-mono text-emerald-900 tabular-nums leading-tight">
+              {totalAnggotaKabupaten} <span className="text-xs font-sans font-normal text-neutral-500">Orang</span>
+            </div>
+            <div className="text-[11px] sm:text-xs text-neutral-500 mt-1">
+              Rata-rata {avgAnggotaPerKecamatan} / kec.
+            </div>
           </div>
         </div>
 
-        <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200">
-          <div className="flex items-center justify-between text-neutral-500 text-xs mb-1">
-            <span>Kecamatan Pending</span>
-            <Clock className="w-4 h-4 text-neutral-400" />
+        <div className="bg-neutral-50 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-neutral-600 text-xs font-semibold mb-1.5 gap-1">
+            <span className="leading-tight">Kec. Terbanyak</span>
+            <Award className="w-4 h-4 text-amber-600 shrink-0" />
           </div>
-          <div className="text-lg font-bold font-mono text-neutral-800 tabular-nums">
-            {kecamatanStats.filter((k) => k.totalAnggota === 0).length}{' '}
-            <span className="text-xs font-sans font-normal text-neutral-500">Kec.</span>
+          <div>
+            <div className="text-sm sm:text-base font-bold text-neutral-900 truncate leading-snug">
+              {kecamatanStats[0]?.nama_kecamatan || '-'}
+            </div>
+            <div className="text-[11px] sm:text-xs font-mono text-amber-700 font-semibold mt-1">
+              {kecamatanStats[0]?.totalAnggota || 0} Perangkat Desa
+            </div>
           </div>
-          <div className="text-[11px] text-neutral-500 mt-0.5">Belum input data</div>
+        </div>
+
+        <div className="bg-neutral-50 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-neutral-600 text-xs font-semibold mb-1.5 gap-1">
+            <span className="leading-tight">Kec. Pending</span>
+            <Clock className="w-4 h-4 text-neutral-400 shrink-0" />
+          </div>
+          <div>
+            <div className="text-xl sm:text-2xl font-bold font-mono text-neutral-800 tabular-nums leading-tight">
+              {kecamatanStats.filter((k) => k.totalAnggota === 0).length}{' '}
+              <span className="text-xs font-sans font-normal text-neutral-500">Kec.</span>
+            </div>
+            <div className="text-[11px] sm:text-xs text-neutral-500 mt-1">Belum input data</div>
+          </div>
         </div>
       </div>
 
       {/* 3. Interactive Toolbar: Search, Sort, Limit, & Orientation */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-neutral-50 p-3 rounded-xl border border-neutral-200 text-xs">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 bg-neutral-50 p-2.5 sm:p-3 rounded-xl border border-neutral-200 text-xs">
         {/* Search Input */}
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
           <input
             type="text"
             placeholder="Cari nama kecamatan (misal: Soreang, Ciwidey)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white border border-neutral-300 rounded-lg pl-8 pr-3 py-1.5 text-xs text-neutral-800 placeholder-neutral-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-700"
+            className="w-full bg-white border border-neutral-300 rounded-lg pl-8 pr-3 py-2 sm:py-1.5 text-xs text-neutral-800 placeholder-neutral-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-700"
           />
           {searchQuery && (
             <button
@@ -446,8 +454,8 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
         {/* Filter Controls */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Sorting Dropdown */}
-          <div className="flex items-center gap-1.5 bg-white border border-neutral-300 rounded-lg px-2 py-1">
-            <ArrowUpDown className="w-3.5 h-3.5 text-neutral-500" />
+          <div className="flex items-center gap-1.5 bg-white border border-neutral-300 rounded-lg px-2 py-1.5 sm:py-1 flex-1 sm:flex-initial min-w-0">
+            <ArrowUpDown className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
             <select
               aria-label="Urutkan data kecamatan"
               value={sortBy}
@@ -797,7 +805,7 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
   }
 
   return (
-    <div className={`bg-white rounded-2xl border border-neutral-200 p-5 shadow-xs ${className}`}>
+    <div className={`bg-white rounded-2xl border border-neutral-200 p-3.5 sm:p-5 shadow-xs ${className}`}>
       {content}
     </div>
   );

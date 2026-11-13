@@ -149,7 +149,7 @@ const MainAppContent: React.FC = () => {
         </div>
 
         {/* Content Viewport */}
-        <main className={`flex-1 p-4 sm:p-6 lg:p-8 min-w-0 ${!isSidebarPinned ? 'md:pl-9' : ''}`}>
+        <main className={`flex-1 p-3 sm:p-6 lg:p-8 min-w-0 overflow-x-hidden ${!isSidebarPinned ? 'md:pl-9' : ''}`}>
           {activeTab === 'dashboard' && <DashboardView />}
           {activeTab === 'pendaftaran' && (
             <PendaftaranApprovalView onOpenPublicForm={() => setIsRegistrationModalOpen(true)} />
