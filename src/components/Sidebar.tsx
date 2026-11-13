@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { DEFAULT_ROLE_PERMISSIONS } from '../types/ppdi';
 import {
@@ -15,19 +15,31 @@ import {
   UserCheck,
   Settings,
   ChevronDown,
+  ChevronRight,
   Sliders,
   Shield,
   ClipboardCheck,
   History,
+  Pin,
+  PinOff,
+  Menu,
 } from 'lucide-react';
 
 interface SidebarProps {
   onOpenVerifyModal: () => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  isPinned?: boolean;
+  setIsPinned?: (pinned: boolean) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, setIsOpen }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  onOpenVerifyModal,
+  isOpen,
+  setIsOpen,
+  isPinned = false,
+  setIsPinned,
+}) => {
   const {
     activeTab,
     setActiveTab,
@@ -71,6 +83,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
 
   // Settings submenu expansion state
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(true);
+
+  // Desktop autohide hover & focus-within state
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [isFocusedWithin, setIsFocusedWithin] = useState<boolean>(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMouseEnterSidebar = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const handleMouseLeaveSidebar = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+    }
+    hoverTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 180);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
+
+  const isDesktopVisible = isPinned || isHovered || isFocusedWithin;
 
   // Keep submenu open if user navigates to any settings child page
   useEffect(() => {
@@ -311,9 +355,79 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
         </div>
       </div>
 
-      {/* Desktop & Tablet Persistent Sidebar */}
-      <aside className="hidden md:flex w-64 shrink-0 bg-white/80 backdrop-blur-md border-r border-[#111113]/10 min-h-[calc(100vh-4rem)] flex-col justify-between p-4">
-        <div className="space-y-6">
+      {/* Desktop & Tablet Auto-Hide Left-Edge Trigger Zone + Floating Tab (when not pinned & hidden) */}
+      {!isPinned && (
+        <div
+          onMouseEnter={handleMouseEnterSidebar}
+          onMouseLeave={handleMouseLeaveSidebar}
+          onClick={handleMouseEnterSidebar}
+          aria-label="Arahkan kursor untuk membuka sidebar navigasi"
+          title="Arahkan kursor ke sini untuk menampilkan Sidebar"
+          className={`hidden md:flex fixed top-16 bottom-0 left-0 z-30 w-4 items-center cursor-pointer transition-opacity duration-200 ${
+            isDesktopVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}
+        >
+          {/* Subtle vertical edge line */}
+          <div className="w-1 h-full bg-gradient-to-b from-[#064E3B]/20 via-[#064E3B]/40 to-[#064E3B]/20" />
+          {/* Floating Handle Pill */}
+          <div className="bg-[#064E3B] text-white shadow-lg rounded-r-lg py-3 px-1.5 flex flex-col items-center gap-1.5 border border-l-0 border-emerald-400/30 hover:bg-[#043d2e] transition-all">
+            <Menu className="w-3.5 h-3.5 text-amber-300" />
+            <span className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-mono font-bold tracking-widest uppercase">
+              MENU
+            </span>
+            <ChevronRight className="w-3 h-3 text-emerald-200" />
+          </div>
+        </div>
+      )}
+
+      {/* Desktop & Tablet Sidebar (Auto-Hide Overlay by Default, or Docked when Pinned) */}
+      <aside
+        onMouseEnter={handleMouseEnterSidebar}
+        onMouseLeave={handleMouseLeaveSidebar}
+        onFocusCapture={() => setIsFocusedWithin(true)}
+        onBlurCapture={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setIsFocusedWithin(false);
+          }
+        }}
+        className={
+          isPinned
+            ? 'hidden md:flex w-64 shrink-0 bg-white/85 backdrop-blur-md border-r border-[#111113]/10 md:sticky md:top-16 md:h-[calc(100vh-4rem)] overflow-y-auto flex-col justify-between p-4'
+            : `hidden md:flex fixed top-16 bottom-0 left-0 z-40 w-64 bg-white/95 backdrop-blur-md border-r border-[#111113]/15 shadow-2xl overflow-y-auto flex-col justify-between p-4 transform transition-transform duration-300 ease-out ${
+                isDesktopVisible ? 'translate-x-0' : '-translate-x-full pointer-events-none'
+              }`
+        }
+      >
+        <div className="space-y-5">
+          {/* Auto-Hide / Pin Status Bar */}
+          <div className="flex items-center justify-between pb-2 border-b border-[#111113]/10">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#064E3B] flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isPinned ? 'bg-[#064E3B]' : 'bg-amber-500 animate-pulse'}`} />
+              <span>{isPinned ? 'Sidebar Terkunci' : 'Auto-Hide Aktif'}</span>
+            </span>
+            {setIsPinned && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextPinned = !isPinned;
+                  setIsPinned(nextPinned);
+                  if (!nextPinned) {
+                    setIsHovered(false);
+                    setIsFocusedWithin(false);
+                  }
+                }}
+                title={isPinned ? 'Aktifkan Auto-Hide (sembunyikan otomatis saat tidak diarahkan kursor)' : 'Kunci Sidebar agar tetap terbuka'}
+                className={`p-1 rounded-sm text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer ${
+                  isPinned
+                    ? 'bg-[#064E3B] text-white hover:bg-[#043d2e]'
+                    : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900'
+                }`}
+              >
+                {isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+              </button>
+            )}
+          </div>
+
           {/* Active Role Indicator */}
           <div className="p-3 rounded-sm bg-white border border-[#111113]/10 text-xs shadow-2xs">
             <div className="brand-meta mb-1 text-[#111113]/50">HAK AKSES TERPASANG</div>
@@ -372,7 +486,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenVerifyModal, isOpen, set
         </div>
 
         {/* Footer Branding Info */}
-        <div className="pt-4 border-t border-[#111113]/10 text-[10px] font-mono text-[#111113]/50 space-y-1">
+        <div className="pt-4 mt-4 border-t border-[#111113]/10 text-[10px] font-mono text-[#111113]/50 space-y-1">
           <div className="font-bold text-[#111113]/80 uppercase">PPDI KAB. BANDUNG</div>
           <div className="flex items-center gap-1">
             <MapPin className="w-3 h-3 text-[#111113]/40" />

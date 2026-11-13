@@ -269,6 +269,54 @@ function requirePermission(moduleId: string, action: 'view' | 'add' | 'edit' | '
   };
 }
 
+// Helper to save base64 upload data URL to disk and return /uploads/<folder>/<fileName>
+function saveBase64UploadToDisk(
+  type: 'foto' | 'sk',
+  fileData: string,
+  fileName?: string,
+  nik?: string
+): { url: string; fileName: string; sizeBytes: number; mimeType: string } {
+  const folderType = type === 'sk' ? 'sk' : 'foto';
+  const targetFolder = folderType === 'sk' ? SK_DIR : FOTO_DIR;
+
+  let mimeType = '';
+  let base64Clean = fileData;
+  const matches = fileData.match(/^data:([A-Za-z0-9\-+/.]+);base64,(.+)$/);
+  if (matches && matches.length === 3) {
+    mimeType = matches[1];
+    base64Clean = matches[2];
+  }
+
+  let ext = path.extname(fileName || '').toLowerCase();
+  if (!ext) {
+    if (mimeType.includes('pdf')) ext = '.pdf';
+    else if (mimeType.includes('png')) ext = '.png';
+    else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
+    else if (mimeType.includes('webp')) ext = '.webp';
+    else ext = folderType === 'sk' ? '.pdf' : '.jpg';
+  }
+
+  const cleanBase = (fileName || `${folderType}_doc`)
+    .replace(ext, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 40);
+
+  const prefix = nik ? `${nik}_` : '';
+  const timestamp = Date.now().toString().slice(-6);
+  const finalFileName = `${folderType}_${prefix}${cleanBase}_${timestamp}${ext}`;
+  const filePath = path.join(targetFolder, finalFileName);
+
+  const buffer = Buffer.from(base64Clean, 'base64');
+  fs.writeFileSync(filePath, buffer);
+
+  return {
+    url: `/uploads/${folderType}/${finalFileName}`,
+    fileName: finalFileName,
+    sizeBytes: buffer.length,
+    mimeType: mimeType || ext,
+  };
+}
+
 // ====================================================================
 // 0. UPLOAD FOTO & BERKAS SK (DEDICATED FOLDERS: /uploads/foto & /uploads/sk)
 // ====================================================================
@@ -280,49 +328,16 @@ app.post('/api/upload', async (req, res) => {
     }
 
     const folderType = type === 'sk' ? 'sk' : 'foto';
-    const targetFolder = folderType === 'sk' ? SK_DIR : FOTO_DIR;
+    const saved = saveBase64UploadToDisk(folderType, fileData, fileName, nik);
 
-    // Extract base64 payload & mime
-    let mimeType = '';
-    let base64Clean = fileData;
-    const matches = fileData.match(/^data:([A-Za-z0-9\-+/.]+);base64,(.+)$/);
-    if (matches && matches.length === 3) {
-      mimeType = matches[1];
-      base64Clean = matches[2];
-    }
-
-    // Determine extension
-    let ext = path.extname(fileName || '').toLowerCase();
-    if (!ext) {
-      if (mimeType.includes('pdf')) ext = '.pdf';
-      else if (mimeType.includes('png')) ext = '.png';
-      else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
-      else if (mimeType.includes('webp')) ext = '.webp';
-      else ext = folderType === 'sk' ? '.pdf' : '.jpg';
-    }
-
-    const cleanBase = (fileName || `${folderType}_doc`)
-      .replace(ext, '')
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .slice(0, 40);
-
-    const prefix = nik ? `${nik}_` : '';
-    const timestamp = Date.now().toString().slice(-6);
-    const finalFileName = `${folderType}_${prefix}${cleanBase}_${timestamp}${ext}`;
-    const filePath = path.join(targetFolder, finalFileName);
-
-    const buffer = Buffer.from(base64Clean, 'base64');
-    fs.writeFileSync(filePath, buffer);
-
-    const fileUrl = `/uploads/${folderType}/${finalFileName}`;
     return res.json({
       success: true,
       message: `File ${folderType.toUpperCase()} berhasil diunggah ke folder server`,
-      url: fileUrl,
-      fileName: finalFileName,
+      url: saved.url,
+      fileName: saved.fileName,
       folder: folderType,
-      sizeBytes: buffer.length,
-      mimeType: mimeType || ext,
+      sizeBytes: saved.sizeBytes,
+      mimeType: saved.mimeType,
     });
   } catch (err: any) {
     console.error('Upload handling error:', err);
@@ -884,6 +899,7 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         \`no_sk_pengangkatan\` VARCHAR(100) NULL,
         \`tgl_sk_pengangkatan\` DATE NULL,
         \`tmt_jabatan\` DATE NULL,
+        \`foto\` VARCHAR(255) NULL,
         \`file_sk\` VARCHAR(255) NULL,
         \`status_approval\` VARCHAR(30) NOT NULL DEFAULT 'Menunggu',
         \`catatan_approval\` TEXT NULL,
@@ -897,6 +913,7 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
     // Migration for pendaftaran_perangkat_desa columns
     try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN gelar_depan VARCHAR(30) NULL AFTER nama_lengkap`); } catch (_) {}
     try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN gelar_belakang VARCHAR(50) NULL AFTER gelar_depan`); } catch (_) {}
+    try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN foto VARCHAR(255) NULL AFTER tmt_jabatan`); } catch (_) {}
 
     // Seed default superadmin if users table empty
     const [userRows]: [any[], any] = await conn.query('SELECT COUNT(*) as cnt FROM users');
@@ -2366,13 +2383,34 @@ app.post('/api/pendaftaran', async (req, res) => {
     const validDesaId = await resolveDesaId(conn, data.id_desa);
     const cleanKecId = data.id_kecamatan || validDesaId.slice(0, 6);
 
+    // If foto / file_sk is sent as base64 data URL, save physically to /uploads/foto or /uploads/sk
+    let savedFotoPath: string | null = data.foto ? String(data.foto).trim() : null;
+    if (savedFotoPath && savedFotoPath.startsWith('data:')) {
+      try {
+        const saved = saveBase64UploadToDisk('foto', savedFotoPath, 'pendaftaran_foto', data.nik);
+        savedFotoPath = saved.url;
+      } catch (e) {
+        console.warn('Gagal menyimpan file foto pendaftaran ke disk:', e);
+      }
+    }
+
+    let savedSkPath: string | null = data.file_sk ? String(data.file_sk).trim() : null;
+    if (savedSkPath && savedSkPath.startsWith('data:')) {
+      try {
+        const saved = saveBase64UploadToDisk('sk', savedSkPath, 'pendaftaran_sk', data.nik);
+        savedSkPath = saved.url;
+      } catch (e) {
+        console.warn('Gagal menyimpan file SK pendaftaran ke disk:', e);
+      }
+    }
+
     const [insertRes]: [any, any] = await conn.query(
       `INSERT INTO pendaftaran_perangkat_desa (
         nik, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama,
         pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan,
         id_kecamatan, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan,
-        status_approval
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
+        foto, file_sk, status_approval
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
       [
         data.nik,
         data.nama_lengkap.trim().toUpperCase(),
@@ -2393,6 +2431,8 @@ app.post('/api/pendaftaran', async (req, res) => {
         data.no_sk_pengangkatan || `141.1/Kep.Reg-${new Date().getFullYear()}`,
         data.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
         data.tmt_jabatan || new Date().toISOString().split('T')[0],
+        savedFotoPath,
+        savedSkPath,
       ]
     );
 
@@ -2461,6 +2501,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           pendidikan_terakhir = COALESCE(?, pendidikan_terakhir),
           no_hp_wa = COALESCE(?, no_hp_wa),
           email = COALESCE(?, email),
+          foto = COALESCE(?, foto),
           alamat_rumah = COALESCE(?, alamat_rumah),
           status_pernikahan = COALESCE(?, status_pernikahan)
          WHERE id_anggota = ?`,
@@ -2475,6 +2516,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.pendidikan_terakhir,
           p.no_hp_wa,
           p.email,
+          p.foto || null,
           p.alamat_rumah,
           p.status_pernikahan,
           effectiveIdAnggota,
@@ -2483,8 +2525,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     } else {
       effectiveIdAnggota = crypto.randomUUID();
       await conn.query(
-        `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, foto, alamat_rumah, status_pernikahan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           effectiveIdAnggota,
           p.nik,
@@ -2499,6 +2541,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.pendidikan_terakhir || 'S1',
           p.no_hp_wa,
           p.email || null,
+          p.foto || null,
           p.alamat_rumah || 'Kabupaten Bandung',
           p.status_pernikahan || 'Kawin',
         ]
@@ -2523,7 +2566,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
           p.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           p.tmt_jabatan || new Date().toISOString().split('T')[0],
-          `SK_${p.nama_lengkap.replace(/\s+/g, '_').toUpperCase()}.pdf`,
+          p.file_sk || `SK_${p.nama_lengkap.replace(/\s+/g, '_').toUpperCase()}.pdf`,
         ]
       );
     }

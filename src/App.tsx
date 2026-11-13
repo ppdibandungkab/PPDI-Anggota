@@ -51,6 +51,7 @@ const MainAppContent: React.FC = () => {
   const [verifyInitialQuery, setVerifyInitialQuery] = useState('');
   const [selectedKtaMemberId, setSelectedKtaMemberId] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isSidebarPinned, setIsSidebarPinned] = useState(false);
 
 
   // Auto-detect if visitor opened a short URL (/v/:token) or verification link
@@ -142,11 +143,13 @@ const MainAppContent: React.FC = () => {
             onOpenVerifyModal={() => handleOpenVerifyModalWithQuery()}
             isOpen={sidebarOpen}
             setIsOpen={setSidebarOpen}
+            isPinned={isSidebarPinned}
+            setIsPinned={setIsSidebarPinned}
           />
         </div>
 
         {/* Content Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
+        <main className={`flex-1 p-4 sm:p-6 lg:p-8 min-w-0 ${!isSidebarPinned ? 'md:pl-9' : ''}`}>
           {activeTab === 'dashboard' && <DashboardView />}
           {activeTab === 'pendaftaran' && (
             <PendaftaranApprovalView onOpenPublicForm={() => setIsRegistrationModalOpen(true)} />
