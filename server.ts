@@ -121,8 +121,15 @@ try {
   console.error('Failed to create upload directories:', e);
 }
 
-// Serve uploaded static files
+// Serve uploaded static files (return clean 404 immediately if file is missing so it never falls through to Vite/SPA)
 app.use('/uploads', express.static(UPLOADS_ROOT));
+app.use('/uploads', (_req, res) => {
+  return res.status(404).json({
+    success: false,
+    error: 'UPLOAD_FILE_NOT_FOUND',
+    message: 'Berkas unggahan tidak ditemukan di server',
+  });
+});
 app.use(express.static(path.resolve(process.cwd(), 'public')));
 
 // ====================================================================
@@ -3056,6 +3063,7 @@ async function startServer() {
         server: {
           middlewareMode: true,
           hmr: false,
+          proxy: {},
         },
         appType: 'spa',
       });
