@@ -1,11 +1,77 @@
 import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
-import { X, CheckCircle, AlertCircle, Upload, Image as ImageIcon, FileText } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Image as ImageIcon, FileText, Loader2, Calendar } from 'lucide-react';
 
 interface PublicRegistrationFormProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+interface UploadProgressState {
+  status: 'idle' | 'reading' | 'uploading' | 'done' | 'error';
+  progress: number;
+  fileName: string;
+  fileSizeLabel: string;
+  errorMessage?: string;
+}
+
+const INITIAL_UPLOAD_STATE: UploadProgressState = {
+  status: 'idle',
+  progress: 0,
+  fileName: '',
+  fileSizeLabel: '',
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
+
+const formatDdMmYyyyInput = (raw: string): string => {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
+};
+
+const validateDdMmYyyy = (
+  value: string
+): { valid: boolean; error?: string; isoDate?: string } => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { valid: false, error: 'Tanggal wajib diisi dengan format DD-MM-YYYY.' };
+  }
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(trimmed);
+  if (!match) {
+    return {
+      valid: false,
+      error: 'Format harus DD-MM-YYYY (contoh: 17-08-2024).',
+    };
+  }
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (year < 1950 || year > 2100) {
+    return { valid: false, error: 'Tahun harus berada di antara 1950 hingga 2100.' };
+  }
+  if (month < 1 || month > 12) {
+    return { valid: false, error: 'Bulan tidak valid (harus 01 - 12).' };
+  }
+  if (day < 1 || day > 31) {
+    return { valid: false, error: 'Tanggal tidak valid (harus 01 - 31).' };
+  }
+  const candidate = new Date(year, month - 1, day);
+  if (
+    candidate.getFullYear() !== year ||
+    candidate.getMonth() !== month - 1 ||
+    candidate.getDate() !== day
+  ) {
+    return { valid: false, error: 'Tanggal tersebut tidak ada dalam kalender.' };
+  }
+  const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
+  return { valid: true, isoDate };
+};
 
 export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ isOpen, onClose }) => {
   const { submitPendaftaran, desaList, kecamatanList, jabatanList, fullMembers, pendaftaranList } = usePPDI();
@@ -38,6 +104,12 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
   const [formError, setFormError] = useState('');
   const [fotoFileName, setFotoFileName] = useState('');
   const [skFileName, setSkFileName] = useState('');
+  const [fotoUpload, setFotoUpload] = useState<UploadProgressState>(INITIAL_UPLOAD_STATE);
+  const [skUpload, setSkUpload] = useState<UploadProgressState>(INITIAL_UPLOAD_STATE);
+  const [dateTouched, setDateTouched] = useState<{ tglSk: boolean; tmt: boolean }>({
+    tglSk: false,
+    tmt: false,
+  });
 
   // Urutkan daftar kecamatan secara alfabetis
   const sortedKecamatanList = useMemo(() => {
@@ -65,6 +137,15 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
   }, [formData.nik, fullMembers, pendaftaranList]);
 
   const isNikValid = formData.nik.length === 16 && !duplicateNik;
+
+  const tglSkValidation = useMemo(() => validateDdMmYyyy(formData.tglSkPengangkatan), [formData.tglSkPengangkatan]);
+  const tmtValidation = useMemo(() => validateDdMmYyyy(formData.tmtJabatan), [formData.tmtJabatan]);
+
+  const isUploadingAny =
+    fotoUpload.status === 'reading' ||
+    fotoUpload.status === 'uploading' ||
+    skUpload.status === 'reading' ||
+    skUpload.status === 'uploading';
 
   if (!isOpen) return null;
 
@@ -95,36 +176,163 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     setFormError('');
     setFotoFileName('');
     setSkFileName('');
+    setFotoUpload(INITIAL_UPLOAD_STATE);
+    setSkUpload(INITIAL_UPLOAD_STATE);
+    setDateTouched({ tglSk: false, tmt: false });
     onClose();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'foto' | 'fileSk') => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        setFormError(`Ukuran file ${field === 'foto' ? 'Foto Resmi' : 'Berkas SK'} maksimal 2 MB!`);
-        e.target.value = '';
-        return;
-      }
-      setFormError('');
-      if (field === 'foto') setFotoFileName(file.name);
-      else setSkFileName(file.name);
+    const setUploadState = field === 'foto' ? setFotoUpload : setSkUpload;
+    const setFileName = field === 'foto' ? setFotoFileName : setSkFileName;
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, [field]: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
-    } else {
-      if (field === 'foto') setFotoFileName('');
-      else setSkFileName('');
-      setFormData(prev => ({ ...prev, [field]: '' }));
+    if (!file) {
+      setFileName('');
+      setUploadState(INITIAL_UPLOAD_STATE);
+      setFormData((prev) => ({ ...prev, [field]: '' }));
+      return;
     }
+
+    if (file.size > 2 * 1024 * 1024) {
+      const msg = `Ukuran file ${field === 'foto' ? 'Foto Resmi' : 'Berkas SK'} maksimal 2 MB!`;
+      setFormError(msg);
+      setUploadState({
+        status: 'error',
+        progress: 0,
+        fileName: file.name,
+        fileSizeLabel: formatFileSize(file.size),
+        errorMessage: msg,
+      });
+      e.target.value = '';
+      return;
+    }
+
+    setFormError('');
+    setFileName(file.name);
+    const sizeLabel = formatFileSize(file.size);
+    setFormData((prev) => ({ ...prev, [field]: '' }));
+    setUploadState({
+      status: 'reading',
+      progress: 8,
+      fileName: file.name,
+      fileSizeLabel: sizeLabel,
+    });
+
+    const reader = new FileReader();
+
+    reader.onprogress = (evt) => {
+      if (evt.lengthComputable && evt.total > 0) {
+        const readPct = Math.min(40, Math.max(10, Math.round((evt.loaded / evt.total) * 40)));
+        setUploadState({
+          status: 'reading',
+          progress: readPct,
+          fileName: file.name,
+          fileSizeLabel: sizeLabel,
+        });
+      }
+    };
+
+    reader.onerror = () => {
+      const msg = `Gagal membaca berkas ${field === 'foto' ? 'Foto Resmi' : 'Berkas SK'}.`;
+      setFormError(msg);
+      setUploadState({
+        status: 'error',
+        progress: 0,
+        fileName: file.name,
+        fileSizeLabel: sizeLabel,
+        errorMessage: msg,
+      });
+    };
+
+    reader.onloadend = () => {
+      const base64Data = reader.result as string;
+      if (!base64Data) return;
+
+      setUploadState({
+        status: 'uploading',
+        progress: 45,
+        fileName: file.name,
+        fileSizeLabel: sizeLabel,
+      });
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable && evt.total > 0) {
+          const uploadPct = 45 + Math.round((evt.loaded / evt.total) * 50);
+          setUploadState({
+            status: 'uploading',
+            progress: Math.min(95, uploadPct),
+            fileName: file.name,
+            fileSizeLabel: sizeLabel,
+          });
+        }
+      };
+
+      xhr.onload = () => {
+        try {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const parsed = JSON.parse(xhr.responseText);
+            if (parsed?.success && parsed?.url) {
+              setFormData((prev) => ({ ...prev, [field]: parsed.url }));
+              setUploadState({
+                status: 'done',
+                progress: 100,
+                fileName: file.name,
+                fileSizeLabel: sizeLabel,
+              });
+              return;
+            }
+          }
+        } catch {
+          // fallback below
+        }
+        // Fallback ke data base64 agar proses pendaftaran tetap lancar
+        setFormData((prev) => ({ ...prev, [field]: base64Data }));
+        setUploadState({
+          status: 'done',
+          progress: 100,
+          fileName: file.name,
+          fileSizeLabel: sizeLabel,
+        });
+      };
+
+      xhr.onerror = () => {
+        // Fallback ke data base64 jika koneksi API upload terganggu
+        setFormData((prev) => ({ ...prev, [field]: base64Data }));
+        setUploadState({
+          status: 'done',
+          progress: 100,
+          fileName: file.name,
+          fileSizeLabel: sizeLabel,
+        });
+      };
+
+      xhr.send(
+        JSON.stringify({
+          type: field === 'foto' ? 'foto' : 'sk',
+          fileName: file.name,
+          fileData: base64Data,
+          nik: formData.nik || 'TEMP',
+        })
+      );
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    setDateTouched({ tglSk: true, tmt: true });
+
+    if (isUploadingAny) {
+      setFormError('Mohon tunggu hingga proses unggah Foto Resmi dan Berkas SK selesai 100%.');
+      return;
+    }
 
     if (!isNikValid) {
       setNikError(duplicateNik ? 'NIK sudah terdaftar di sistem!' : 'NIK harus tepat 16 digit angka!');
@@ -141,13 +349,13 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       return;
     }
 
-    if (!formData.tglSkPengangkatan) {
-      setFormError('Tanggal SK Pengangkatan wajib diisi!');
+    if (!tglSkValidation.valid || !tglSkValidation.isoDate) {
+      setFormError(`Tanggal SK Pengangkatan: ${tglSkValidation.error || 'Format tanggal harus DD-MM-YYYY!'}`);
       return;
     }
 
-    if (!formData.tmtJabatan) {
-      setFormError('TMT (Terhitung Mulai Tanggal) Jabatan wajib diisi!');
+    if (!tmtValidation.valid || !tmtValidation.isoDate) {
+      setFormError(`TMT Jabatan: ${tmtValidation.error || 'Format tanggal harus DD-MM-YYYY!'}`);
       return;
     }
 
@@ -183,8 +391,8 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         id_jabatan: formData.selectedJabatan,
         jabatan_pengurus: formData.jabatanPengurus || 'Anggota Biasa',
         no_sk_pengangkatan: formData.noSkPengangkatan.trim(),
-        tgl_sk_pengangkatan: formData.tglSkPengangkatan,
-        tmt_jabatan: formData.tmtJabatan,
+        tgl_sk_pengangkatan: tglSkValidation.isoDate,
+        tmt_jabatan: tmtValidation.isoDate,
         foto: formData.foto,
         file_sk: formData.fileSk,
       });
@@ -566,36 +774,104 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                 />
               </div>
 
-              {/* Tanggal SK Pengangkatan */}
+              {/* Tanggal SK Pengangkatan (DD-MM-YYYY) */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-neutral-700 uppercase">
-                  Tanggal SK Pengangkatan <span className="text-red-500">*</span>
+                <label className="text-xs font-bold text-neutral-700 uppercase flex items-center justify-between">
+                  <span>Tanggal SK Pengangkatan <span className="text-red-500">*</span></span>
+                  <span className="text-[10px] font-mono text-neutral-400 font-normal">DD-MM-YYYY</span>
                 </label>
-                <input 
-                  type="date" 
-                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white" 
-                  value={formData.tglSkPengangkatan} 
-                  onChange={e => setFormData({...formData, tglSkPengangkatan: e.target.value})} 
-                  required
-                />
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="DD-MM-YYYY"
+                    maxLength={10}
+                    className={`w-full pl-9 pr-3 py-3 border rounded-lg outline-none text-neutral-900 bg-white font-mono text-sm ${
+                      (dateTouched.tglSk || formData.tglSkPengangkatan.length > 0) && !tglSkValidation.valid
+                        ? 'border-red-500 ring-1 ring-red-500'
+                        : tglSkValidation.valid
+                        ? 'border-emerald-500 ring-1 ring-emerald-500/30'
+                        : 'border-neutral-300 focus:ring-2 focus:ring-[#064E3B]'
+                    }`}
+                    value={formData.tglSkPengangkatan}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const formatted =
+                        raw.length < formData.tglSkPengangkatan.length
+                          ? raw.replace(/[^0-9-]/g, '').slice(0, 10)
+                          : formatDdMmYyyyInput(raw);
+                      setFormData((prev) => ({ ...prev, tglSkPengangkatan: formatted }));
+                    }}
+                    onBlur={() => setDateTouched((prev) => ({ ...prev, tglSk: true }))}
+                    required
+                  />
+                </div>
+                {(dateTouched.tglSk || formData.tglSkPengangkatan.length > 0) && !tglSkValidation.valid ? (
+                  <p className="text-[11px] text-red-600 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{tglSkValidation.error}</span>
+                  </p>
+                ) : tglSkValidation.valid ? (
+                  <p className="text-[11px] text-emerald-700 flex items-center gap-1 font-semibold">
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Format tanggal valid ({formData.tglSkPengangkatan})</span>
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-neutral-400 font-mono">Contoh: 17-08-2024</p>
+                )}
               </div>
 
-              {/* TMT Jabatan */}
+              {/* TMT Jabatan (DD-MM-YYYY) */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-neutral-700 uppercase">
-                  TMT (Terhitung Mulai Tanggal) Jabatan <span className="text-red-500">*</span>
+                <label className="text-xs font-bold text-neutral-700 uppercase flex items-center justify-between">
+                  <span>TMT Jabatan <span className="text-red-500">*</span></span>
+                  <span className="text-[10px] font-mono text-neutral-400 font-normal">DD-MM-YYYY</span>
                 </label>
-                <input 
-                  type="date" 
-                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white" 
-                  value={formData.tmtJabatan} 
-                  onChange={e => setFormData({...formData, tmtJabatan: e.target.value})} 
-                  required
-                />
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="DD-MM-YYYY"
+                    maxLength={10}
+                    className={`w-full pl-9 pr-3 py-3 border rounded-lg outline-none text-neutral-900 bg-white font-mono text-sm ${
+                      (dateTouched.tmt || formData.tmtJabatan.length > 0) && !tmtValidation.valid
+                        ? 'border-red-500 ring-1 ring-red-500'
+                        : tmtValidation.valid
+                        ? 'border-emerald-500 ring-1 ring-emerald-500/30'
+                        : 'border-neutral-300 focus:ring-2 focus:ring-[#064E3B]'
+                    }`}
+                    value={formData.tmtJabatan}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const formatted =
+                        raw.length < formData.tmtJabatan.length
+                          ? raw.replace(/[^0-9-]/g, '').slice(0, 10)
+                          : formatDdMmYyyyInput(raw);
+                      setFormData((prev) => ({ ...prev, tmtJabatan: formatted }));
+                    }}
+                    onBlur={() => setDateTouched((prev) => ({ ...prev, tmt: true }))}
+                    required
+                  />
+                </div>
+                {(dateTouched.tmt || formData.tmtJabatan.length > 0) && !tmtValidation.valid ? (
+                  <p className="text-[11px] text-red-600 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{tmtValidation.error}</span>
+                  </p>
+                ) : tmtValidation.valid ? (
+                  <p className="text-[11px] text-emerald-700 flex items-center gap-1 font-semibold">
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Format tanggal valid ({formData.tmtJabatan})</span>
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-neutral-400 font-mono">Contoh: 01-09-2024</p>
+                )}
               </div>
 
               {/* Upload Foto */}
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-xs font-bold text-neutral-700 uppercase flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4 text-emerald-700" />
                   <span>Upload Foto Resmi <span className="text-red-500">*</span></span>
@@ -608,19 +884,64 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                     required
                     className="w-full text-xs text-neutral-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                   />
-                  {formData.foto && (
-                    <span className="text-[10px] text-emerald-600 font-bold whitespace-nowrap" title={fotoFileName}>
-                      ✓ Terlampir
-                    </span>
-                  )}
                 </div>
-                {fotoFileName && (
-                  <div className="text-[10px] text-neutral-500 font-mono truncate">{fotoFileName}</div>
+
+                {fotoUpload.status !== 'idle' && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-[11px] space-y-1.5 ${
+                      fotoUpload.status === 'error'
+                        ? 'bg-red-50 border-red-200 text-red-800'
+                        : fotoUpload.status === 'done'
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                        : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {(fotoUpload.status === 'reading' || fotoUpload.status === 'uploading') && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700 shrink-0" />
+                        )}
+                        {fotoUpload.status === 'done' && (
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        )}
+                        {fotoUpload.status === 'error' && (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                        )}
+                        <span className="font-mono font-semibold truncate">{fotoUpload.fileName || fotoFileName}</span>
+                      </div>
+                      <span className="font-mono text-[10px] shrink-0 font-bold">
+                        {fotoUpload.fileSizeLabel} &middot; {fotoUpload.progress}%
+                      </span>
+                    </div>
+
+                    <div className="w-full h-2 bg-neutral-200/80 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-200 ${
+                          fotoUpload.status === 'error'
+                            ? 'bg-red-500'
+                            : fotoUpload.status === 'done'
+                            ? 'bg-emerald-600'
+                            : 'bg-amber-500 animate-pulse'
+                        }`}
+                        style={{ width: `${fotoUpload.progress}%` }}
+                      />
+                    </div>
+
+                    <div className="text-[10px] font-medium">
+                      {fotoUpload.status === 'reading'
+                        ? 'Membaca berkas foto...'
+                        : fotoUpload.status === 'uploading'
+                        ? 'Mengunggah foto resmi ke server...'
+                        : fotoUpload.status === 'done'
+                        ? 'Foto resmi berhasil diunggah & siap dikirim'
+                        : fotoUpload.errorMessage}
+                    </div>
+                  </div>
                 )}
               </div>
 
               {/* Upload SK */}
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-xs font-bold text-neutral-700 uppercase flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-emerald-700" />
                   <span>Upload Berkas SK (PDF/Gambar) <span className="text-red-500">*</span></span>
@@ -633,14 +954,59 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                     required
                     className="w-full text-xs text-neutral-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                   />
-                  {formData.fileSk && (
-                    <span className="text-[10px] text-emerald-600 font-bold whitespace-nowrap" title={skFileName}>
-                      ✓ Terlampir
-                    </span>
-                  )}
                 </div>
-                {skFileName && (
-                  <div className="text-[10px] text-neutral-500 font-mono truncate">{skFileName}</div>
+
+                {skUpload.status !== 'idle' && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-[11px] space-y-1.5 ${
+                      skUpload.status === 'error'
+                        ? 'bg-red-50 border-red-200 text-red-800'
+                        : skUpload.status === 'done'
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                        : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {(skUpload.status === 'reading' || skUpload.status === 'uploading') && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700 shrink-0" />
+                        )}
+                        {skUpload.status === 'done' && (
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        )}
+                        {skUpload.status === 'error' && (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                        )}
+                        <span className="font-mono font-semibold truncate">{skUpload.fileName || skFileName}</span>
+                      </div>
+                      <span className="font-mono text-[10px] shrink-0 font-bold">
+                        {skUpload.fileSizeLabel} &middot; {skUpload.progress}%
+                      </span>
+                    </div>
+
+                    <div className="w-full h-2 bg-neutral-200/80 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-200 ${
+                          skUpload.status === 'error'
+                            ? 'bg-red-500'
+                            : skUpload.status === 'done'
+                            ? 'bg-emerald-600'
+                            : 'bg-amber-500 animate-pulse'
+                        }`}
+                        style={{ width: `${skUpload.progress}%` }}
+                      />
+                    </div>
+
+                    <div className="text-[10px] font-medium">
+                      {skUpload.status === 'reading'
+                        ? 'Membaca berkas SK...'
+                        : skUpload.status === 'uploading'
+                        ? 'Mengunggah berkas SK ke server...'
+                        : skUpload.status === 'done'
+                        ? 'Berkas SK berhasil diunggah & siap dikirim'
+                        : skUpload.errorMessage}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -664,18 +1030,23 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                 type="submit" 
                 disabled={
                   isSubmitting ||
+                  isUploadingAny ||
                   !isNikValid ||
                   !formData.selectedDesa ||
                   !formData.namaLengkap ||
                   !formData.noSkPengangkatan.trim() ||
-                  !formData.tglSkPengangkatan ||
-                  !formData.tmtJabatan ||
+                  !tglSkValidation.valid ||
+                  !tmtValidation.valid ||
                   !formData.foto ||
                   !formData.fileSk
                 } 
                 className="flex-1 py-3 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-xl font-bold text-sm transition-colors cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSubmitting ? 'Mengirim Data...' : 'Kirim Pendaftaran'}
+                {isUploadingAny
+                  ? 'Mengunggah Berkas...'
+                  : isSubmitting
+                  ? 'Mengirim Data...'
+                  : 'Kirim Pendaftaran'}
               </button>
             </div>
           </form>

@@ -199,6 +199,34 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
 
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Corner floating toast notifications state
+  const [toasts, setToasts] = useState<
+    Array<{
+      id: string;
+      type: 'success' | 'error' | 'info';
+      title: string;
+      message: string;
+      showDataIndukLink?: boolean;
+    }>
+  >([]);
+
+  const pushToast = (toast: {
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+    showDataIndukLink?: boolean;
+  }) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts((prev) => [...prev.slice(-3), { ...toast, id }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 5500);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   // Batch selection & condensed dropdown state
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
@@ -416,17 +444,26 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   const handleConfirmApprove = async () => {
     if (!approvingItem) return;
     if (!canApprove) {
-      setActionMessage({ type: 'error', text: 'Akses Ditolak: Anda tidak memiliki wewenang menyetujui pendaftaran.' });
+      const msg = 'Akses Ditolak: Anda tidak memiliki wewenang menyetujui pendaftaran.';
+      setActionMessage({ type: 'error', text: msg });
+      pushToast({ type: 'error', title: 'Akses Ditolak', message: msg });
       return;
     }
     setIsApproving(true);
     try {
       const result = await approvePendaftaran(approvingItem.id_pendaftaran, customKta.trim() || undefined);
       const assignedNoKta = result.no_kta || customKta.trim() || 'KTA PPDI REGISTERED';
+      const successText = result.message || `Pendaftaran atas nama ${approvingItem.nama_lengkap.toUpperCase()} berhasil disetujui!`;
 
       setActionMessage({
         type: 'success',
-        text: result.message || `Pendaftaran atas nama ${approvingItem.nama_lengkap.toUpperCase()} berhasil disetujui!`,
+        text: successText,
+      });
+      pushToast({
+        type: 'success',
+        title: 'Pendaftaran Disetujui',
+        message: `${approvingItem.nama_lengkap.toUpperCase()} disetujui (${assignedNoKta}).`,
+        showDataIndukLink: true,
       });
 
       // Pemicu modal notifikasi WhatsApp
@@ -444,7 +481,9 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         setSelectedItem(null);
       }
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err.message || 'Gagal menyetujui pendaftaran' });
+      const errMsg = err.message || 'Gagal menyetujui pendaftaran';
+      setActionMessage({ type: 'error', text: errMsg });
+      pushToast({ type: 'error', title: 'Gagal Menyetujui', message: errMsg });
     } finally {
       setIsApproving(false);
       setTimeout(() => setActionMessage(null), 5000);
@@ -455,15 +494,23 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   const handleConfirmReject = async () => {
     if (!rejectingItem) return;
     if (!canReject) {
-      setActionMessage({ type: 'error', text: 'Akses Ditolak: Anda tidak memiliki wewenang menolak pendaftaran.' });
+      const msg = 'Akses Ditolak: Anda tidak memiliki wewenang menolak pendaftaran.';
+      setActionMessage({ type: 'error', text: msg });
+      pushToast({ type: 'error', title: 'Akses Ditolak', message: msg });
       return;
     }
     setIsRejecting(true);
     try {
       await rejectPendaftaran(rejectingItem.id_pendaftaran, rejectReason.trim() || 'Berkas belum memenuhi persyaratan');
+      const rejectText = `Pendaftaran atas nama ${rejectingItem.nama_lengkap.toUpperCase()} telah ditolak.`;
       setActionMessage({
         type: 'success',
-        text: `Pendaftaran atas nama ${rejectingItem.nama_lengkap.toUpperCase()} telah ditolak.`,
+        text: rejectText,
+      });
+      pushToast({
+        type: 'info',
+        title: 'Permohonan Ditolak',
+        message: rejectText,
       });
       setRejectingItem(null);
       setRejectReason('');
@@ -471,7 +518,9 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         setSelectedItem(null);
       }
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err.message || 'Gagal menolak pendaftaran' });
+      const errMsg = err.message || 'Gagal menolak pendaftaran';
+      setActionMessage({ type: 'error', text: errMsg });
+      pushToast({ type: 'error', title: 'Gagal Menolak', message: errMsg });
     } finally {
       setIsRejecting(false);
       setTimeout(() => setActionMessage(null), 5000);
@@ -481,10 +530,12 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   // Handle Delete (single or batch via modal)
   const requestDelete = (items: PendaftaranPerangkatDesa[]) => {
     if (!canDelete) {
+      const msg = 'Akses Ditolak: Hanya Akun Tingkat Kabupaten yang diizinkan menghapus formulir pendaftaran.';
       setActionMessage({
         type: 'error',
-        text: 'Akses Ditolak: Hanya Akun Tingkat Kabupaten yang diizinkan menghapus formulir pendaftaran.',
+        text: msg,
       });
+      pushToast({ type: 'error', title: 'Akses Ditolak', message: msg });
       return;
     }
     setDeletingItems(items);
@@ -512,12 +563,18 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
       }
       const deletedSet = new Set(deletingItems.map((i) => i.id_pendaftaran));
       setSelectedIds((prev) => prev.filter((id) => !deletedSet.has(id)));
+      const deleteMsg =
+        failCount === 0
+          ? `${successCount} data formulir registrasi berhasil dihapus.`
+          : `${successCount} data berhasil dihapus, ${failCount} gagal dihapus.`;
       setActionMessage({
         type: failCount === 0 ? 'success' : 'error',
-        text:
-          failCount === 0
-            ? `${successCount} data formulir registrasi berhasil dihapus.`
-            : `${successCount} data berhasil dihapus, ${failCount} gagal dihapus.`,
+        text: deleteMsg,
+      });
+      pushToast({
+        type: failCount === 0 ? 'success' : 'error',
+        title: failCount === 0 ? 'Formulir Dihapus' : 'Penghapusan Sebagian Gagal',
+        message: deleteMsg,
       });
       setDeletingItems(null);
     } finally {
@@ -548,12 +605,19 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         }
       }
       setSelectedIds((prev) => prev.filter((id) => !processedIds.has(id)));
+      const batchApproveMsg =
+        failCount === 0
+          ? `Batch Approval berhasil: ${successCount} formulir disetujui dan diterbitkan ke Data Induk Anggota.`
+          : `Batch Approval selesai: ${successCount} disetujui, ${failCount} gagal diproses.`;
       setActionMessage({
         type: failCount === 0 ? 'success' : 'error',
-        text:
-          failCount === 0
-            ? `Batch Approval berhasil: ${successCount} formulir disetujui dan diterbitkan ke Data Induk Anggota.`
-            : `Batch Approval selesai: ${successCount} disetujui, ${failCount} gagal diproses.`,
+        text: batchApproveMsg,
+      });
+      pushToast({
+        type: failCount === 0 ? 'success' : 'error',
+        title: failCount === 0 ? 'Batch Approval Berhasil' : 'Batch Approval Sebagian Gagal',
+        message: batchApproveMsg,
+        showDataIndukLink: successCount > 0,
       });
       setIsBatchApproveModalOpen(false);
     } finally {
@@ -585,12 +649,18 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         }
       }
       setSelectedIds((prev) => prev.filter((id) => !processedIds.has(id)));
+      const batchRejectMsg =
+        failCount === 0
+          ? `Batch Penolakan selesai: ${successCount} formulir ditolak.`
+          : `Batch Penolakan selesai: ${successCount} ditolak, ${failCount} gagal diproses.`;
       setActionMessage({
         type: failCount === 0 ? 'success' : 'error',
-        text:
-          failCount === 0
-            ? `Batch Penolakan selesai: ${successCount} formulir ditolak.`
-            : `Batch Penolakan selesai: ${successCount} ditolak, ${failCount} gagal diproses.`,
+        text: batchRejectMsg,
+      });
+      pushToast({
+        type: failCount === 0 ? 'info' : 'error',
+        title: failCount === 0 ? 'Batch Penolakan Selesai' : 'Batch Penolakan Sebagian Gagal',
+        message: batchRejectMsg,
       });
       setIsBatchRejectModalOpen(false);
       setBatchRejectReason('');
@@ -717,9 +787,17 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         </div>
       )}
 
-      {/* Summary KPI Cards - Scoped to User's Role Jurisdiction */}
+      {/* Summary KPI Cards - Scoped to User's Role Jurisdiction (Klik untuk filter status) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setActiveFilterTab('Semua')}
+          className={`text-left bg-white p-4 rounded-xl border shadow-2xs transition-all cursor-pointer ${
+            activeFilterTab === 'Semua'
+              ? 'border-[#064E3B] ring-2 ring-[#064E3B]/20'
+              : 'border-neutral-200 hover:border-neutral-300'
+          }`}
+        >
           <div className="flex items-center justify-between text-neutral-500 mb-2">
             <span className="text-xs font-medium uppercase font-mono">Total Registrasi</span>
             <FileText className="w-4 h-4 text-neutral-400" />
@@ -728,71 +806,107 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
           <div className="text-[11px] text-neutral-500 mt-1">
             {isKabupatenLevel ? 'Seluruh formulir pendaftaran masuk se-Kabupaten' : `Formulir di wilayah ${assignedKec?.nama_kecamatan || 'tugas Anda'}`}
           </div>
-        </div>
+        </button>
 
-        <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-300 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setActiveFilterTab('Menunggu')}
+          className={`text-left bg-amber-50/60 p-4 rounded-xl border shadow-2xs transition-all cursor-pointer ${
+            activeFilterTab === 'Menunggu'
+              ? 'border-amber-600 ring-2 ring-amber-500/25'
+              : 'border-amber-300 hover:border-amber-400'
+          }`}
+        >
           <div className="flex items-center justify-between text-amber-800 mb-2">
-            <span className="text-xs font-bold uppercase font-mono">Menunggu Approval</span>
+            <span className="text-xs font-bold uppercase font-mono">Pending (Menunggu)</span>
             <Clock className="w-4 h-4 text-amber-600 animate-spin" style={{ animationDuration: '6s' }} />
           </div>
           <div className="text-2xl font-extrabold text-amber-900 font-mono">{stats.pending}</div>
           <div className="text-[11px] text-amber-700 font-medium mt-1">Perlu ditinjau dan diverifikasi</div>
-        </div>
+        </button>
 
-        <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-300 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setActiveFilterTab('Disetujui')}
+          className={`text-left bg-emerald-50/60 p-4 rounded-xl border shadow-2xs transition-all cursor-pointer ${
+            activeFilterTab === 'Disetujui'
+              ? 'border-emerald-600 ring-2 ring-emerald-500/25'
+              : 'border-emerald-300 hover:border-emerald-400'
+          }`}
+        >
           <div className="flex items-center justify-between text-emerald-800 mb-2">
-            <span className="text-xs font-bold uppercase font-mono">Telah Disetujui</span>
+            <span className="text-xs font-bold uppercase font-mono">Disetujui</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-extrabold text-emerald-900 font-mono">{stats.approved}</div>
           <div className="text-[11px] text-emerald-700 font-medium mt-1">Tercatat aktif di Data Induk Anggota</div>
-        </div>
+        </button>
 
-        <div className="bg-red-50/60 p-4 rounded-xl border border-red-200 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setActiveFilterTab('Ditolak')}
+          className={`text-left bg-red-50/60 p-4 rounded-xl border shadow-2xs transition-all cursor-pointer ${
+            activeFilterTab === 'Ditolak'
+              ? 'border-red-600 ring-2 ring-red-500/25'
+              : 'border-red-200 hover:border-red-300'
+          }`}
+        >
           <div className="flex items-center justify-between text-red-800 mb-2">
             <span className="text-xs font-medium uppercase font-mono">Ditolak</span>
             <XCircle className="w-4 h-4 text-red-600" />
           </div>
           <div className="text-2xl font-extrabold text-red-900 font-mono">{stats.rejected}</div>
           <div className="text-[11px] text-red-700 font-medium mt-1">Berkas belum lengkap / tidak sah</div>
-        </div>
+        </button>
       </div>
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs space-y-4">
         {/* Status Tabs */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-neutral-100 pb-3">
-          {(['Menunggu', 'Semua', 'Disetujui', 'Ditolak'] as const).map((tab) => {
-            const isActive = activeFilterTab === tab;
-            const count =
-              tab === 'Semua'
-                ? stats.total
-                : tab === 'Menunggu'
-                ? stats.pending
-                : tab === 'Disetujui'
-                ? stats.approved
-                : stats.rejected;
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveFilterTab(tab)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
-                  isActive
-                    ? 'bg-[#064E3B] text-white shadow-xs'
-                    : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-                }`}
-              >
-                <span>{tab === 'Menunggu' ? 'Menunggu Approval' : tab}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    isActive ? 'bg-emerald-900 text-emerald-200' : 'bg-neutral-200 text-neutral-800'
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {(['Menunggu', 'Disetujui', 'Ditolak', 'Semua'] as const).map((tab) => {
+              const isActive = activeFilterTab === tab;
+              const count =
+                tab === 'Semua'
+                  ? stats.total
+                  : tab === 'Menunggu'
+                  ? stats.pending
+                  : tab === 'Disetujui'
+                  ? stats.approved
+                  : stats.rejected;
+              const label =
+                tab === 'Menunggu'
+                  ? 'Pending (Menunggu)'
+                  : tab === 'Semua'
+                  ? 'Semua Status'
+                  : tab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveFilterTab(tab)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+                    isActive
+                      ? 'bg-[#064E3B] text-white shadow-xs'
+                      : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
                   }`}
                 >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+                  <span>{label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      isActive ? 'bg-emerald-900 text-emerald-200' : 'bg-neutral-200 text-neutral-800'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-[11px] font-mono text-neutral-500">
+            Menampilkan <b>{filteredList.length}</b> permohonan
+          </span>
         </div>
 
         {/* Inputs Filter & Search & Sort */}
@@ -810,6 +924,19 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Filter className="w-4 h-4 text-neutral-400" />
+
+            {/* Filter Status Pendaftaran Dropdown */}
+            <select
+              aria-label="Filter Status Pendaftaran"
+              value={activeFilterTab}
+              onChange={(e) => setActiveFilterTab(e.target.value as 'Semua' | 'Menunggu' | 'Disetujui' | 'Ditolak')}
+              className="border border-neutral-200 rounded-lg text-xs font-mono py-2 px-3 focus:ring-2 focus:ring-[#064E3B] outline-none bg-white font-semibold text-neutral-800 cursor-pointer"
+            >
+              <option value="Menunggu">Status: Pending ({stats.pending})</option>
+              <option value="Disetujui">Status: Disetujui ({stats.approved})</option>
+              <option value="Ditolak">Status: Ditolak ({stats.rejected})</option>
+              <option value="Semua">Status: Semua ({stats.total})</option>
+            </select>
 
             {/* Filter Kecamatan: Dropdown untuk Kabupaten dengan Hitung Pendaftar */}
             {isKabupatenLevel ? (
@@ -2209,6 +2336,76 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Corner Toast Notification Stack */}
+      {toasts.length > 0 && (
+        <div
+          aria-live="polite"
+          className="fixed bottom-5 right-5 z-[70] flex flex-col gap-2.5 max-w-sm w-[calc(100vw-2.5rem)] pointer-events-none"
+        >
+          {toasts.map((toast) => {
+            const isSuccess = toast.type === 'success';
+            const isError = toast.type === 'error';
+            return (
+              <div
+                key={toast.id}
+                className={`pointer-events-auto rounded-xl shadow-2xl border bg-white p-3.5 flex items-start gap-3 transition-all animate-in fade-in slide-in-from-bottom-4 ${
+                  isSuccess
+                    ? 'border-emerald-300 ring-1 ring-emerald-500/15'
+                    : isError
+                    ? 'border-red-300 ring-1 ring-red-500/15'
+                    : 'border-amber-300 ring-1 ring-amber-500/15'
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                    isSuccess
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : isError
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}
+                >
+                  {isSuccess ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : isError ? (
+                    <AlertCircle className="w-4 h-4" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-neutral-900">{toast.title}</div>
+                  <p className="text-[11px] text-neutral-600 mt-0.5 leading-relaxed">{toast.message}</p>
+                  {toast.showDataIndukLink && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dismissToast(toast.id);
+                        setActiveTab('anggota');
+                      }}
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-[#064E3B] hover:text-emerald-700 cursor-pointer"
+                    >
+                      <span>Lihat di Data Induk</span>
+                      <span>&rarr;</span>
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => dismissToast(toast.id)}
+                  aria-label="Tutup notifikasi"
+                  className="p-1 text-neutral-400 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition-colors cursor-pointer shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
