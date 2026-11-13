@@ -35,6 +35,9 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [nikError, setNikError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [fotoFileName, setFotoFileName] = useState('');
+  const [skFileName, setSkFileName] = useState('');
 
   // Urutkan daftar kecamatan secara alfabetis
   const sortedKecamatanList = useMemo(() => {
@@ -89,6 +92,9 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     });
     setSuccess(false);
     setNikError('');
+    setFormError('');
+    setFotoFileName('');
+    setSkFileName('');
     onClose();
   };
 
@@ -96,26 +102,62 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('Ukuran file maksimal 2 MB!');
+        setFormError(`Ukuran file ${field === 'foto' ? 'Foto Resmi' : 'Berkas SK'} maksimal 2 MB!`);
+        e.target.value = '';
         return;
       }
+      setFormError('');
+      if (field === 'foto') setFotoFileName(file.name);
+      else setSkFileName(file.name);
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setFormData(prev => ({ ...prev, [field]: reader.result as string }));
       };
       reader.readAsDataURL(file);
+    } else {
+      if (field === 'foto') setFotoFileName('');
+      else setSkFileName('');
+      setFormData(prev => ({ ...prev, [field]: '' }));
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
+
     if (!isNikValid) {
       setNikError(duplicateNik ? 'NIK sudah terdaftar di sistem!' : 'NIK harus tepat 16 digit angka!');
       return;
     }
 
     if (!formData.selectedKecamatan || !formData.selectedDesa) {
-      alert('Silakan pilih Kecamatan dan Desa penempatan terlebih dahulu!');
+      setFormError('Silakan pilih Kecamatan dan Desa penempatan terlebih dahulu!');
+      return;
+    }
+
+    if (!formData.noSkPengangkatan.trim()) {
+      setFormError('No. SK Pengangkatan Perangkat Desa wajib diisi!');
+      return;
+    }
+
+    if (!formData.tglSkPengangkatan) {
+      setFormError('Tanggal SK Pengangkatan wajib diisi!');
+      return;
+    }
+
+    if (!formData.tmtJabatan) {
+      setFormError('TMT (Terhitung Mulai Tanggal) Jabatan wajib diisi!');
+      return;
+    }
+
+    if (!formData.foto) {
+      setFormError('Foto Resmi wajib diunggah!');
+      return;
+    }
+
+    if (!formData.fileSk) {
+      setFormError('Berkas SK (PDF/Gambar) wajib diunggah!');
       return;
     }
 
@@ -140,15 +182,15 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         id_desa: formData.selectedDesa,
         id_jabatan: formData.selectedJabatan,
         jabatan_pengurus: formData.jabatanPengurus || 'Anggota Biasa',
-        no_sk_pengangkatan: formData.noSkPengangkatan.trim() || undefined,
-        tgl_sk_pengangkatan: formData.tglSkPengangkatan || undefined,
-        tmt_jabatan: formData.tmtJabatan || undefined,
-        foto: formData.foto || undefined,
-        file_sk: formData.fileSk || undefined,
+        no_sk_pengangkatan: formData.noSkPengangkatan.trim(),
+        tgl_sk_pengangkatan: formData.tglSkPengangkatan,
+        tmt_jabatan: formData.tmtJabatan,
+        foto: formData.foto,
+        file_sk: formData.fileSk,
       });
       setSuccess(true);
     } catch (err: any) {
-      alert('Gagal registrasi: ' + (err?.message || err));
+      setFormError('Gagal registrasi: ' + (err?.message || err));
     } finally {
       setIsSubmitting(false);
     }
@@ -513,39 +555,42 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
               {/* No. SK Pengangkatan */}
               <div className="md:col-span-2 space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase">
-                  No. SK Pengangkatan Perangkat Desa
+                  No. SK Pengangkatan Perangkat Desa <span className="text-red-500">*</span>
                 </label>
                 <input 
                   className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 font-mono" 
                   placeholder="Contoh: 141.1/SK.12/Desa/2020" 
                   value={formData.noSkPengangkatan} 
                   onChange={e => setFormData({...formData, noSkPengangkatan: e.target.value})} 
+                  required
                 />
               </div>
 
               {/* Tanggal SK Pengangkatan */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase">
-                  Tanggal SK Pengangkatan
+                  Tanggal SK Pengangkatan <span className="text-red-500">*</span>
                 </label>
                 <input 
                   type="date" 
                   className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white" 
                   value={formData.tglSkPengangkatan} 
                   onChange={e => setFormData({...formData, tglSkPengangkatan: e.target.value})} 
+                  required
                 />
               </div>
 
               {/* TMT Jabatan */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase">
-                  TMT (Terhitung Mulai Tanggal) Jabatan
+                  TMT (Terhitung Mulai Tanggal) Jabatan <span className="text-red-500">*</span>
                 </label>
                 <input 
                   type="date" 
                   className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white" 
                   value={formData.tmtJabatan} 
                   onChange={e => setFormData({...formData, tmtJabatan: e.target.value})} 
+                  required
                 />
               </div>
 
@@ -553,36 +598,59 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
               <div className="space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4 text-emerald-700" />
-                  <span>Upload Foto Resmi (Opsional)</span>
+                  <span>Upload Foto Resmi <span className="text-red-500">*</span></span>
                 </label>
                 <div className="flex items-center gap-3">
                   <input 
                     type="file" 
                     accept="image/*"
                     onChange={e => handleFileChange(e, 'foto')}
+                    required
                     className="w-full text-xs text-neutral-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                   />
-                  {formData.foto && <span className="text-[10px] text-emerald-600 font-bold whitespace-nowrap">✓ Terlampir</span>}
+                  {formData.foto && (
+                    <span className="text-[10px] text-emerald-600 font-bold whitespace-nowrap" title={fotoFileName}>
+                      ✓ Terlampir
+                    </span>
+                  )}
                 </div>
+                {fotoFileName && (
+                  <div className="text-[10px] text-neutral-500 font-mono truncate">{fotoFileName}</div>
+                )}
               </div>
 
               {/* Upload SK */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-emerald-700" />
-                  <span>Upload Berkas SK (PDF/Gambar)</span>
+                  <span>Upload Berkas SK (PDF/Gambar) <span className="text-red-500">*</span></span>
                 </label>
                 <div className="flex items-center gap-3">
                   <input 
                     type="file" 
                     accept="image/*,.pdf"
                     onChange={e => handleFileChange(e, 'fileSk')}
+                    required
                     className="w-full text-xs text-neutral-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                   />
-                  {formData.fileSk && <span className="text-[10px] text-emerald-600 font-bold whitespace-nowrap">✓ Terlampir</span>}
+                  {formData.fileSk && (
+                    <span className="text-[10px] text-emerald-600 font-bold whitespace-nowrap" title={skFileName}>
+                      ✓ Terlampir
+                    </span>
+                  )}
                 </div>
+                {skFileName && (
+                  <div className="text-[10px] text-neutral-500 font-mono truncate">{skFileName}</div>
+                )}
               </div>
             </div>
+
+            {formError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
             
             <div className="flex gap-3 pt-3">
               <button 
@@ -594,7 +662,17 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
               </button>
               <button 
                 type="submit" 
-                disabled={isSubmitting || !isNikValid || !formData.selectedDesa || !formData.namaLengkap} 
+                disabled={
+                  isSubmitting ||
+                  !isNikValid ||
+                  !formData.selectedDesa ||
+                  !formData.namaLengkap ||
+                  !formData.noSkPengangkatan.trim() ||
+                  !formData.tglSkPengangkatan ||
+                  !formData.tmtJabatan ||
+                  !formData.foto ||
+                  !formData.fileSk
+                } 
                 className="flex-1 py-3 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-xl font-bold text-sm transition-colors cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? 'Mengirim Data...' : 'Kirim Pendaftaran'}
