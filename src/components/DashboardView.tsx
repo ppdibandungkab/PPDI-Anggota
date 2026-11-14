@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { formatRupiah, formatDateIndo } from '../utils/ppdiHelpers';
 import { exportStatistikWilayahToPDF, WilayahStatRow } from '../utils/pdfWilayahExport';
+import { exportMonthlyReportToPDF } from '../utils/pdfMonthlyReportExport';
 import { AnggotaFullDetail } from '../types/ppdi';
 import {
   Users,
@@ -33,6 +34,9 @@ import {
   AlertTriangle,
   Download,
   X,
+  UserPlus,
+  ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -48,6 +52,7 @@ import {
   Pie,
 } from 'recharts';
 import { StatistikWilayahView } from './StatistikWilayahView';
+import { QuickSkVerifyModal } from './QuickSkVerifyModal';
 
 // Custom Tooltip for Recharts
 const CustomChartTooltip = ({ active, payload, label }: any) => {
@@ -70,16 +75,37 @@ const CustomChartTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-export const DashboardView: React.FC = () => {
+interface DashboardViewProps {
+  onOpenAddModal?: () => void;
+}
+
+const NAMA_BULAN_OPTIONS = [
+  { value: 1, label: 'Januari' },
+  { value: 2, label: 'Februari' },
+  { value: 3, label: 'Maret' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'Mei' },
+  { value: 6, label: 'Juni' },
+  { value: 7, label: 'Juli' },
+  { value: 8, label: 'Agustus' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'Oktober' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'Desember' },
+];
+
+export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) => {
   const {
     visibleMembers,
     fullMembers,
     visiblePendaftaran,
+    riwayatList,
     currentUser,
     kecamatanList,
     desaList,
     iuranList,
     setActiveTab,
+    hasPermission,
   } = usePPDI();
 
   // Regional Filter State for Recharts Data Visualization
@@ -94,7 +120,17 @@ export const DashboardView: React.FC = () => {
   const [expand6MonthAlertList, setExpand6MonthAlertList] = useState<boolean>(true);
   const [showAuto6MonthToast, setShowAuto6MonthToast] = useState<boolean>(false);
   const [hasTriggeredAuto6MonthToast, setHasTriggeredAuto6MonthToast] = useState<boolean>(false);
-  const [pdfExportToast, setPdfExportToast] = useState<string | null>(null);
+  const [actionToast, setActionToast] = useState<{ title: string; message: string } | null>(null);
+  const [isQuickSkModalOpen, setIsQuickSkModalOpen] = useState<boolean>(false);
+  const [reportBulan, setReportBulan] = useState<number>(() => new Date().getMonth() + 1);
+  const [reportTahun, setReportTahun] = useState<number>(() => new Date().getFullYear());
+
+  const showActionToast = (title: string, message: string) => {
+    setActionToast({ title, message });
+    window.setTimeout(() => {
+      setActionToast((prev) => (prev?.message === message ? null : prev));
+    }, 5500);
+  };
 
   // Filtered desa list based on selected kecamatan
   const filteredDesaList = useMemo(() => {
@@ -443,8 +479,55 @@ export const DashboardView: React.FC = () => {
       filterSummary: 'Rekap Seluruh Kecamatan (Urut Terbanyak)',
       printedBy: currentUser?.nama || 'Administrator PPDI',
     });
-    setPdfExportToast(`Laporan PDF berhasil diunduh: ${fileName}`);
-    window.setTimeout(() => setPdfExportToast(null), 5000);
+    showActionToast('Laporan PDF Siap', `Laporan PDF berhasil diunduh: ${fileName}`);
+  };
+
+  // Quick Actions metrics & handlers
+  const canCreateAnggota = hasPermission('anggota', 'add');
+  const canVerifySk =
+    hasPermission('anggota', 'edit') ||
+    hasPermission('pendaftaran', 'edit') ||
+    hasPermission('arsip', 'edit') ||
+    hasPermission('arsip', 'view');
+
+  const missingSkUploadCount = useMemo(() => {
+    const memberIds = new Set(visibleMembers.map((m) => m.anggota.id_anggota));
+    return riwayatList.filter((rw) => {
+      if (!memberIds.has(rw.id_anggota)) return false;
+      const raw = (rw.file_sk || '').trim();
+      return !(raw.startsWith('/uploads/') || raw.startsWith('data:') || /^https?:\/\//i.test(raw));
+    }).length;
+  }, [riwayatList, visibleMembers]);
+
+  const totalPendingSkTasks = pendingApprovalCount + missingSkUploadCount;
+
+  const availableReportYears = useMemo(() => {
+    const curr = new Date().getFullYear();
+    const years = new Set<number>([curr - 1, curr, curr + 1]);
+    iuranList.forEach((i) => {
+      if (i.tahun >= 2020 && i.tahun <= curr + 2) years.add(i.tahun);
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [iuranList]);
+
+  const handleDownloadMonthlyReportPDF = () => {
+    const fileName = exportMonthlyReportToPDF({
+      bulan: reportBulan,
+      tahun: reportTahun,
+      members: visibleMembers,
+      riwayatList,
+      iuranList,
+      pendaftaranList: scopedPendaftaran,
+      kecamatanList,
+      scopeLabel: roleScopeLabel,
+      printedBy: currentUser?.nama || 'Administrator PPDI',
+    });
+    const bulanLabel =
+      NAMA_BULAN_OPTIONS.find((b) => b.value === reportBulan)?.label || String(reportBulan);
+    showActionToast(
+      'Laporan Bulanan PDF Siap',
+      `Rekapitulasi periode ${bulanLabel} ${reportTahun} berhasil diunduh (${fileName}).`
+    );
   };
 
   return (
@@ -502,6 +585,172 @@ export const DashboardView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* PANEL QUICK ACTIONS ADMIN (LANGSUNG DARI DASHBOARD)           */}
+      {/* ------------------------------------------------------------- */}
+      <section
+        aria-label="Quick Actions Admin"
+        className="bg-white border border-neutral-200 rounded-2xl p-3.5 sm:p-4.5 shadow-xs space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-neutral-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-[#064E3B] text-amber-300 flex items-center justify-center shrink-0 shadow-2xs">
+              <Zap className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-bold text-neutral-900 tracking-tight">
+                  Quick Actions
+                </h2>
+                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[10px] font-bold uppercase tracking-wider">
+                  Aksi Instan Admin
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                Buat anggota baru, verifikasi berkas SK, atau unduh laporan bulanan langsung tanpa meninggalkan Dashboard.
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono text-neutral-500 bg-neutral-50 border border-neutral-200 px-2.5 py-1 rounded-lg self-start sm:self-auto shrink-0">
+            Cakupan: <strong className="text-neutral-800">{roleScopeLabel}</strong>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Action 1: Buat Anggota Baru */}
+          <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/75 via-white to-white p-3.5 flex flex-col justify-between gap-3 hover:border-emerald-300 transition-colors">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center justify-center shrink-0">
+                <UserPlus className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-neutral-900">
+                    Buat Anggota Baru
+                  </h3>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono text-[10px] font-bold">
+                    {totalAnggota} Terdata
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-600 mt-1 leading-relaxed">
+                  Input data induk perangkat desa baru lengkap dengan validasi NIK &amp; unggah SK pengangkatan.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenAddModal?.()}
+              disabled={!canCreateAnggota || !onOpenAddModal}
+              title={
+                canCreateAnggota
+                  ? 'Buka formulir tambah anggota baru langsung di Dashboard'
+                  : 'Role akun Anda tidak memiliki izin membuat anggota baru'
+              }
+              className="w-full py-2 px-3 rounded-lg bg-[#064E3B] hover:bg-[#043d2e] disabled:bg-neutral-200 disabled:text-neutral-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-amber-300" />
+              <span>{canCreateAnggota ? 'Tambah Anggota Baru' : 'Akses Terbatas'}</span>
+            </button>
+          </div>
+
+          {/* Action 2: Verifikasi SK */}
+          <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50/80 via-white to-white p-3.5 flex flex-col justify-between gap-3 hover:border-amber-300 transition-colors">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 border border-amber-200 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-neutral-900">
+                    Verifikasi SK
+                  </h3>
+                  <span
+                    className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold ${
+                      totalPendingSkTasks > 0
+                        ? 'bg-amber-200 text-amber-950 border border-amber-300'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
+                    {totalPendingSkTasks > 0 ? `${totalPendingSkTasks} Perlu Cek` : 'Semua Lengkap'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-600 mt-1 leading-relaxed">
+                  Periksa file SK jabatan ({missingSkUploadCount} belum unggah) &amp; antrean SK pendaftaran ({pendingApprovalCount}).
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsQuickSkModalOpen(true)}
+              disabled={!canVerifySk}
+              className="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:bg-neutral-200 disabled:text-neutral-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Verifikasi SK Sekarang</span>
+            </button>
+          </div>
+
+          {/* Action 3: Unduh Laporan Bulanan */}
+          <div className="rounded-xl border border-neutral-200 bg-gradient-to-br from-neutral-50 via-white to-white p-3.5 flex flex-col justify-between gap-3 hover:border-emerald-300 transition-colors">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-neutral-900 text-amber-300 flex items-center justify-center shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-neutral-900">
+                    Unduh Laporan Bulanan
+                  </h3>
+                  <span className="px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-800 font-mono text-[10px] font-bold">
+                    PDF A4
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-600 mt-1 leading-relaxed">
+                  Ekspor rekap keanggotaan, kas iuran bulan berjalan, SK &amp; purna tugas ke PDF resmi.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="grid grid-cols-5 gap-1.5">
+                <select
+                  aria-label="Pilih Bulan Laporan"
+                  value={reportBulan}
+                  onChange={(e) => setReportBulan(Number(e.target.value))}
+                  className="col-span-3 text-xs bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-neutral-800 font-medium focus:ring-2 focus:ring-[#064E3B] outline-none"
+                >
+                  {NAMA_BULAN_OPTIONS.map((b) => (
+                    <option key={b.value} value={b.value}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Pilih Tahun Laporan"
+                  value={reportTahun}
+                  onChange={(e) => setReportTahun(Number(e.target.value))}
+                  className="col-span-2 text-xs bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-neutral-800 font-mono font-semibold focus:ring-2 focus:ring-[#064E3B] outline-none"
+                >
+                  {availableReportYears.map((yr) => (
+                    <option key={yr} value={yr}>
+                      {yr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadMonthlyReportPDF}
+                className="w-full py-2 px-3 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-300" />
+                <span>Unduh Laporan Bulanan</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Re-open chip jika Alert 6 Bulan ditutup sementara */}
       {retirement6MonthsMembers.length > 0 && dismissed6MonthAlert && (
@@ -1300,26 +1549,26 @@ export const DashboardView: React.FC = () => {
         <StatistikWilayahView showCardWrapper={true} />
       </div>
 
-      {/* Floating Corner Notifications: Auto 6-Month Retirement Alert & PDF Export Feedback */}
-      {(showAuto6MonthToast || pdfExportToast) && (
+      {/* Floating Corner Notifications: Auto 6-Month Retirement Alert & Quick Action Feedback */}
+      {(showAuto6MonthToast || actionToast) && (
         <div
           aria-live="polite"
           className="fixed bottom-5 right-5 z-[60] flex flex-col gap-2.5 max-w-sm w-[calc(100vw-2rem)] pointer-events-none"
         >
-          {pdfExportToast && (
+          {actionToast && (
             <div className="pointer-events-auto bg-white border border-emerald-300 ring-1 ring-emerald-500/15 rounded-xl shadow-2xl p-3.5 flex items-start gap-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-bold text-neutral-900">Laporan PDF Siap</div>
-                <p className="text-[11px] text-neutral-600 mt-0.5 break-all">{pdfExportToast}</p>
+                <div className="text-xs font-bold text-neutral-900">{actionToast.title}</div>
+                <p className="text-[11px] text-neutral-600 mt-0.5 break-words">{actionToast.message}</p>
               </div>
               <button
                 type="button"
-                onClick={() => setPdfExportToast(null)}
+                onClick={() => setActionToast(null)}
                 className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
-                aria-label="Tutup notifikasi PDF"
+                aria-label="Tutup notifikasi aksi cepat"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1377,6 +1626,13 @@ export const DashboardView: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Modal Verifikasi SK Cepat Langsung dari Dashboard */}
+      <QuickSkVerifyModal
+        isOpen={isQuickSkModalOpen}
+        onClose={() => setIsQuickSkModalOpen(false)}
+        onNotify={(msg) => showActionToast('Verifikasi SK Diperbarui', msg)}
+      />
     </div>
   );
 };

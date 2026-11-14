@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 import { QrLabelPrintModal } from './QrLabelPrintModal';
+import { BulkKtaExportModal } from './BulkKtaExportModal';
 import { PermissionGate } from './PermissionGate';
 
 interface AnggotaListViewProps {
@@ -69,6 +70,8 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isQrLabelModalOpen, setIsQrLabelModalOpen] = useState(false);
+  const [isBulkKtaModalOpen, setIsBulkKtaModalOpen] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
 
   // WhatsApp Notification Dispatch Modal State
   const [waModalMember, setWaModalMember] = useState<AnggotaFullDetail | null>(null);
@@ -78,7 +81,14 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     if (!memberToDelete) return;
     try {
       setIsDeleting(true);
-      const res = await deleteAnggota(memberToDelete.anggota.id_anggota);
+      const deletedId = memberToDelete.anggota.id_anggota;
+      const res = await deleteAnggota(deletedId);
+      setSelectedMemberIds((prev) => {
+        if (!prev.has(deletedId)) return prev;
+        const next = new Set(prev);
+        next.delete(deletedId);
+        return next;
+      });
       setToastMessage({
         type: 'success',
         text: res?.message || `Data perangkat desa "${memberToDelete.anggota.nama_lengkap}" berhasil dihapus.`,
@@ -172,6 +182,48 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     filterStatusPensiun,
   ]);
 
+  // Selection helpers (scoped safely by visibleMembers)
+  const selectedMembersList = useMemo(() => {
+    if (selectedMemberIds.size === 0) return [];
+    return visibleMembers.filter((m) => selectedMemberIds.has(m.anggota.id_anggota));
+  }, [visibleMembers, selectedMemberIds]);
+
+  const allFilteredSelected =
+    filteredList.length > 0 &&
+    filteredList.every((m) => selectedMemberIds.has(m.anggota.id_anggota));
+
+  const someFilteredSelected = filteredList.some((m) =>
+    selectedMemberIds.has(m.anggota.id_anggota)
+  );
+
+  const toggleMemberSelection = (idAnggota: string) => {
+    setSelectedMemberIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(idAnggota)) {
+        next.delete(idAnggota);
+      } else {
+        next.add(idAnggota);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedMemberIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredList.forEach((m) => next.delete(m.anggota.id_anggota));
+      } else {
+        filteredList.forEach((m) => next.add(m.anggota.id_anggota));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedMemberIds(new Set());
+  };
+
   const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   // Export to Excel function using ExcelJS
@@ -249,6 +301,32 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             >
               <QrCode className="w-3.5 h-3.5 text-[#064E3B]" />
               <span>Cetak Label QR</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedMembersList.length === 0) {
+                  setToastMessage({
+                    type: 'error',
+                    text: 'Centang terlebih dahulu minimal 1 anggota pada tabel untuk mengunduh E-KTA massal.',
+                  });
+                  return;
+                }
+                setIsBulkKtaModalOpen(true);
+              }}
+              title="Unduh Massal E-KTA ke PDF untuk anggota yang dicentang"
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs border ${
+                selectedMembersList.length > 0
+                  ? 'text-white bg-[#064E3B] hover:bg-[#043d2e] border-[#064E3B]'
+                  : 'text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border-emerald-300'
+              }`}
+            >
+              <CreditCard className="w-3.5 h-3.5 text-amber-300" />
+              <span>
+                Unduh E-KTA PDF
+                {selectedMembersList.length > 0 ? ` (${selectedMembersList.length})` : ''}
+              </span>
             </button>
           </PermissionGate>
 
@@ -519,13 +597,64 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         <span className="text-[11px]">Format No. KTA: 32.04.[KodeKec].[KodeDesa].[NoUrut]</span>
       </div>
 
+      {/* Bulk Selection Action Bar */}
+      {selectedMembersList.length > 0 && (
+        <div className="bg-emerald-900 text-white px-4 py-2.5 rounded-xl shadow-md border border-emerald-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-amber-400 text-neutral-950 font-extrabold text-[11px] flex items-center justify-center shrink-0">
+              {selectedMembersList.length}
+            </span>
+            <div>
+              <span className="font-bold">
+                {selectedMembersList.length} Perangkat Desa Dipilih
+              </span>
+              <span className="text-emerald-200 ml-2 hidden sm:inline">
+                Siap diunduh ke dalam berkas PDF E-KTA Digital
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="px-3 py-1.5 text-xs font-medium text-emerald-100 hover:text-white hover:bg-emerald-800 rounded-lg border border-emerald-700 transition-colors cursor-pointer"
+            >
+              Kosongkan Pilihan
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkKtaModalOpen(true)}
+              className="px-3.5 py-1.5 text-xs font-bold text-neutral-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Unduh E-KTA Massal (PDF)</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main High-Density Table */}
       <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-neutral-50 border-b border-neutral-200 text-neutral-600 font-semibold">
-                <th className="py-3 px-4 w-12 text-center">No</th>
+                <th className="py-3 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Pilih semua anggota tampil"
+                    checked={allFilteredSelected}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                      }
+                    }}
+                    onChange={toggleSelectAllFiltered}
+                    className="w-4 h-4 rounded border-neutral-300 text-[#064E3B] focus:ring-[#064E3B] cursor-pointer accent-[#064E3B]"
+                  />
+                </th>
+                <th className="py-3 px-3 w-11 text-center">No</th>
                 <th className="py-3 px-4">Profil & NIK</th>
                 <th className="py-3 px-4">Wilayah Tugas</th>
                 <th className="py-3 px-4">Jabatan & SK</th>
@@ -538,7 +667,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             <tbody className="divide-y divide-neutral-200 text-neutral-800">
               {filteredList.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-neutral-400">
+                  <td colSpan={9} className="py-12 text-center text-neutral-400">
                     <p className="font-medium text-neutral-600">Tidak ada data perangkat desa yang sesuai</p>
                     <p className="text-xs mt-1">Coba sesuaikan kata kunci pencarian atau reset filter wilayah</p>
                   </td>
@@ -550,11 +679,28 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                     item.anggota.nama_lengkap +
                     (item.anggota.gelar_belakang ? `, ${item.anggota.gelar_belakang}` : '')
                   ).toUpperCase();
+                  const isSelected = selectedMemberIds.has(item.anggota.id_anggota);
 
                   return (
-                    <tr key={item.anggota.id_anggota} className="hover:bg-neutral-50/70 transition-colors">
+                    <tr
+                      key={item.anggota.id_anggota}
+                      className={`transition-colors ${
+                        isSelected ? 'bg-emerald-50/70 hover:bg-emerald-50' : 'hover:bg-neutral-50/70'
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <td className="py-2.5 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Pilih ${item.anggota.nama_lengkap}`}
+                          checked={isSelected}
+                          onChange={() => toggleMemberSelection(item.anggota.id_anggota)}
+                          className="w-4 h-4 rounded border-neutral-300 text-[#064E3B] focus:ring-[#064E3B] cursor-pointer accent-[#064E3B]"
+                        />
+                      </td>
+
                       {/* No */}
-                      <td className="py-2.5 px-4 text-center font-mono text-neutral-400 tabular-nums">
+                      <td className="py-2.5 px-3 text-center font-mono text-neutral-400 tabular-nums">
                         {idx + 1}
                       </td>
 
@@ -975,6 +1121,25 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
       onClose={() => setIsQrLabelModalOpen(false)}
       initialKecamatan={filterKecamatan}
       initialDesa={filterDesa}
+    />
+
+    <BulkKtaExportModal
+      isOpen={isBulkKtaModalOpen}
+      onClose={() => setIsBulkKtaModalOpen(false)}
+      selectedMembers={selectedMembersList}
+      onRemoveMember={(id) => toggleMemberSelection(id)}
+      onSuccess={(count) => {
+        setToastMessage({
+          type: 'success',
+          text: `Berhasil mengunduh PDF E-KTA massal untuk ${count} perangkat desa terpilih.`,
+        });
+      }}
+      onError={(msg) => {
+        setToastMessage({
+          type: 'error',
+          text: msg,
+        });
+      }}
     />
     </>
   );
