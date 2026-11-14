@@ -892,8 +892,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
         </div>
         </div>
       )}
-
-
     </div>
   );
 };
