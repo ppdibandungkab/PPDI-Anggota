@@ -25,8 +25,10 @@ import {
   MessageSquare,
   Send,
   Wallet,
+  QrCode,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
+import { QrLabelPrintModal } from './QrLabelPrintModal';
 import { PermissionGate } from './PermissionGate';
 
 interface AnggotaListViewProps {
@@ -66,6 +68,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isQrLabelModalOpen, setIsQrLabelModalOpen] = useState(false);
 
   // WhatsApp Notification Dispatch Modal State
   const [waModalMember, setWaModalMember] = useState<AnggotaFullDetail | null>(null);
@@ -190,7 +193,8 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <>
+    <div className={`space-y-4 ${isQrLabelModalOpen ? 'no-print' : ''}`}>
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-200 gap-3">
         <div>
@@ -235,6 +239,16 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             >
               <Download className="w-3.5 h-3.5 text-neutral-600" />
               <span>Ekspor CSV</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsQrLabelModalOpen(true)}
+              title="Cetak Label QR Barcode Unik Anggota sesuai hak akses role"
+              className="px-3 py-1.5 text-xs font-bold text-neutral-950 bg-amber-400 hover:bg-amber-300 border border-amber-500/60 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <QrCode className="w-3.5 h-3.5 text-[#064E3B]" />
+              <span>Cetak Label QR</span>
             </button>
           </PermissionGate>
 
@@ -955,5 +969,13 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         </div>
       )}
     </div>
+
+    <QrLabelPrintModal
+      isOpen={isQrLabelModalOpen}
+      onClose={() => setIsQrLabelModalOpen(false)}
+      initialKecamatan={filterKecamatan}
+      initialDesa={filterDesa}
+    />
+    </>
   );
 };

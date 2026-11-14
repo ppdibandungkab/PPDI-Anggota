@@ -252,31 +252,29 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
       }}
     >
       {/* Top Navbar with live Database Connection Status Trigger */}
-      <header className="absolute top-0 left-0 right-0 z-20 px-4 sm:px-8 py-3.5 flex items-center justify-between border-b border-white/10 bg-black/25 backdrop-blur-md">
-        <div className="flex items-center gap-2.5">
+      <header className="absolute top-0 left-0 right-0 z-20 px-4 sm:px-8 py-3.5 flex items-center justify-between gap-2 border-b border-white/10 bg-black/25 backdrop-blur-md">
+        <div className="flex items-center gap-2.5 min-w-0">
           {appSettings?.logoUrl ? (
             <img
               src={appSettings.logoUrl}
               alt="Logo"
-              className="w-7 h-7 rounded-lg object-contain bg-white/10 p-0.5 border border-white/15 shadow-xs"
+              className="w-7 h-7 rounded-lg object-contain bg-white/10 p-0.5 border border-white/15 shadow-xs shrink-0"
             />
           ) : (
-            <div className="w-7 h-7 rounded-lg bg-[#064E3B] text-amber-300 flex items-center justify-center font-bold text-xs shadow-xs border border-white/15">
+            <div className="w-7 h-7 rounded-lg bg-[#064E3B] text-amber-300 flex items-center justify-center font-bold text-xs shadow-xs border border-white/15 shrink-0">
               <Shield className="w-3.5 h-3.5" />
             </div>
           )}
-          <span className="text-xs font-mono tracking-widest uppercase text-emerald-300/80">
-                PORTAL RESMI KEANGGOTAAN PPDI
+          <span className="hidden lg:inline text-xs font-mono tracking-widest uppercase text-emerald-300/80 whitespace-nowrap">
+            PORTAL RESMI KEANGGOTAAN PPDI
           </span>
-          <span className="text-xs sm:text-sm font-bold tracking-tight text-white uppercase font-mono">
+          <span className="text-xs sm:text-sm font-bold tracking-tight text-white uppercase font-mono truncate">
             {appSettings?.appName || 'PPDI KAB. BANDUNG'}
           </span>
-          
-
         </div>
 
         {/* Database Status Trigger Pill */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {isCheckingDb ? (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/40 backdrop-blur-md border border-amber-400/40 text-amber-300 text-xs font-mono shadow-xs">
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />

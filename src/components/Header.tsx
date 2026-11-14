@@ -421,7 +421,7 @@ export const Header: React.FC<{
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-[#F8F7F4]/95 backdrop-blur-md border-b border-[#111113]/10">
+    <header className="sticky top-0 z-40 bg-[#F8F7F4]/95 backdrop-blur-md border-b border-[#111113]/10 no-print">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-2 sm:gap-3 lg:gap-4">
           {/* Zone 1: Brand / Logo + Mobile Navigation Toggle */}
