@@ -514,11 +514,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               </div>
             </div>
 
-            {/* Card 3: Anggota Pensiun Bulan Ini */}
+            {/* Card 3: Anggota Pensiun < 12 bulan */}
             <div className="p-4 rounded-xl bg-black/40 border border-rose-500/40 backdrop-blur-md shadow-xl flex items-center justify-between text-white hover:bg-black/50 transition-all">
               <div>
                 <div className="text-[11px] font-mono text-rose-300 font-bold uppercase tracking-wider">
-                  Pensiun Bulan Ini
+                  Anggota Pensiun &lt; 12 bulan
                 </div>
                 <div className="text-2xl font-black font-mono text-rose-400 mt-1">
                   {pensiunBulanIniCount} <span className="text-xs font-normal text-rose-200/70">Orang</span>
