@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
+import { AnggotaFullDetail } from '../types/ppdi';
+import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import {
   Shield,
-  UserCheck,
   RefreshCw,
   Database,
   LogOut,
@@ -13,15 +14,26 @@ import {
   Sliders,
   Check,
   Key,
+  Search,
+  MapPin,
+  ArrowRight,
+  UserCheck,
+  Activity,
 } from 'lucide-react';
 
 export const Header: React.FC<{
   onOpenAddModal: () => void;
   onOpenVerifyModal: () => void;
   onOpenDbModal: () => void;
+  onSelectMemberProfile?: (member: AnggotaFullDetail) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
-}> = ({ onOpenVerifyModal, onOpenDbModal, sidebarOpen, setSidebarOpen }) => {
+}> = ({
+  onOpenDbModal,
+  onSelectMemberProfile,
+  sidebarOpen,
+  setSidebarOpen,
+}) => {
   const {
     currentUser,
     switchUser,
@@ -36,13 +48,25 @@ export const Header: React.FC<{
     setActiveTab,
     kecamatanList,
     desaList,
+    visibleMembers,
     openChangePasswordModal,
+    hasPermission,
   } = usePPDI();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
-  // Close profile dropdown when clicking outside or pressing Escape
+  // Global Member Search & Autocomplete State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const desktopSearchRef = useRef<HTMLDivElement>(null);
+  const mobileSearchRef = useRef<HTMLDivElement>(null);
+  const desktopInputRef = useRef<HTMLInputElement>(null);
+  const mobileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close profile dropdown on outside click / Escape
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
@@ -64,6 +88,151 @@ export const Header: React.FC<{
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isProfileOpen]);
+
+  // Close autocomplete dropdown on outside click
+  useEffect(() => {
+    const handleClickOutsideSearch = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const inDesktop = desktopSearchRef.current && desktopSearchRef.current.contains(target);
+      const inMobile = mobileSearchRef.current && mobileSearchRef.current.contains(target);
+      if (!inDesktop && !inMobile) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutsideSearch);
+    return () => document.removeEventListener('mousedown', handleClickOutsideSearch);
+  }, []);
+
+  // Global Ctrl+K / Cmd+K shortcut to focus member search
+  useEffect(() => {
+    const handleGlobalShortcut = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (window.innerWidth < 768) {
+          setIsMobileSearchOpen(true);
+          setTimeout(() => mobileInputRef.current?.focus(), 40);
+        } else {
+          desktopInputRef.current?.focus();
+          desktopInputRef.current?.select();
+          setIsSearchOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalShortcut);
+  }, []);
+
+  // Compute matching members by Nama or NIK (plus KTA/NIPD bonus)
+  const { searchResults, totalMatches } = useMemo(() => {
+    const rawQ = searchQuery.trim();
+    if (!rawQ) return { searchResults: [] as AnggotaFullDetail[], totalMatches: 0 };
+
+    const q = rawQ.toLowerCase();
+    const matches: { member: AnggotaFullDetail; score: number }[] = [];
+
+    (visibleMembers || []).forEach((m) => {
+      const nama = (m.anggota.nama_lengkap || '').toLowerCase();
+      const nik = (m.anggota.nik || '').toLowerCase();
+      const nipd = (m.anggota.nipd || '').toLowerCase();
+      const kta = (m.keanggotaan?.no_kta || '').toLowerCase();
+
+      let score = -1;
+      if (nik === q || nama === q) {
+        score = 100;
+      } else if (nama.startsWith(q)) {
+        score = 85;
+      } else if (nik.startsWith(q)) {
+        score = 80;
+      } else if (nama.includes(q)) {
+        score = 65;
+      } else if (nik.includes(q)) {
+        score = 60;
+      } else if (nipd.includes(q) || kta.includes(q)) {
+        score = 40;
+      }
+
+      if (score >= 0) {
+        matches.push({ member: m, score });
+      }
+    });
+
+    matches.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (a.member.anggota.nama_lengkap || '').localeCompare(
+        b.member.anggota.nama_lengkap || '',
+        'id'
+      );
+    });
+
+    return {
+      searchResults: matches.slice(0, 8).map((item) => item.member),
+      totalMatches: matches.length,
+    };
+  }, [searchQuery, visibleMembers]);
+
+  // Reset highlighted index when results change
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchQuery]);
+
+  const handleSelectMember = (member: AnggotaFullDetail) => {
+    if (onSelectMemberProfile) {
+      onSelectMemberProfile(member);
+    } else {
+      setActiveTab('anggota');
+    }
+    setSearchQuery('');
+    setIsSearchOpen(false);
+    setIsMobileSearchOpen(false);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setIsSearchOpen(false);
+      setIsMobileSearchOpen(false);
+      e.currentTarget.blur();
+      return;
+    }
+    if (!isSearchOpen && searchQuery.trim()) {
+      setIsSearchOpen(true);
+    }
+    if (searchResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev + 1) % searchResults.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev - 1 + searchResults.length) % searchResults.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const target = searchResults[highlightedIndex] || searchResults[0];
+      if (target) {
+        handleSelectMember(target);
+      }
+    }
+  };
+
+  // Highlight matched query text helper
+  const renderHighlightedText = (text: string, query: string) => {
+    const cleanQ = query.trim();
+    if (!cleanQ || !text) return text;
+    const idx = text.toLowerCase().indexOf(cleanQ.toLowerCase());
+    if (idx === -1) return text;
+
+    const before = text.slice(0, idx);
+    const match = text.slice(idx, idx + cleanQ.length);
+    const after = text.slice(idx + cleanQ.length);
+    return (
+      <>
+        {before}
+        <mark className="bg-amber-200/90 text-[#064E3B] font-bold rounded-[2px] px-0.5">
+          {match}
+        </mark>
+        {after}
+      </>
+    );
+  };
 
   // Format initials for avatar
   const initials = useMemo(() => {
@@ -132,10 +301,129 @@ export const Header: React.FC<{
     return 'Kabupaten Bandung';
   }, [currentUser, desaList, kecamatanList]);
 
+  // Shared Autocomplete Dropdown Renderer
+  const renderAutocompleteDropdown = () => {
+    if (!isSearchOpen || !searchQuery.trim()) return null;
+
+    return (
+      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-2xl border border-[#111113]/15 overflow-hidden z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+        <div className="px-3 py-2 bg-[#F8F7F4] border-b border-[#111113]/10 flex items-center justify-between text-[10px] font-mono text-[#111113]/60">
+          <span className="uppercase tracking-wider font-bold text-[#064E3B] flex items-center gap-1.5">
+            <UserCheck className="w-3.5 h-3.5 text-[#064E3B]" />
+            <span>Hasil Pencarian Cepat</span>
+          </span>
+          <span>
+            {totalMatches > 0
+              ? `${searchResults.length} dari ${totalMatches} anggota`
+              : '0 hasil'}
+          </span>
+        </div>
+
+        {searchResults.length === 0 ? (
+          <div className="p-5 text-center text-xs text-neutral-500">
+            <p className="font-semibold text-neutral-700">Anggota tidak ditemukan</p>
+            <p className="text-[11px] mt-0.5">
+              Tidak ada data dengan nama atau NIK "{searchQuery.trim()}"
+            </p>
+          </div>
+        ) : (
+          <ul role="listbox" className="max-h-80 overflow-y-auto divide-y divide-neutral-100">
+            {searchResults.map((member, idx) => {
+              const isHighlighted = idx === highlightedIndex;
+              const statusKta = member.keanggotaan?.status_kta || 'Pending';
+              const fullName = [
+                member.anggota.gelar_depan,
+                member.anggota.nama_lengkap,
+                member.anggota.gelar_belakang,
+              ]
+                .filter(Boolean)
+                .join(' ');
+
+              return (
+                <li key={member.anggota.id_anggota} role="option" aria-selected={isHighlighted}>
+                  <button
+                    type="button"
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    onClick={() => handleSelectMember(member)}
+                    className={`w-full px-3 py-2.5 flex items-center gap-3 text-left transition-colors cursor-pointer ${
+                      isHighlighted ? 'bg-emerald-50/90' : 'hover:bg-neutral-50'
+                    }`}
+                  >
+                    <img
+                      src={getPhotoUrl(member.anggota.foto, member.anggota.jenis_kelamin)}
+                      alt={member.anggota.nama_lengkap}
+                      onError={(e) => handleImageError(e, member.anggota.jenis_kelamin)}
+                      className="w-9 h-9 rounded-lg object-cover border border-neutral-200 bg-neutral-100 shrink-0"
+                    />
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-[#111113] truncate">
+                          {renderHighlightedText(fullName, searchQuery)}
+                        </span>
+                        <span
+                          className={`text-[9px] font-mono px-1.5 py-0.2 rounded-sm shrink-0 border ${
+                            statusKta === 'Aktif'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : statusKta === 'Pending'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-neutral-100 text-neutral-600 border-neutral-200'
+                          }`}
+                        >
+                          {statusKta}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-neutral-500 mt-0.5">
+                        <span className="font-mono text-[#064E3B] font-semibold">
+                          NIK: {renderHighlightedText(member.anggota.nik || '-', searchQuery)}
+                        </span>
+                        {member.jabatanRef?.nama_jabatan && (
+                          <span className="truncate max-w-[140px]">
+                            • {member.jabatanRef.nama_jabatan}
+                          </span>
+                        )}
+                        {(member.desa?.nama_desa || member.kecamatan?.nama_kecamatan) && (
+                          <span className="inline-flex items-center gap-0.5 truncate max-w-[160px]">
+                            <MapPin className="w-2.5 h-2.5 shrink-0 text-neutral-400" />
+                            <span className="truncate">
+                              {member.desa?.nama_desa ? `Ds. ${member.desa.nama_desa}` : ''}
+                              {member.kecamatan?.nama_kecamatan
+                                ? `, Kec. ${member.kecamatan.nama_kecamatan}`
+                                : ''}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[10px] font-mono font-bold flex items-center gap-1 shrink-0 ${
+                        isHighlighted ? 'text-[#064E3B]' : 'text-neutral-400'
+                      }`}
+                    >
+                      <span className="hidden sm:inline">Profil</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <div className="px-3 py-1.5 bg-neutral-50 border-t border-neutral-100 text-[10px] font-mono text-neutral-400 flex items-center justify-between">
+          <span>↑↓ Navigasi · Enter Buka Profil</span>
+          <span>Esc Tutup</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-[#F8F7F4]/95 backdrop-blur-md border-b border-[#111113]/10">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-3 sm:gap-4">
+        <div className="flex items-center justify-between h-16 gap-2 sm:gap-3 lg:gap-4">
           {/* Zone 1: Brand / Logo + Mobile Navigation Toggle */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
@@ -158,23 +446,82 @@ export const Header: React.FC<{
               </div>
             )}
             <div className="flex flex-col">
-              <span className="text-sm sm:text-base font-extrabold text-[#111113] tracking-tight whitespace-nowrap leading-tight uppercase">
+              <span className="text-xs sm:text-sm lg:text-base font-extrabold text-[#111113] tracking-tight whitespace-nowrap leading-tight uppercase">
                 {appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}
               </span>
-              <span className="brand-meta text-[10px] text-[#111113]/60 whitespace-nowrap hidden sm:inline">
+              <span className="brand-meta text-[10px] text-[#111113]/60 whitespace-nowrap hidden xl:inline">
                 {appSettings?.appSubtitle || 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA'}
               </span>
             </div>
           </div>
 
-          {/* Zone 2: Navigation Links & Database Status (Desktop) */}
-          <div className="hidden lg:flex items-center gap-3 text-xs font-mono text-[#111113]/70">
-            <span className="text-[#111113]/20">/</span>
+          {/* Zone 2: Global Member Search with Autocompletion (Desktop & Tablet) */}
+          <div ref={desktopSearchRef} className="hidden md:block flex-1 max-w-md relative">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-[#111113]/45 absolute left-3 pointer-events-none" />
+              <input
+                ref={desktopInputRef}
+                type="text"
+                value={searchQuery}
+                onFocus={() => setIsSearchOpen(true)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchOpen(true);
+                }}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Cari anggota (Nama atau NIK)..."
+                aria-label="Pencarian global anggota berdasarkan nama atau NIK"
+                className="w-full pl-9 pr-16 py-2 text-xs bg-white/90 hover:bg-white focus:bg-white border border-[#111113]/15 focus:border-[#064E3B] rounded-lg text-[#111113] placeholder:text-[#111113]/45 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#064E3B]/15 transition-all"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    desktopInputRef.current?.focus();
+                  }}
+                  title="Bersihkan pencarian"
+                  className="absolute right-2.5 p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <kbd className="hidden xl:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-[#111113]/45 bg-neutral-100 border border-neutral-200 rounded absolute right-2.5 pointer-events-none">
+                  Ctrl+K
+                </kbd>
+              )}
+            </div>
 
-            {/* MySQL Status Chip with Live Latency & Diagnostic Trigger (Setting Database open ONLY when MySQL is NOT connected) */}
-            <div className="flex items-center gap-1">
+            {renderAutocompleteDropdown()}
+          </div>
+
+          {/* Zone 3: DB Sync + Compact User Profile & Actions */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Mobile Search Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isMobileSearchOpen;
+                setIsMobileSearchOpen(next);
+                if (next) {
+                  setTimeout(() => mobileInputRef.current?.focus(), 40);
+                }
+              }}
+              aria-label="Cari Anggota"
+              title="Cari anggota berdasarkan Nama atau NIK"
+              className={`md:hidden p-2 rounded-lg border transition-colors cursor-pointer ${
+                isMobileSearchOpen
+                  ? 'bg-[#064E3B] text-white border-[#064E3B]'
+                  : 'bg-white/80 text-[#111113]/75 border-[#111113]/15 hover:bg-white'
+              }`}
+            >
+              <Search className="w-4 h-4" />
+            </button>
+
+            {/* Desktop DB Status & Sync Controls */}
+            <div className="hidden lg:flex items-center gap-1.5 text-xs font-mono text-[#111113]/70">
               {isCheckingDb ? (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono bg-amber-50 text-amber-900 border border-amber-300">
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-[11px] font-mono bg-amber-50 text-amber-900 border border-amber-300">
                   <Database className="w-3 h-3 text-[#064E3B]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                   <span>Cek DB...</span>
@@ -184,11 +531,11 @@ export const Header: React.FC<{
                   type="button"
                   onClick={onOpenDbModal}
                   title="Koneksi MySQL Terputus - Klik untuk membuka Setting Database"
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-[11px] font-mono transition-colors cursor-pointer border bg-red-100 text-red-950 border-red-400 hover:bg-red-200 animate-pulse font-bold"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-[11px] font-mono transition-colors cursor-pointer border bg-red-100 text-red-950 border-red-400 hover:bg-red-200 animate-pulse font-bold"
                 >
                   <Database className="w-3 h-3 text-red-700" />
                   <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
-                  <span>Setting Database (Offline)</span>
+                  <span>DB Offline</span>
                 </button>
               )}
 
@@ -196,25 +543,21 @@ export const Header: React.FC<{
                 onClick={() => checkDbStatus()}
                 disabled={isCheckingDb}
                 title="Picu uji ulang koneksi ke database sekarang"
-                className="p-1 rounded-sm border border-[#111113]/15 text-[#111113]/70 hover:text-[#064E3B] hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
+                className="p-1.5 rounded-sm border border-[#111113]/15 text-[#111113]/70 hover:text-[#064E3B] hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw className={`w-3 h-3 ${isCheckingDb ? 'animate-spin text-[#064E3B]' : ''}`} />
               </button>
+
+              <button
+                onClick={() => refreshDataFromMySQL()}
+                title="Sinkronkan data langsung dari MySQL database"
+                className="flex items-center gap-1 px-2 py-1 rounded-sm text-xs text-[#111113]/70 hover:text-[#064E3B] hover:bg-white transition-colors cursor-pointer border border-[#111113]/15 bg-white/50"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-[#064E3B]' : ''}`} />
+                <span className="hidden xl:inline">{isSyncing ? 'Sinkron...' : 'Sync DB'}</span>
+              </button>
             </div>
 
-            {/* Sync from MySQL Button */}
-            <button
-              onClick={() => refreshDataFromMySQL()}
-              title="Sinkronkan data langsung dari MySQL database"
-              className="flex items-center gap-1 px-2 py-1 rounded-sm text-xs text-[#111113]/70 hover:text-[#064E3B] hover:bg-white transition-colors cursor-pointer border border-[#111113]/15 bg-white/50"
-            >
-              <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-[#064E3B]' : ''}`} />
-              <span className="hidden xl:inline">{isSyncing ? 'Sinkron...' : 'Sync DB'}</span>
-            </button>
-          </div>
-
-          {/* Zone 3: Compact User Profile & Actions */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* User Profile Capsule Trigger */}
             <div className="relative" ref={profileRef}>
               <button
@@ -241,7 +584,7 @@ export const Header: React.FC<{
                 </div>
 
                 {/* Name & Role Text */}
-                <div className="text-left hidden sm:flex flex-col leading-tight max-w-[120px] md:max-w-[170px]">
+                <div className="text-left hidden sm:flex flex-col leading-tight max-w-[110px] lg:max-w-[150px]">
                   <span className="text-xs font-bold text-[#111113] truncate">
                     {currentUser?.nama || 'Administrator'}
                   </span>
@@ -320,7 +663,7 @@ export const Header: React.FC<{
                       </div>
                     </button>
 
-                    {/* Akses Ganti Password (Popup Modal Ditengah) */}
+                    {/* Akses Ganti Password */}
                     <button
                       type="button"
                       onClick={() => {
@@ -362,6 +705,29 @@ export const Header: React.FC<{
                       </div>
                     </button>
 
+                    {/* Quick Link to Telemetri & Diagnostik Live */}
+                    {hasPermission('settings-telemetry', 'view') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('settings-telemetry');
+                          setIsProfileOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[#111113]/80 hover:text-[#064E3B] hover:bg-emerald-50/70 rounded-md transition-colors cursor-pointer text-left group"
+                        role="menuitem"
+                      >
+                        <Activity className="w-4 h-4 text-[#111113]/50 group-hover:text-[#064E3B] shrink-0" />
+                        <div className="flex-1 truncate">
+                          <div className="font-semibold text-[#111113] group-hover:text-[#064E3B]">
+                            Telemetri & Diagnostik Live
+                          </div>
+                          <div className="text-[10px] text-[#111113]/50 truncate">
+                            Pantau server Express & database
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
                     {/* Quick Switch User (Hanya untuk Superadmin_Kabupaten jika ada > 1 user) */}
                     {currentUser?.role === 'Superadmin_Kabupaten' && users && users.length > 1 && (
                       <div className="pt-1.5 mt-1 border-t border-[#111113]/10">
@@ -394,11 +760,6 @@ export const Header: React.FC<{
                       </div>
                     )}
                   </div>
-
-                  {/* Logout section */}
-                  <div className="p-1.5 border-t border-[#111113]/10 bg-neutral-50/50">
-                    
-                  </div>
                 </div>
               )}
             </div>
@@ -414,9 +775,48 @@ export const Header: React.FC<{
             </button>
           </div>
         </div>
+
+        {/* Mobile Expandable Global Search Bar */}
+        {isMobileSearchOpen && (
+          <div
+            ref={mobileSearchRef}
+            className="md:hidden pb-3 pt-1 relative animate-in fade-in slide-in-from-top-1 duration-150"
+          >
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-[#111113]/45 absolute left-3 pointer-events-none" />
+              <input
+                ref={mobileInputRef}
+                type="text"
+                value={searchQuery}
+                onFocus={() => setIsSearchOpen(true)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchOpen(true);
+                }}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Cari anggota berdasarkan Nama atau NIK..."
+                aria-label="Pencarian global anggota mobile berdasarkan nama atau NIK"
+                className="w-full pl-9 pr-9 py-2 text-xs bg-white border border-[#064E3B]/40 rounded-lg text-[#111113] placeholder:text-[#111113]/45 shadow-xs focus:outline-none focus:ring-2 focus:ring-[#064E3B]/20"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    mobileInputRef.current?.focus();
+                  }}
+                  title="Bersihkan pencarian"
+                  className="absolute right-2.5 p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {renderAutocompleteDropdown()}
+          </div>
+        )}
       </div>
     </header>
   );
 };
-
-

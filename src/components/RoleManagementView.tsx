@@ -11,10 +11,12 @@ const MODULE_LABELS: Record<string, string> = {
   pensiun: 'Peringatan Purna Tugas',
   arsip: 'e-Arsip Berkas SK',
   iuran: 'Kas & Iuran Anggota',
+  'log-aktivitas': 'Log Aktivitas Admin',
   'settings-app': 'Setting Aplikasi',
   'settings-user': 'Daftar Akun Pengguna',
   'settings-role': 'Tingkatan (Role)',
   'settings-db': 'Setting Database',
+  'settings-telemetry': 'Telemetri & Diagnostik Live',
   skema: 'Skema Database & SQL',
 };
 

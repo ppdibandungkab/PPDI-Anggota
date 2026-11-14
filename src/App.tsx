@@ -20,9 +20,9 @@ import { AnggotaDetailModal } from './components/AnggotaDetailModal';
 import { PublicVerifyModal } from './components/PublicVerifyModal';
 import { DbConnectionModal } from './components/DbConnectionModal';
 import { DbSettingsView } from './components/DbSettingsView';
+import { TelemetrySettingsView } from './components/TelemetrySettingsView';
 import { StatistikWilayahView } from './components/StatistikWilayahView';
 import { LogAktivitasView } from './components/LogAktivitasView';
-import { DatabaseStatusIndicator } from './components/DatabaseStatusIndicator';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AnggotaFullDetail } from './types/ppdi';
 
@@ -131,6 +131,7 @@ const MainAppContent: React.FC = () => {
         onOpenAddModal={handleOpenAddModal}
         onOpenVerifyModal={() => handleOpenVerifyModalWithQuery()}
         onOpenDbModal={() => setIsDbModalOpen(true)}
+        onSelectMemberProfile={handleOpenDetailModal}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
       />
@@ -178,6 +179,13 @@ const MainAppContent: React.FC = () => {
           {activeTab === 'settings-user' && <UserSettingsView />}
           {activeTab === 'settings-role' && <RoleManagementView />}
           {activeTab === 'settings-db' && <DbSettingsView />}
+          {activeTab === 'settings-telemetry' && (
+            <TelemetrySettingsView
+              onOpenDbModal={() => setIsDbModalOpen(true)}
+              onNavigateDbSettings={() => setActiveTab('settings-db')}
+              pollIntervalMs={12000}
+            />
+          )}
           {activeTab === 'skema' && <SqlSchemaView />}
           {activeTab === 'statistik-wilayah' && <StatistikWilayahView />}
         </main>
@@ -218,12 +226,6 @@ const MainAppContent: React.FC = () => {
         isOpen={isVerifyModalOpen}
         onClose={() => setIsVerifyModalOpen(false)}
         initialQuery={verifyInitialQuery}
-      />
-
-      {/* Real-Time Database & Backend Diagnostic Status Indicator */}
-      <DatabaseStatusIndicator
-        onOpenDbModal={() => setIsDbModalOpen(true)}
-        pollIntervalMs={12000}
       />
 
       {/* Modal Popup Ganti Password Akun - Posisi Ditengah (Otomatis Aktif jika User Menggunakan Password Default) */}

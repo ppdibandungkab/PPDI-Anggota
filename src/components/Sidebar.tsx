@@ -23,6 +23,7 @@ import {
   Pin,
   PinOff,
   Menu,
+  Activity,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -68,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings-user', label: 'Daftar Akun Pengguna', icon: Users },
     { id: 'settings-role', label: 'Tingkatan (Role)', icon: UserCheck },
     { id: 'settings-db', label: 'Setting Database', icon: Database },
+    { id: 'settings-telemetry', label: 'Telemetri & Diagnostik Live', icon: Activity },
     { id: 'skema', label: 'Skema Database & SQL', icon: FileText },
   ].filter((sub) => hasViewPermission(sub.id));
 
@@ -78,6 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     'settings-user',
     'settings-role',
     'settings-db',
+    'settings-telemetry',
     'skema',
   ].includes(activeTab);
 

@@ -29,7 +29,9 @@ import {
   Table as TableIcon,
   Layers,
   Info,
+  Download,
 } from 'lucide-react';
+import { exportStatistikWilayahToPDF } from '../utils/pdfWilayahExport';
 
 export interface StatistikWilayahViewProps {
   onSelectKecamatan?: (kecamatanId: string) => void;
@@ -141,6 +143,7 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
   const [chartOrientation, setChartOrientation] = useState<'vertical' | 'horizontal'>('vertical'); // 'vertical' = horizontal bars (best for 31 labels)
   const [viewMode, setViewMode] = useState<'chart' | 'table'>('chart');
   const [selectedKecId, setSelectedKecId] = useState<string | null>(null);
+  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
 
   // Normalize ID helper (strips dots and whitespace)
   const cleanId = (id?: string | null) => (id ? String(id).replace(/\./g, '').trim() : '');
@@ -340,32 +343,72 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
           </div>
         </div>
 
-        {/* View mode toggle (Chart vs Table) */}
-        <div className="flex items-center gap-1.5 self-start lg:self-auto bg-neutral-100 p-1 rounded-lg text-xs font-semibold">
+        {/* View mode toggle (Chart vs Table) + Official PDF Download */}
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          <div className="flex items-center gap-1.5 bg-neutral-100 p-1 rounded-lg text-xs font-semibold">
+            <button
+              onClick={() => setViewMode('chart')}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === 'chart'
+                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                  : 'text-neutral-600 hover:text-neutral-900'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Grafik Batang</span>
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === 'table'
+                  ? 'bg-white text-emerald-950 font-bold shadow-2xs'
+                  : 'text-neutral-600 hover:text-neutral-900'
+              }`}
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Tabel Wilayah</span>
+            </button>
+          </div>
+
           <button
-            onClick={() => setViewMode('chart')}
-            className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-              viewMode === 'chart'
-                ? 'bg-white text-emerald-950 font-bold shadow-2xs'
-                : 'text-neutral-600 hover:text-neutral-900'
-            }`}
+            type="button"
+            onClick={() => {
+              const limitLabel =
+                displayLimit === 'all'
+                  ? 'Semua (31 Kecamatan)'
+                  : displayLimit === 'top10'
+                  ? 'Top 10 Kecamatan'
+                  : displayLimit === 'top15'
+                  ? 'Top 15 Kecamatan'
+                  : 'Kecamatan Aktif (>0)';
+              const filterSummary = searchQuery.trim()
+                ? `${limitLabel}, Cari: "${searchQuery.trim()}"`
+                : limitLabel;
+              const fileName = exportStatistikWilayahToPDF({
+                rows: filteredAndSortedData,
+                totalAnggotaKabupaten,
+                avgAnggotaPerKecamatan,
+                printedBy: currentUser?.nama || 'Administrator PPDI',
+                filterSummary,
+              });
+              setPdfNotice(`Berhasil mengunduh ${fileName}`);
+              window.setTimeout(() => setPdfNotice(null), 4500);
+            }}
+            className="px-3 py-2 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Unduh Laporan Resmi Statistik Wilayah Format PDF"
           >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Grafik Batang</span>
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-              viewMode === 'table'
-                ? 'bg-white text-emerald-950 font-bold shadow-2xs'
-                : 'text-neutral-600 hover:text-neutral-900'
-            }`}
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-            <span>Tabel Wilayah</span>
+            <Download className="w-3.5 h-3.5 text-amber-300" />
+            <span>Unduh PDF</span>
           </button>
         </div>
       </div>
+
+      {pdfNotice && (
+        <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-semibold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{pdfNotice}</span>
+        </div>
+      )}
 
       {/* 2. Top KPI Metric Summary Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5">

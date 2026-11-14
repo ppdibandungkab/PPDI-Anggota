@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { formatRupiah, formatDateIndo } from '../utils/ppdiHelpers';
+import { exportStatistikWilayahToPDF, WilayahStatRow } from '../utils/pdfWilayahExport';
 import { AnggotaFullDetail } from '../types/ppdi';
 import {
   Users,
@@ -29,6 +30,9 @@ import {
   Sparkles,
   BarChart3,
   PieChartIcon,
+  AlertTriangle,
+  Download,
+  X,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -83,9 +87,14 @@ export const DashboardView: React.FC = () => {
   const [selectedDesaId, setSelectedDesaId] = useState<string>('');
   const [activeChartTab, setActiveChartTab] = useState<'jabatan' | 'masakerja' | 'pensiun' | 'wilayah'>('jabatan');
   
-  // Toggle for 18-Month Retirement Notification Banner
+  // Toggle for 18-Month & Urgent 6-Month Retirement Notification Banners
   const [showRetirementNotif, setShowRetirementNotif] = useState<boolean>(true);
   const [retirmentUrgencyFilter, setRetirmentUrgencyFilter] = useState<'all' | 'kritis' | 'siaga' | 'waspada'>('all');
+  const [dismissed6MonthAlert, setDismissed6MonthAlert] = useState<boolean>(false);
+  const [expand6MonthAlertList, setExpand6MonthAlertList] = useState<boolean>(true);
+  const [showAuto6MonthToast, setShowAuto6MonthToast] = useState<boolean>(false);
+  const [hasTriggeredAuto6MonthToast, setHasTriggeredAuto6MonthToast] = useState<boolean>(false);
+  const [pdfExportToast, setPdfExportToast] = useState<string | null>(null);
 
   // Filtered desa list based on selected kecamatan
   const filteredDesaList = useMemo(() => {
@@ -135,8 +144,16 @@ export const DashboardView: React.FC = () => {
   };
 
   // -------------------------------------------------------------
-  // NOTIFIKASI OTOMATIS PURNA TUGAS 18 BULAN KE DEPAN
+  // NOTIFIKASI OTOMATIS PURNA TUGAS (6 BULAN KRITIS & 18 BULAN)
   // -------------------------------------------------------------
+  const getSisaBulanPensiun = (m: AnggotaFullDetail): number => {
+    // sisaMasaPensiunBulan dari calculateAgeAndRetirement sudah berupa total bulan
+    if (typeof m.sisaMasaPensiunBulan === 'number' && !isNaN(m.sisaMasaPensiunBulan)) {
+      return Math.max(0, m.sisaMasaPensiunBulan);
+    }
+    return Math.max(0, (m.sisaMasaPensiunTahun || 0) * 12);
+  };
+
   const retirement18MonthsMembers = useMemo(() => {
     return visibleMembers.filter(m => {
       const isKades = 
@@ -145,28 +162,43 @@ export const DashboardView: React.FC = () => {
         m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
       if (isKades) return false;
       if (m.statusPensiun === 'Sudah Purna Tugas') return false;
-      const totalSisaBulan = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
+      const totalSisaBulan = getSisaBulanPensiun(m);
       return totalSisaBulan > 0 && totalSisaBulan <= 18;
-    }).sort((a, b) => {
-      const aMonths = a.sisaMasaPensiunTahun * 12 + a.sisaMasaPensiunBulan;
-      const bMonths = b.sisaMasaPensiunTahun * 12 + b.sisaMasaPensiunBulan;
-      return aMonths - bMonths;
-    });
+    }).sort((a, b) => getSisaBulanPensiun(a) - getSisaBulanPensiun(b));
   }, [visibleMembers]);
+
+  // Anggota yang mendekati masa pensiun dalam 6 bulan ke depan (Alert Prioritas Tinggi)
+  const retirement6MonthsMembers = useMemo(() => {
+    return retirement18MonthsMembers.filter(
+      (m) => m.statusPensiun === 'Kritis (<6 Bln)' || getSisaBulanPensiun(m) <= 6
+    );
+  }, [retirement18MonthsMembers]);
+
+  // Trigger sistem pengingat otomatis popup saat dashboard dimuat jika ada anggota <= 6 bulan
+  useEffect(() => {
+    if (!hasTriggeredAuto6MonthToast && retirement6MonthsMembers.length > 0) {
+      setShowAuto6MonthToast(true);
+      setHasTriggeredAuto6MonthToast(true);
+      const timer = window.setTimeout(() => {
+        setShowAuto6MonthToast(false);
+      }, 9000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [retirement6MonthsMembers.length, hasTriggeredAuto6MonthToast]);
 
   // Breakdown for 18 months urgency
   const retirementBreakdown = useMemo(() => {
-    const kritis = retirement18MonthsMembers.filter(m => (m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan) <= 6);
+    const kritis = retirement6MonthsMembers;
     const siaga = retirement18MonthsMembers.filter(m => {
-      const b = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
+      const b = getSisaBulanPensiun(m);
       return b > 6 && b <= 12;
     });
     const waspada = retirement18MonthsMembers.filter(m => {
-      const b = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
+      const b = getSisaBulanPensiun(m);
       return b > 12 && b <= 18;
     });
     return { kritis, siaga, waspada };
-  }, [retirement18MonthsMembers]);
+  }, [retirement18MonthsMembers, retirement6MonthsMembers]);
 
   // Filtered notification list
   const filteredRetirementNotifList = useMemo(() => {
@@ -289,7 +321,7 @@ export const DashboardView: React.FC = () => {
       if (m.statusPensiun === 'Sudah Purna Tugas') {
         purnaTugas++;
       } else {
-        const totalSisaBulan = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
+        const totalSisaBulan = getSisaBulanPensiun(m);
         if (totalSisaBulan <= 6) {
           kritis++;
         } else if (totalSisaBulan <= 12) {
@@ -358,6 +390,63 @@ export const DashboardView: React.FC = () => {
 
   const purnaTugasCount = visibleMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas').length;
 
+  // Handler untuk unduh data statistik wilayah format PDF langsung dari Dashboard
+  const handleExportRegionalStatisticsPDF = () => {
+    const cleanId = (id?: string | null) => (id ? String(id).replace(/\./g, '').trim() : '');
+    const desaByKec: Record<string, Set<string>> = {};
+    (desaList || []).forEach((d) => {
+      const kId = cleanId(d.id_kecamatan);
+      if (!desaByKec[kId]) desaByKec[kId] = new Set();
+      desaByKec[kId].add(cleanId(d.id_desa));
+    });
+
+    const totalCount = visibleMembers.length;
+    const rows: WilayahStatRow[] = (kecamatanList || [])
+      .map((k) => {
+        const kClean = cleanId(k.id_kecamatan);
+        const kNameNorm = k.nama_kecamatan.toLowerCase().trim();
+        const matchingMembers = visibleMembers.filter((m) => {
+          const mKecClean = cleanId(m.kecamatan?.id_kecamatan || m.desa?.id_kecamatan);
+          if (mKecClean && mKecClean === kClean) return true;
+          const mKecName = m.kecamatan?.nama_kecamatan?.toLowerCase().trim();
+          return Boolean(mKecName && mKecName === kNameNorm);
+        });
+
+        const activeDesaIds = new Set<string>();
+        matchingMembers.forEach((m) => {
+          const dId = cleanId(m.desa?.id_desa || m.jabatanTerkini?.id_desa);
+          if (dId) activeDesaIds.add(dId);
+        });
+
+        const totalAnggotaKec = matchingMembers.length;
+        return {
+          id_kecamatan: k.id_kecamatan,
+          nama_kecamatan: k.nama_kecamatan,
+          totalAnggota: totalAnggotaKec,
+          ktaAktif: matchingMembers.filter((m) => m.keanggotaan?.status_kta === 'Aktif').length,
+          ktaPending: matchingMembers.filter((m) => m.keanggotaan?.status_kta === 'Pending').length,
+          lakiLaki: matchingMembers.filter((m) => m.anggota.jenis_kelamin === 'L').length,
+          perempuan: matchingMembers.filter((m) => m.anggota.jenis_kelamin === 'P').length,
+          totalDesa: desaByKec[kClean]?.size || 0,
+          desaWithMembers: activeDesaIds.size,
+          persentaseTotal: totalCount > 0 ? Number(((totalAnggotaKec / totalCount) * 100).toFixed(1)) : 0,
+        };
+      })
+      .sort((a, b) => b.totalAnggota - a.totalAnggota);
+
+    const avg = rows.length > 0 ? Number((totalCount / rows.length).toFixed(1)) : 0;
+    const fileName = exportStatistikWilayahToPDF({
+      rows,
+      totalAnggotaKabupaten: totalCount,
+      avgAnggotaPerKecamatan: avg,
+      scopeLabel: roleScopeLabel,
+      filterSummary: 'Rekap Seluruh Kecamatan (Urut Terbanyak)',
+      printedBy: currentUser?.nama || 'Administrator PPDI',
+    });
+    setPdfExportToast(`Laporan PDF berhasil diunduh: ${fileName}`);
+    window.setTimeout(() => setPdfExportToast(null), 5000);
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Top Banner & Context */}
@@ -375,6 +464,16 @@ export const DashboardView: React.FC = () => {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
+            onClick={handleExportRegionalStatisticsPDF}
+            className="px-3 py-1.5 text-xs font-bold text-white bg-[#064E3B] hover:bg-[#043d2e] rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Unduh Laporan Resmi Data Statistik Wilayah (PDF)"
+          >
+            <Download className="w-3.5 h-3.5 text-amber-300" />
+            <span>Unduh PDF Statistik Wilayah</span>
+          </button>
+          <button
+            type="button"
             onClick={() => {
               const el = document.getElementById('sebaran-wilayah-chart');
               if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -386,6 +485,7 @@ export const DashboardView: React.FC = () => {
             <span>Grafik Wilayah (31 Kec)</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('pensiun')}
             className="px-3 py-1.5 text-xs font-medium text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
           >
@@ -393,6 +493,7 @@ export const DashboardView: React.FC = () => {
             <span>{retirement18MonthsMembers.length} Purna Tugas (18 Bln)</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('ekta')}
             className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
           >
@@ -401,6 +502,148 @@ export const DashboardView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Re-open chip jika Alert 6 Bulan ditutup sementara */}
+      {retirement6MonthsMembers.length > 0 && dismissed6MonthAlert && (
+        <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-red-50 border border-red-200 text-xs">
+          <div className="flex items-center gap-2 text-red-900 font-semibold">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>
+              Pengingat Pensiun Mendesak: <b>{retirement6MonthsMembers.length} anggota</b> mendekati masa pensiun dalam &le; 6 bulan ke depan.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDismissed6MonthAlert(false)}
+            className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold cursor-pointer shrink-0"
+          >
+            Tampilkan Alert
+          </button>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* SISTEM PENGINGAT OTOMATIS PRIORITAS: PENSIUN <= 6 BULAN       */}
+      {/* ------------------------------------------------------------- */}
+      {retirement6MonthsMembers.length > 0 && !dismissed6MonthAlert && (
+        <div
+          id="alert-pensiun-6-bulan"
+          role="alert"
+          className="bg-gradient-to-r from-red-600/10 via-red-500/5 to-white border-l-4 border-red-600 border border-red-300 rounded-r-xl p-3.5 sm:p-4 shadow-sm space-y-3"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <div className="p-2 sm:p-2.5 bg-red-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 bg-red-600 text-white rounded text-[10px] font-mono font-bold uppercase tracking-wider">
+                    Alert Otomatis Kritis
+                  </span>
+                  <h2 className="text-xs sm:text-sm font-extrabold text-red-950 uppercase tracking-wide leading-snug">
+                    Pengingat Masa Pensiun Dalam 6 Bulan Ke Depan
+                  </h2>
+                  <span className="px-2.5 py-0.5 bg-red-100 text-red-900 rounded-full text-[11px] font-mono font-bold border border-red-300">
+                    {retirement6MonthsMembers.length} Anggota
+                  </span>
+                </div>
+                <p className="text-xs text-red-900/90 mt-1 leading-relaxed">
+                  <strong>{retirement6MonthsMembers.length} perangkat desa</strong> akan mencapai batas usia pensiun (60 tahun) dalam <strong>&le; 6 bulan ke depan</strong>. Segera lakukan verifikasi administrasi SK Purna Tugas dan pemberitahuan resmi.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0 self-start md:self-auto">
+              <button
+                type="button"
+                onClick={() => setExpand6MonthAlertList((prev) => !prev)}
+                className="px-3 py-1.5 bg-white hover:bg-red-50 text-red-900 text-xs font-semibold rounded-lg border border-red-300 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+              >
+                <span>{expand6MonthAlertList ? 'Ringkas' : `Lihat ${retirement6MonthsMembers.length} Anggota`}</span>
+                {expand6MonthAlertList ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pensiun')}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <span>Proses Purna Tugas</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDismissed6MonthAlert(true)}
+                className="p-1.5 text-red-700 hover:text-red-950 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
+                title="Tutup alert sementara"
+                aria-label="Tutup alert 6 bulan sementara"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {expand6MonthAlertList && (
+            <div className="pt-2.5 border-t border-red-200/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+              {retirement6MonthsMembers.map((m) => {
+                const sisaBulan = getSisaBulanPensiun(m);
+                const tglPurnaIso = m.anggota.tanggal_lahir
+                  ? new Date(
+                      new Date(m.anggota.tanggal_lahir).setFullYear(
+                        new Date(m.anggota.tanggal_lahir).getFullYear() + 60
+                      )
+                    ).toISOString()
+                  : undefined;
+
+                return (
+                  <div
+                    key={`alert6m-${m.anggota.id_anggota}`}
+                    className="bg-white p-3 rounded-xl border border-red-200 shadow-2xs flex flex-col justify-between gap-2"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-bold text-xs sm:text-[13px] text-neutral-900 truncate">
+                          {m.anggota.nama_lengkap}
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-red-600 text-white font-mono text-[10px] font-bold shrink-0">
+                          Sisa {sisaBulan} Bln
+                        </span>
+                      </div>
+                      <div className="text-xs text-neutral-600 mt-1 flex items-center gap-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        <span className="truncate">{m.jabatanRef?.nama_jabatan || 'Perangkat Desa'}</span>
+                      </div>
+                      <div className="text-xs text-neutral-500 mt-0.5 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        <span className="truncate">
+                          {m.desa?.nama_desa || '-'}, Kec. {m.kecamatan?.nama_kecamatan || '-'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-[11px] font-mono text-neutral-600">
+                      <span>Purna: {formatDateIndo(tglPurnaIso)}</span>
+                      {m.anggota.no_hp_wa && (
+                        <a
+                          href={`https://wa.me/${m.anggota.no_hp_wa.replace(/\D/g, '')}?text=${encodeURIComponent(
+                            `Yth. ${m.anggota.nama_lengkap}, pengingat otomatis PPDI Kab. Bandung: masa purna tugas Anda tersisa ${sisaBulan} bulan lagi. Mohon koordinasi kelengkapan berkas dengan Pengurus Kecamatan/Desa.`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-emerald-700 font-bold hover:underline flex items-center gap-1 font-sans"
+                        >
+                          <Phone className="w-3 h-3" />
+                          <span>Hubungi WA</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* NOTIFIKASI OTOMATIS: PERANGKAT PURNA TUGAS DALAM 18 BULAN      */}
@@ -494,10 +737,9 @@ export const DashboardView: React.FC = () => {
                 </button>
               </div>
 
-              {/* Grid of Retiring Devices */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
                 {filteredRetirementNotifList.map((m) => {
-                  const sisaTotalBulan = m.sisaMasaPensiunTahun * 12 + m.sisaMasaPensiunBulan;
+                  const sisaTotalBulan = getSisaBulanPensiun(m);
                   const isKritis = sisaTotalBulan <= 6;
                   const isSiaga = sisaTotalBulan > 6 && sisaTotalBulan <= 12;
 
@@ -1057,6 +1299,84 @@ export const DashboardView: React.FC = () => {
       <div id="sebaran-wilayah-chart">
         <StatistikWilayahView showCardWrapper={true} />
       </div>
+
+      {/* Floating Corner Notifications: Auto 6-Month Retirement Alert & PDF Export Feedback */}
+      {(showAuto6MonthToast || pdfExportToast) && (
+        <div
+          aria-live="polite"
+          className="fixed bottom-5 right-5 z-[60] flex flex-col gap-2.5 max-w-sm w-[calc(100vw-2rem)] pointer-events-none"
+        >
+          {pdfExportToast && (
+            <div className="pointer-events-auto bg-white border border-emerald-300 ring-1 ring-emerald-500/15 rounded-xl shadow-2xl p-3.5 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold text-neutral-900">Laporan PDF Siap</div>
+                <p className="text-[11px] text-neutral-600 mt-0.5 break-all">{pdfExportToast}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPdfExportToast(null)}
+                className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                aria-label="Tutup notifikasi PDF"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {showAuto6MonthToast && retirement6MonthsMembers.length > 0 && (
+            <div className="pointer-events-auto bg-white border border-red-300 ring-1 ring-red-500/20 rounded-xl shadow-2xl p-3.5 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4 animate-pulse" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold text-red-950">
+                  Pengingat Otomatis Pensiun (&le; 6 Bln)
+                </div>
+                <p className="text-[11px] text-neutral-700 mt-0.5 leading-relaxed">
+                  Ada <b>{retirement6MonthsMembers.length} anggota</b> yang memasuki masa purna tugas dalam 6 bulan ke depan.
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDismissed6MonthAlert(false);
+                      setExpand6MonthAlertList(true);
+                      setShowAuto6MonthToast(false);
+                      const el = document.getElementById('alert-pensiun-6-bulan');
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }}
+                    className="text-[11px] font-bold text-red-700 hover:text-red-900 cursor-pointer underline"
+                  >
+                    Tinjau Sekarang
+                  </button>
+                  <span className="text-neutral-300">&middot;</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAuto6MonthToast(false);
+                      setActiveTab('pensiun');
+                    }}
+                    className="text-[11px] font-bold text-[#064E3B] hover:text-emerald-700 cursor-pointer"
+                  >
+                    Modul Purna Tugas &rarr;
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAuto6MonthToast(false)}
+                className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                aria-label="Tutup pengingat otomatis"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -202,6 +202,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-user': { view: true, add: true, edit: true, delete: true },
     'settings-role': { view: true, add: true, edit: true, delete: true },
     'settings-db': { view: true, add: true, edit: true, delete: true },
+    'settings-telemetry': { view: true, add: true, edit: true, delete: true },
     'skema': { view: true, add: true, edit: true, delete: true },
   },
   'Admin_Kabupaten': {
@@ -217,6 +218,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: true, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Admin_Kecamatan': {
@@ -232,6 +234,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Admin_Desa': {
@@ -247,6 +250,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Anggota': {
@@ -262,6 +266,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
 };

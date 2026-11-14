@@ -16,6 +16,9 @@ import {
   Users,
   ClipboardCheck,
   ClockAlert,
+  ChevronDown,
+  ChevronRight,
+  MapPin,
 } from 'lucide-react';
 import { DbConnectionModal } from './DbConnectionModal';
 
@@ -29,6 +32,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
     setActiveTab,
     appSettings,
     kecamatanList,
+    desaList,
     fullMembers,
     pendaftaranList,
     dbStatus,
@@ -54,23 +58,100 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoginPopupOpen, setIsLoginPopupOpen] = useState(false);
+  const [expandedKecId, setExpandedKecId] = useState<string | null>(null);
 
-  // Rekapitulasi anggota perkecamatan sorted descending by member count
+  // Normalize wilayah IDs (strips dots/spaces) for reliable matching across dotted & undotted formats
+  const cleanWilayahId = (id?: string | null) => (id ? String(id).replace(/\./g, '').trim() : '');
+
+  // Rekapitulasi anggota per kecamatan & breakdown per desa sorted descending by member count
   const kecamatanRecap = React.useMemo(() => {
-    const counts: { [kecId: string]: { nama: string; count: number } } = {};
-    (kecamatanList || []).forEach(k => {
-      counts[k.id_kecamatan] = { nama: k.nama_kecamatan, count: 0 };
+    const counts: {
+      [cleanKecId: string]: {
+        id_kecamatan: string;
+        nama: string;
+        count: number;
+        desaCounts: { [cleanDesaId: string]: { id_desa: string; nama_desa: string; count: number } };
+      };
+    } = {};
+
+    (kecamatanList || []).forEach((k) => {
+      const kClean = cleanWilayahId(k.id_kecamatan);
+      counts[kClean] = {
+        id_kecamatan: k.id_kecamatan,
+        nama: k.nama_kecamatan,
+        count: 0,
+        desaCounts: {},
+      };
     });
-    (fullMembers || []).forEach(m => {
-      const kecId = m.desa?.id_kecamatan || m.kecamatan?.id_kecamatan;
-      if (kecId && counts[kecId]) {
-        counts[kecId].count += 1;
+
+    (desaList || []).forEach((d) => {
+      const kClean = cleanWilayahId(d.id_kecamatan);
+      const dClean = cleanWilayahId(d.id_desa);
+      if (kClean && counts[kClean] && dClean) {
+        counts[kClean].desaCounts[dClean] = {
+          id_desa: d.id_desa,
+          nama_desa: d.nama_desa,
+          count: 0,
+        };
       }
     });
-    return Object.entries(counts)
-      .map(([id, data]) => ({ id_kecamatan: id, ...data }))
+
+    (fullMembers || []).forEach((m) => {
+      const rawKecId = m.desa?.id_kecamatan || m.kecamatan?.id_kecamatan;
+      let kClean = cleanWilayahId(rawKecId);
+
+      // Fallback match by kecamatan name if ID does not match directly
+      if ((!kClean || !counts[kClean]) && m.kecamatan?.nama_kecamatan) {
+        const targetName = m.kecamatan.nama_kecamatan.toLowerCase().trim();
+        const foundEntry = Object.entries(counts).find(
+          ([, val]) => val.nama.toLowerCase().trim() === targetName
+        );
+        if (foundEntry) kClean = foundEntry[0];
+      }
+
+      if (kClean && counts[kClean]) {
+        counts[kClean].count += 1;
+
+        const dClean = cleanWilayahId(m.desa?.id_desa || m.jabatanTerkini?.id_desa);
+        if (dClean && counts[kClean].desaCounts[dClean]) {
+          counts[kClean].desaCounts[dClean].count += 1;
+        } else if (m.desa?.nama_desa) {
+          const targetDesaName = m.desa.nama_desa.toLowerCase().trim();
+          const matchedDesa = Object.entries(counts[kClean].desaCounts).find(
+            ([, dVal]) => dVal.nama_desa.toLowerCase().trim() === targetDesaName
+          );
+          if (matchedDesa) {
+            matchedDesa[1].count += 1;
+          } else {
+            const fallbackKey = dClean || `name:${targetDesaName}`;
+            if (!counts[kClean].desaCounts[fallbackKey]) {
+              counts[kClean].desaCounts[fallbackKey] = {
+                id_desa: m.desa.id_desa || fallbackKey,
+                nama_desa: m.desa.nama_desa,
+                count: 0,
+              };
+            }
+            counts[kClean].desaCounts[fallbackKey].count += 1;
+          }
+        }
+      }
+    });
+
+    return Object.values(counts)
+      .map((data) => {
+        const desaBreakdown = Object.values(data.desaCounts).sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          return a.nama_desa.localeCompare(b.nama_desa, 'id');
+        });
+        return {
+          id_kecamatan: data.id_kecamatan,
+          nama: data.nama,
+          count: data.count,
+          desaBreakdown,
+        };
+      })
       .sort((a, b) => b.count - a.count);
-  }, [kecamatanList, fullMembers]);
+  }, [kecamatanList, desaList, fullMembers]);
 
   // Quick Stats calculations for Ringkasan Cepat
   const totalAnggotaAktif = React.useMemo(() => {
@@ -459,24 +540,128 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
 
           {/* Rekapitulasi Anggota Per Kecamatan Table */}
           <div className="mt-8 bg-black/30 backdrop-blur-md rounded-xl border border-white/10 p-4 max-w-xl text-white">
-            <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-300 mb-3 flex items-center justify-between">
-              <span>Rekapitulasi Anggota Per Kecamatan</span>
-              <span className="text-[10px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-300 font-bold">
+                  Rekapitulasi Anggota Per Kecamatan
+                </h3>
+                <p className="text-[10px] text-white/60 mt-0.5">
+                  Klik nama kecamatan untuk melihat rincian rekapitulasi per desa
+                </p>
+              </div>
+              <span className="text-[10px] font-mono bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200 border border-emerald-500/20">
                 Total: {(fullMembers || []).length} Anggota Terdaftar
               </span>
-            </h3>
-            <div className="max-h-52 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
-              {kecamatanRecap.map((item, idx) => (
-                <div key={item.id_kecamatan} className="flex items-center justify-between px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs transition-colors">
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="font-mono text-emerald-400 text-[10px] w-5">{idx + 1}.</span>
-                    <span className="truncate font-medium">{item.nama.toUpperCase().startsWith('KEC.') ? item.nama : `Kecamatan ${item.nama}`}</span>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+              {kecamatanRecap.map((item, idx) => {
+                const isExpanded = expandedKecId === item.id_kecamatan;
+                const activeDesaCount = item.desaBreakdown.filter((d) => d.count > 0).length;
+                const kecLabel = item.nama.toUpperCase().startsWith('KEC.')
+                  ? item.nama
+                  : `Kecamatan ${item.nama}`;
+
+                return (
+                  <div
+                    key={item.id_kecamatan}
+                    className={`rounded-lg transition-all border ${
+                      isExpanded
+                        ? 'bg-emerald-950/50 border-emerald-500/40 shadow-md'
+                        : 'bg-white/5 hover:bg-white/10 border-transparent'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedKecId((prev) =>
+                          prev === item.id_kecamatan ? null : item.id_kecamatan
+                        )
+                      }
+                      aria-expanded={isExpanded}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs text-left cursor-pointer rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-400/60"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 pr-2">
+                        {isExpanded ? (
+                          <ChevronDown className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5 text-emerald-400/80 shrink-0" />
+                        )}
+                        <span className="font-mono text-emerald-400 text-[10px] w-5 shrink-0">
+                          {idx + 1}.
+                        </span>
+                        <span className="truncate font-medium text-white">
+                          {kecLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="hidden sm:inline text-[10px] font-mono text-white/50">
+                          {item.desaBreakdown.length} Desa
+                        </span>
+                        <span className="font-mono font-bold bg-[#064E3B] text-emerald-200 px-2.5 py-0.5 rounded text-[11px] border border-emerald-500/30">
+                          {item.count} Anggota
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Rekapitulasi Per Desa (muncul di bawah Kecamatan saat diklik) */}
+                    {isExpanded && (
+                      <div className="px-3 pb-3 pt-2 border-t border-emerald-500/20 bg-black/25 rounded-b-lg">
+                        <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-amber-300/90 mb-2">
+                          <span className="flex items-center gap-1.5">
+                            <MapPin className="w-3 h-3 text-amber-300" />
+                            Rekapitulasi Per Desa · {item.nama}
+                          </span>
+                          <span className="text-emerald-300/80">
+                            {activeDesaCount}/{item.desaBreakdown.length} Desa Aktif
+                          </span>
+                        </div>
+
+                        {item.desaBreakdown.length === 0 ? (
+                          <div className="text-[11px] text-white/50 italic px-2 py-2 bg-white/5 rounded">
+                            Belum ada data desa terdaftar di kecamatan ini.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                            {item.desaBreakdown.map((desa, dIdx) => {
+                              const desaLabel = desa.nama_desa.toUpperCase().startsWith('DESA ')
+                                ? desa.nama_desa
+                                : `Desa ${desa.nama_desa}`;
+
+                              return (
+                                <div
+                                  key={desa.id_desa}
+                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded text-[11px] border ${
+                                    desa.count > 0
+                                      ? 'bg-emerald-900/30 border-emerald-500/25 text-white'
+                                      : 'bg-white/[0.03] border-white/5 text-white/55'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                    <span className="font-mono text-[9px] text-emerald-400/80 w-4 shrink-0">
+                                      {dIdx + 1}.
+                                    </span>
+                                    <span className="truncate">{desaLabel}</span>
+                                  </div>
+                                  <span
+                                    className={`font-mono font-bold px-2 py-0.5 rounded text-[10px] shrink-0 ${
+                                      desa.count > 0
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                        : 'bg-white/5 text-white/45'
+                                    }`}
+                                  >
+                                    {desa.count}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <span className="font-mono font-bold bg-[#064E3B] text-emerald-200 px-2.5 py-0.5 rounded text-[11px]">
-                    {item.count} Anggota
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
