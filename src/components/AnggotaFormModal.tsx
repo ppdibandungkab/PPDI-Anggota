@@ -38,6 +38,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
 }) => {
   const {
     anggotaList,
+    pendaftaranList,
     kecamatanList,
     desaList,
     jabatanList,
@@ -99,47 +100,163 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const skInputRef = useRef<HTMLInputElement>(null);
 
   const [errorMsg, setErrorMsg] = useState('');
-  const [isNikChecked, setIsNikChecked] = useState(false);
+  const [nikCheckStatus, setNikCheckStatus] = useState<
+    'idle' | 'checking' | 'valid' | 'duplicate' | 'offline-valid'
+  >('idle');
+  const [dbDuplicateInfo, setDbDuplicateInfo] = useState<{
+    id_anggota: string;
+    nama_lengkap: string;
+    nipd?: string | null;
+  } | null>(null);
+  const [dbPendingInfo, setDbPendingInfo] = useState<{
+    id_pendaftaran: number | string;
+    nama_lengkap: string;
+    status_approval?: string;
+  } | null>(null);
+  const latestNikCheckRef = useRef<string>('');
   const [jabatanPengurus, setJabatanPengurus] = useState('Anggota Biasa');
 
-  const handleCheckNik = () => {
-    if (nik.length !== 16) {
-      setErrorMsg('NIK KTP harus 16 digit.');
-      setIsNikChecked(false);
-      return;
-    }
-    if (duplicateNikMember) {
-      setErrorMsg(`NIK ${nik} sudah terdaftar atas nama "${duplicateNikMember.nama_lengkap}".`);
-      setIsNikChecked(false);
-      return;
-    }
-    setErrorMsg('NIK Valid dan tersedia.');
-    setIsNikChecked(true);
-  };
-
-  useEffect(() => {
-    setIsNikChecked(false);
-  }, [nik]);
-
-  // Validasi Real-time: NIK Wajib Unik (Tidak Boleh Duplikat)
-  const duplicateNikMember = useMemo(() => {
-    if (!nik || nik.length < 16) return null;
-    return anggotaList.find(
-      (m) => m.nik === nik && (!editMember || m.id_anggota !== editMember.anggota.id_anggota)
+  // Validasi Real-time Lokal: NIK Wajib Unik (Tidak Boleh Duplikat)
+  const duplicateNikLocal = useMemo(() => {
+    if (!nik || nik.length !== 16) return null;
+    return (
+      anggotaList.find(
+        (m) => m.nik === nik && (!editMember || m.id_anggota !== editMember.anggota.id_anggota)
+      ) || null
     );
   }, [nik, anggotaList, editMember]);
+
+  const pendingPendaftaranLocal = useMemo(() => {
+    if (!nik || nik.length !== 16) return null;
+    return (
+      pendaftaranList.find(
+        (p) => p.nik === nik && p.status_approval === 'Menunggu'
+      ) || null
+    );
+  }, [nik, pendaftaranList]);
+
+  const duplicateNikMember = duplicateNikLocal || dbDuplicateInfo;
+  const pendingNikRegistration = dbPendingInfo || pendingPendaftaranLocal;
+
+  const verifyNikWithDatabase = async (
+    targetNik: string,
+    options?: { silentStale?: boolean }
+  ): Promise<{ valid: boolean; message?: string }> => {
+    const cleanNik = targetNik.replace(/\D/g, '').trim();
+    if (cleanNik.length !== 16) {
+      setNikCheckStatus('idle');
+      setDbDuplicateInfo(null);
+      setDbPendingInfo(null);
+      return {
+        valid: false,
+        message: 'NIK KTP harus terdiri dari tepat 16 digit angka.',
+      };
+    }
+
+    const excludeId = editMember?.anggota.id_anggota || '';
+    const localDup = anggotaList.find(
+      (m) => m.nik === cleanNik && (!excludeId || m.id_anggota !== excludeId)
+    );
+    if (localDup) {
+      setDbDuplicateInfo({
+        id_anggota: localDup.id_anggota,
+        nama_lengkap: localDup.nama_lengkap,
+        nipd: localDup.nipd,
+      });
+      setNikCheckStatus('duplicate');
+      return {
+        valid: false,
+        message: `NIK ${cleanNik} sudah terdaftar atas nama "${localDup.nama_lengkap}" (ID: ${localDup.id_anggota}). NIK perangkat desa bersifat unik dan tidak boleh duplikat!`,
+      };
+    }
+
+    latestNikCheckRef.current = cleanNik;
+    setNikCheckStatus('checking');
+
+    try {
+      const res = await safeFetchJson(
+        `/api/anggota/check-nik?nik=${encodeURIComponent(cleanNik)}&excludeId=${encodeURIComponent(excludeId)}`
+      );
+
+      if (options?.silentStale && latestNikCheckRef.current !== cleanNik) {
+        return { valid: false };
+      }
+
+      if (res.ok && res.data?.success) {
+        const dup = res.data.duplicateInAnggota || null;
+        const pending = res.data.pendingPendaftaran || null;
+        setDbPendingInfo(pending);
+
+        if (!res.data.available && dup) {
+          setDbDuplicateInfo(dup);
+          setNikCheckStatus('duplicate');
+          return {
+            valid: false,
+            message: `NIK ${cleanNik} sudah terdaftar di database atas nama "${dup.nama_lengkap}" (ID: ${dup.id_anggota}). NIK perangkat desa bersifat unik dan tidak boleh duplikat!`,
+          };
+        }
+
+        setDbDuplicateInfo(null);
+        setNikCheckStatus('valid');
+        return { valid: true };
+      }
+
+      // Fallback apabila server/MySQL sedang offline atau 503
+      setDbDuplicateInfo(null);
+      setNikCheckStatus('offline-valid');
+      return { valid: true };
+    } catch {
+      if (options?.silentStale && latestNikCheckRef.current !== cleanNik) {
+        return { valid: false };
+      }
+      setDbDuplicateInfo(null);
+      setNikCheckStatus('offline-valid');
+      return { valid: true };
+    }
+  };
+
+  // Otomatis cek keunikan NIK ke database secara real-time saat 16 digit terpenuhi
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (!nik || nik.length < 16) {
+      latestNikCheckRef.current = '';
+      setNikCheckStatus('idle');
+      setDbDuplicateInfo(null);
+      setDbPendingInfo(null);
+      return;
+    }
+
+    if (duplicateNikLocal) {
+      setDbDuplicateInfo({
+        id_anggota: duplicateNikLocal.id_anggota,
+        nama_lengkap: duplicateNikLocal.nama_lengkap,
+        nipd: duplicateNikLocal.nipd,
+      });
+      setNikCheckStatus('duplicate');
+      return;
+    }
+
+    setNikCheckStatus('checking');
+    const timer = window.setTimeout(() => {
+      void verifyNikWithDatabase(nik, { silentStale: true });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [nik, editMember?.anggota.id_anggota, isOpen, duplicateNikLocal]);
 
   // Validasi kelengkapan form per tab
   const isBiodataValid = useMemo(() => {
     return (
       nik.length === 16 &&
       !duplicateNikMember &&
+      nikCheckStatus !== 'checking' &&
       namaLengkap.trim().length > 0 &&
       tempatLahir.trim().length > 0 &&
       Boolean(tanggalLahir) &&
       noHpWa.trim().length >= 8
     );
-  }, [nik, duplicateNikMember, namaLengkap, tempatLahir, tanggalLahir, noHpWa]);
+  }, [nik, duplicateNikMember, nikCheckStatus, namaLengkap, tempatLahir, tanggalLahir, noHpWa]);
 
   const isRiwayatValid = useMemo(() => {
     return Boolean(selectedDesa) && Boolean(selectedJabatan);
@@ -148,8 +265,8 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const isAllRequiredFieldsFilled = useMemo(() => {
     return (
       nik.length === 16 &&
-      isNikChecked &&
       !duplicateNikMember &&
+      nikCheckStatus !== 'checking' &&
       namaLengkap.trim().length > 0 &&
       tempatLahir.trim().length > 0 &&
       Boolean(tanggalLahir) &&
@@ -158,7 +275,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       Boolean(selectedJabatan) &&
       noSk.trim().length > 0
     );
-  }, [nik, isNikChecked, duplicateNikMember, namaLengkap, tempatLahir, tanggalLahir, noHpWa, selectedDesa, selectedJabatan, noSk]);
+  }, [nik, duplicateNikMember, nikCheckStatus, namaLengkap, tempatLahir, tanggalLahir, noHpWa, selectedDesa, selectedJabatan, noSk]);
 
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
 
@@ -263,6 +380,9 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       setJabatanPengurus('Anggota Biasa');
     }
     setErrorMsg('');
+    setDbDuplicateInfo(null);
+    setDbPendingInfo(null);
+    setNikCheckStatus('idle');
     setShowAddRiwayatForm(false);
     setActiveFormTab('biodata');
   }, [editMember, isOpen]);
@@ -490,7 +610,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 1. Validation NIK
+    // 1. Validation NIK (panjang + duplikat lokal)
     if (!nik || nik.length !== 16) {
       setErrorMsg('NIK KTP harus terdiri dari tepat 16 digit angka.');
       setActiveFormTab('biodata');
@@ -542,6 +662,17 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
     try {
       setIsSubmitting(true);
       setErrorMsg('');
+
+      // 4. Verifikasi final keunikan NIK langsung ke database sebelum menyimpan
+      const nikCheck = await verifyNikWithDatabase(nik);
+      if (!nikCheck.valid) {
+        setErrorMsg(
+          nikCheck.message ||
+            `NIK ${nik} sudah terdaftar di database. NIK perangkat desa bersifat unik dan tidak boleh duplikat!`
+        );
+        setActiveFormTab('biodata');
+        return;
+      }
 
       if (editMember) {
         await updateAnggota(
@@ -906,28 +1037,44 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (nik.length !== 16) {
-                            setErrorMsg('NIK harus 16 digit angka.');
-                            setIsNikChecked(false);
-                          } else if (duplicateNikMember) {
-                            setErrorMsg(`NIK sudah terdaftar atas nama ${duplicateNikMember.nama_lengkap}.`);
-                            setIsNikChecked(false);
+                        disabled={nikCheckStatus === 'checking'}
+                        onClick={async () => {
+                          const res = await verifyNikWithDatabase(nik);
+                          if (!res.valid && res.message) {
+                            setErrorMsg(res.message);
                           } else {
-                            setErrorMsg('NIK Valid, 16 Digit, dan Tidak Ganda.');
-                            setIsNikChecked(true);
+                            setErrorMsg('');
                           }
                         }}
-                        className="px-2 py-0.5 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold font-mono transition-colors cursor-pointer"
+                        className="px-2 py-0.5 text-[10px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded font-bold font-mono transition-colors cursor-pointer flex items-center gap-1"
                       >
-                        Cek Validasi
+                        {nikCheckStatus === 'checking' && (
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        )}
+                        <span>Cek Validasi</span>
                       </button>
-                      {nik.length === 16 && !duplicateNikMember && (
-                        <span className="text-[10px] text-emerald-700 font-semibold font-mono flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3 text-emerald-600" />
-                          <span>Valid</span>
+                      {nikCheckStatus === 'checking' && (
+                        <span className="text-[10px] text-amber-700 font-semibold font-mono flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
+                          <span>Mengecek DB...</span>
                         </span>
                       )}
+                      {nik.length === 16 && duplicateNikMember && nikCheckStatus !== 'checking' && (
+                        <span className="text-[10px] text-red-700 font-semibold font-mono flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-red-600" />
+                          <span>Duplikat</span>
+                        </span>
+                      )}
+                      {nik.length === 16 &&
+                        !duplicateNikMember &&
+                        (nikCheckStatus === 'valid' || nikCheckStatus === 'offline-valid') && (
+                          <span className="text-[10px] text-emerald-700 font-semibold font-mono flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" />
+                            <span>
+                              {nikCheckStatus === 'valid' ? 'Unik (Terverifikasi DB)' : 'Unik (Lokal)'}
+                            </span>
+                          </span>
+                        )}
                     </div>
                   </div>
                   <input
@@ -942,7 +1089,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     className={`w-full px-3 py-2 border rounded-lg font-mono focus:outline-hidden focus:ring-1 ${
                       duplicateNikMember
                         ? 'border-red-500 bg-red-50/50 text-red-900 focus:ring-red-600'
-                        : nik.length === 16
+                        : nik.length === 16 && (nikCheckStatus === 'valid' || nikCheckStatus === 'offline-valid')
                         ? 'border-emerald-500 bg-emerald-50/20 text-neutral-900 focus:ring-emerald-600'
                         : 'border-neutral-300 focus:ring-emerald-700'
                     }`}
@@ -954,9 +1101,27 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       <div>
                         <strong className="block font-bold">NIK Duplikat Tidak Diizinkan!</strong>
                         <span>
-                          Sudah terdaftar atas nama <strong>{duplicateNikMember.nama_lengkap}</strong> (ID: {duplicateNikMember.id_anggota}).
+                          Sudah terdaftar di database atas nama <strong>{duplicateNikMember.nama_lengkap}</strong> (ID: {duplicateNikMember.id_anggota}).
                         </span>
                       </div>
+                    </div>
+                  ) : pendingNikRegistration ? (
+                    <div className="mt-1.5 p-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-start gap-1.5 leading-tight">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600 mt-0.5" />
+                      <div>
+                        <strong className="block font-bold">NIK Sedang Dalam Antrean Pendaftaran</strong>
+                        <span>
+                          Terdapat pengajuan pendaftaran berstatus <strong>Menunggu</strong> atas nama <strong>{pendingNikRegistration.nama_lengkap}</strong>.
+                        </span>
+                      </div>
+                    </div>
+                  ) : nik.length === 16 && nikCheckStatus === 'valid' ? (
+                    <div className="mt-1.5 p-2 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] flex items-center justify-between gap-2 leading-tight">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                        <span>NIK valid (16 digit) dan tersedia di database anggota.</span>
+                      </div>
+                      <span className="font-mono font-bold text-[10px]">16/16</span>
                     </div>
                   ) : (
                     <div className="flex items-center justify-between text-[10px] text-neutral-400 mt-0.5">
@@ -1763,16 +1928,18 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                 /* Di FormTab 3. Keanggotaan & E-KTA: tombol berubah menjadi "Simpan" */
                 <button
                   type="button"
-                  onClick={() => {
-                    // Validasi komprehensif sebelum simpan
+                  onClick={async () => {
+                    // Validasi komprehensif & cek keunikan NIK ke database sebelum simpan
                     if (!nik || nik.length !== 16) {
                       setErrorMsg('NIK KTP harus terdiri dari tepat 16 digit angka.');
                       setActiveFormTab('biodata');
                       return;
                     }
-                    if (duplicateNikMember) {
+                    const nikCheck = await verifyNikWithDatabase(nik);
+                    if (!nikCheck.valid) {
                       setErrorMsg(
-                        `NIK ${nik} sudah terdaftar atas nama "${duplicateNikMember.nama_lengkap}". NIK wajib unik!`
+                        nikCheck.message ||
+                          `NIK ${nik} sudah terdaftar di database. NIK wajib unik dan tidak boleh duplikat!`
                       );
                       setActiveFormTab('biodata');
                       return;
@@ -1790,13 +1957,19 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     setErrorMsg('');
                     setIsVerificationModalOpen(true);
                   }}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || nikCheckStatus === 'checking'}
                   className="px-6 py-2.5 text-xs font-bold text-white bg-[#064E3B] hover:bg-[#043d2e] disabled:opacity-60 disabled:cursor-wait rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-md"
                 >
-                  {isSubmitting ? (
+                  {isSubmitting || nikCheckStatus === 'checking' ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>{editMember ? 'Menyimpan...' : 'Memproses...'}</span>
+                      <span>
+                        {nikCheckStatus === 'checking'
+                          ? 'Memverifikasi NIK...'
+                          : editMember
+                          ? 'Menyimpan...'
+                          : 'Memproses...'}
+                      </span>
                     </>
                   ) : (
                     <>
@@ -1809,14 +1982,19 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                 /* Di FormTab 1 & 2: tombol adalah "Selanjutnya →" */
                 <button
                   type="button"
-                  onClick={() => {
+                  disabled={activeFormTab === 'biodata' && nikCheckStatus === 'checking'}
+                  onClick={async () => {
                     if (activeFormTab === 'biodata') {
                       if (!nik || nik.length !== 16) {
                         setErrorMsg('NIK KTP harus 16 digit angka.');
                         return;
                       }
-                      if (duplicateNikMember) {
-                        setErrorMsg(`NIK ${nik} sudah terdaftar atas nama "${duplicateNikMember.nama_lengkap}". NIK wajib unik!`);
+                      const nikCheck = await verifyNikWithDatabase(nik);
+                      if (!nikCheck.valid) {
+                        setErrorMsg(
+                          nikCheck.message ||
+                            `NIK ${nik} sudah terdaftar di database. NIK wajib unik dan tidak boleh duplikat!`
+                        );
                         return;
                       }
                       if (!namaLengkap.trim()) {
@@ -1838,10 +2016,19 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       setActiveFormTab('organisasi');
                     }
                   }}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-[#064E3B] hover:bg-[#043d2e] rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-md"
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-[#064E3B] hover:bg-[#043d2e] disabled:opacity-60 disabled:cursor-wait rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-md"
                 >
-                  <span>Selanjutnya</span>
-                  <ChevronRight className="w-4 h-4" />
+                  {activeFormTab === 'biodata' && nikCheckStatus === 'checking' ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Cek NIK...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Selanjutnya</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               )}
             </div>

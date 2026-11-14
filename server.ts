@@ -1046,6 +1046,63 @@ app.get('/api/anggota', async (_req, res) => {
   }
 });
 
+// Check NIK uniqueness directly against MySQL database before saving
+app.get('/api/anggota/check-nik', async (req, res) => {
+  const rawNik = String(req.query.nik || '').replace(/\D/g, '').trim();
+  const excludeId = String(req.query.excludeId || '').trim();
+
+  if (rawNik.length !== 16) {
+    return res.status(400).json({
+      success: false,
+      available: false,
+      message: 'NIK KTP harus terdiri dari tepat 16 digit angka.',
+    });
+  }
+
+  let conn;
+  try {
+    if (!pool) {
+      return res.status(503).json({
+        success: false,
+        offline: true,
+        message: 'Koneksi database MySQL belum tersedia.',
+      });
+    }
+
+    conn = await pool.getConnection();
+
+    const [existingAnggota]: [any[], any] = excludeId
+      ? await conn.query(
+          'SELECT id_anggota, nama_lengkap, nipd FROM anggota WHERE nik = ? AND id_anggota != ? LIMIT 1',
+          [rawNik, excludeId]
+        )
+      : await conn.query(
+          'SELECT id_anggota, nama_lengkap, nipd FROM anggota WHERE nik = ? LIMIT 1',
+          [rawNik]
+        );
+
+    const [pendingPendaftaran]: [any[], any] = await conn.query(
+      "SELECT id_pendaftaran, nama_lengkap, status_approval FROM pendaftaran_perangkat_desa WHERE nik = ? AND status_approval = 'Menunggu' LIMIT 1",
+      [rawNik]
+    );
+
+    conn.release();
+
+    const duplicate = existingAnggota.length > 0 ? existingAnggota[0] : null;
+    const pending = pendingPendaftaran.length > 0 ? pendingPendaftaran[0] : null;
+
+    return res.json({
+      success: true,
+      available: !duplicate,
+      duplicateInAnggota: duplicate,
+      pendingPendaftaran: pending,
+    });
+  } catch (err: any) {
+    if (conn) conn.release();
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Helper to resolve valid id_desa in ref_desa
 async function resolveDesaId(conn: any, rawIdDesa: any, rawNamaDesa?: string): Promise<string> {
   const clean = String(rawIdDesa || '').replace(/\./g, '').trim();
