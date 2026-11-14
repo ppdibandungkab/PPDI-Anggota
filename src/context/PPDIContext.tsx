@@ -1147,7 +1147,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       tgl_sk_pengangkatan: riwayatData.tgl_sk_pengangkatan,
       tmt_jabatan: riwayatData.tmt_jabatan,
       status_aktif: 'Aktif',
-      file_sk: riwayatData.file_sk || `SK_${newAnggota.nama_lengkap.replace(/\s+/g, '_').toUpperCase()}.pdf`,
+      file_sk: riwayatData.file_sk || undefined,
       keterangan: 'Pendaftaran Anggota Baru PPDI',
     };
 

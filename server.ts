@@ -1258,7 +1258,7 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
           riwayat.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           riwayat.tmt_jabatan || new Date().toISOString().split('T')[0],
           'Aktif',
-          riwayat.file_sk || `SK_${(anggota.nama_lengkap || '').replace(/\s+/g, '_').toUpperCase()}.pdf`,
+          riwayat.file_sk || null,
         ]
       );
     }
@@ -1398,7 +1398,7 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
           rw.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           rw.tmt_jabatan || new Date().toISOString().split('T')[0],
           'Aktif',
-          rw.file_sk || `SK_${ang.nama_lengkap.replace(/\s+/g, '_').toUpperCase()}.pdf`,
+          rw.file_sk || null,
         ]
       );
 
@@ -1630,7 +1630,7 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
         tgl_sk_pengangkatan,
         tmt_jabatan,
         status_aktif || 'Aktif',
-        file_sk || 'SK_RESMI.pdf',
+        file_sk || null,
       ]
     );
 
@@ -2630,7 +2630,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
           p.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           p.tmt_jabatan || new Date().toISOString().split('T')[0],
-          p.file_sk || `SK_${p.nama_lengkap.replace(/\s+/g, '_').toUpperCase()}.pdf`,
+          p.file_sk || null,
         ]
       );
     }

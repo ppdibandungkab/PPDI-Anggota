@@ -100,7 +100,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
       tgl_sk_pengangkatan: newTglSk,
       tmt_jabatan: newTmt,
       status_aktif: 'Aktif',
-      file_sk: `SK_MUTASI_${member.anggota.nama_lengkap.replace(/\s+/g, '_').toUpperCase()}.pdf`,
+      file_sk: '',
       keterangan: newKet || 'Rotasi / Perubahan Jabatan Perangkat Desa',
     });
 
@@ -526,7 +526,9 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         </div>
                         <div>
                           <div className="text-neutral-400">Berkas SK</div>
-                          <span className="text-emerald-700 font-medium">{rw.file_sk || 'Tersimpan'}</span>
+                          <span className={rw.file_sk ? 'text-emerald-700 font-medium' : 'text-neutral-400 italic'}>
+                            {rw.file_sk ? rw.file_sk.split('/').pop() : 'Belum Diunggah'}
+                          </span>
                         </div>
                       </div>
                       {rw.keterangan && (

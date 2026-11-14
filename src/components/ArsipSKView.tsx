@@ -16,6 +16,7 @@ import {
   HardDrive,
   ExternalLink,
   RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { PermissionGate } from './PermissionGate';
 
@@ -53,15 +54,29 @@ export const ArsipSKView: React.FC = () => {
   }, [fullMembers, userRole, userKecId, userDesaId, userMemberId]);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadMemberId, setUploadMemberId] = useState(uploadMemberOptions[0]?.anggota.id_anggota || fullMembers[0]?.anggota.id_anggota || '');
-  const [uploadDesaId, setUploadDesaId] = useState(desaList[0]?.id_desa || '');
+  const [uploadMemberId, setUploadMemberId] = useState('');
+  const [uploadDesaId, setUploadDesaId] = useState('');
   const [uploadJabatanId, setUploadJabatanId] = useState(jabatanList[0]?.id_jabatan || 2);
   const [uploadNoSk, setUploadNoSk] = useState('');
-  const [uploadTglSk, setUploadTglSk] = useState('2026-03-01');
-  const [uploadTmt, setUploadTmt] = useState('2026-03-15');
+  const [uploadTglSk, setUploadTglSk] = useState(new Date().toISOString().split('T')[0]);
+  const [uploadTmt, setUploadTmt] = useState(new Date().toISOString().split('T')[0]);
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadFileData, setUploadFileData] = useState('');
+  const [uploadError, setUploadError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+
+  // Sync default member/desa selection when options load or modal opens
+  useEffect(() => {
+    if (uploadMemberOptions.length > 0 && !uploadMemberOptions.some((m) => m.anggota.id_anggota === uploadMemberId)) {
+      const firstMember = uploadMemberOptions[0];
+      setUploadMemberId(firstMember.anggota.id_anggota);
+      if (firstMember.desa?.id_desa) {
+        setUploadDesaId(firstMember.desa.id_desa);
+      }
+    } else if (!uploadDesaId && desaList.length > 0) {
+      setUploadDesaId(desaList[0].id_desa);
+    }
+  }, [uploadMemberOptions, desaList, uploadMemberId, uploadDesaId]);
 
   // Folder server status
   const [showFolderModal, setShowFolderModal] = useState(false);
@@ -87,46 +102,97 @@ export const ArsipSKView: React.FC = () => {
     }
   };
 
+  // Load server /uploads/sk inventory on mount and whenever folder modal opens
+  useEffect(() => {
+    fetchFolderData();
+  }, []);
+
   useEffect(() => {
     if (showFolderModal) {
       fetchFolderData();
     }
   }, [showFolderModal]);
 
-  // Combined documents list
-  const skDocuments = useMemo(() => {
-    return riwayatList.map((rw) => {
-      const member = fullMembers.find((m) => m.anggota.id_anggota === rw.id_anggota);
-      const desa = desaList.find((d) => d.id_desa === rw.id_desa);
-      const kec = desa ? kecamatanList.find((k) => k.id_kecamatan === desa.id_kecamatan) : undefined;
-      const jabatan = jabatanList.find((j) => j.id_jabatan === rw.id_jabatan);
-
-      return {
-        riwayat: rw,
-        member,
-        desa,
-        kecamatan: kec,
-        jabatan,
-      };
+  const serverSkUrlSet = useMemo(() => {
+    const urls = new Set<string>();
+    const names = new Set<string>();
+    (folderData?.sk.files || []).forEach((f) => {
+      urls.add(f.url);
+      names.add(f.name);
     });
-  }, [riwayatList, fullMembers, desaList, kecamatanList, jabatanList]);
+    return { urls, names, loaded: Boolean(folderData?.success) };
+  }, [folderData]);
+
+  // Helper: hanya menganggap SK sudah terupload jika memiliki file nyata (bukan placeholder dummy)
+  const isUploadedSkFile = (fileSk?: string | null): boolean => {
+    const raw = (fileSk || '').trim();
+    if (!raw) return false;
+
+    // 1. Base64 Data URL atau URL HTTP(S) eksternal
+    if (raw.startsWith('data:') || /^https?:\/\//i.test(raw)) {
+      return true;
+    }
+
+    // 2. Path upload lokal server (/uploads/sk/...)
+    if (raw.startsWith('/uploads/')) {
+      if (serverSkUrlSet.loaded) {
+        return serverSkUrlSet.urls.has(raw) || serverSkUrlSet.names.has(raw.split('/').pop() || '');
+      }
+      return true;
+    }
+
+    // 3. Nama file polos hanya dianggap valid jika benar-benar ada secara fisik di /uploads/sk/
+    if (serverSkUrlSet.loaded) {
+      return serverSkUrlSet.names.has(raw) || serverSkUrlSet.urls.has(`/uploads/sk/${raw}`);
+    }
+
+    return false;
+  };
+
+  // Combined documents list — HANYA menampilkan SK yang filenya sudah terupload
+  const skDocuments = useMemo(() => {
+    return riwayatList
+      .filter((rw) => isUploadedSkFile(rw.file_sk))
+      .map((rw) => {
+        const member = fullMembers.find((m) => m.anggota.id_anggota === rw.id_anggota);
+        const desa = desaList.find((d) => d.id_desa === rw.id_desa);
+        const kec = desa ? kecamatanList.find((k) => k.id_kecamatan === desa.id_kecamatan) : undefined;
+        const jabatan = jabatanList.find((j) => j.id_jabatan === rw.id_jabatan);
+
+        return {
+          riwayat: rw,
+          member,
+          desa,
+          kecamatan: kec,
+          jabatan,
+        };
+      });
+  }, [riwayatList, fullMembers, desaList, kecamatanList, jabatanList, serverSkUrlSet]);
+
+  // Scope documents by role before search/kecamatan UI filters (for accurate empty state & counts)
+  const scopedUploadedDocs = useMemo(() => {
+    return skDocuments.filter((doc) => {
+      if (userRole === 'Admin_Kecamatan' && userKecId) {
+        return doc.kecamatan?.id_kecamatan === userKecId || doc.desa?.id_kecamatan === userKecId;
+      }
+      if (userRole === 'Admin_Desa' && userDesaId) {
+        return doc.desa?.id_desa === userDesaId || doc.riwayat.id_desa === userDesaId;
+      }
+      if (userRole === 'Anggota' && userMemberId) {
+        return doc.riwayat.id_anggota === userMemberId || doc.member?.anggota.id_anggota === userMemberId;
+      }
+      return true;
+    });
+  }, [skDocuments, userRole, userKecId, userDesaId, userMemberId]);
 
   const filteredDocs = useMemo(() => {
-    return skDocuments.filter((doc) => {
-      // Role Level Scope Filtering
-      if (userRole === 'Admin_Kecamatan' && userKecId) {
-        if (doc.kecamatan?.id_kecamatan !== userKecId && doc.desa?.id_kecamatan !== userKecId) {
-          return false;
-        }
-      } else if (userRole === 'Admin_Desa' && userDesaId) {
-        if (doc.desa?.id_desa !== userDesaId && doc.riwayat.id_desa !== userDesaId) {
-          return false;
-        }
-      } else if (userRole === 'Anggota' && userMemberId) {
-        if (doc.riwayat.id_anggota !== userMemberId && doc.member?.anggota.id_anggota !== userMemberId) {
-          return false;
-        }
-      } else if (filterKec !== 'all') {
+    return scopedUploadedDocs.filter((doc) => {
+      if (
+        userRole !== 'Admin_Kecamatan' &&
+        userRole !== 'Admin_Desa' &&
+        userRole !== 'Anggota' &&
+        filterKec !== 'all'
+      ) {
         if (doc.kecamatan?.id_kecamatan !== filterKec) {
           return false;
         }
@@ -137,58 +203,77 @@ export const ArsipSKView: React.FC = () => {
         const matchSk = doc.riwayat.no_sk_pengangkatan.toLowerCase().includes(q);
         const matchName = doc.member?.anggota.nama_lengkap.toLowerCase().includes(q);
         const matchDesa = doc.desa?.nama_desa.toLowerCase().includes(q);
-        if (!matchSk && !matchName && !matchDesa) return false;
+        const matchFile = (doc.riwayat.file_sk || '').toLowerCase().includes(q);
+        if (!matchSk && !matchName && !matchDesa && !matchFile) return false;
       }
       return true;
     });
-  }, [skDocuments, filterKec, searchQuery, userRole, userKecId, userDesaId, userMemberId]);
+  }, [scopedUploadedDocs, filterKec, searchQuery, userRole]);
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadNoSk.trim()) return;
+    setUploadError('');
 
-    let targetFileUrl = uploadFileName || `SK_${uploadNoSk.replace(/\//g, '_')}.pdf`;
-
-    // If actual file data is loaded, send to /api/upload to write in /uploads/sk/
-    if (uploadFileData) {
-      try {
-        setIsUploading(true);
-        const res = await safeFetchJson('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'sk',
-            fileName: uploadFileName,
-            fileData: uploadFileData,
-          }),
-        });
-        const json = res.data;
-        if (res.ok && json?.success && json.url) {
-          targetFileUrl = json.url;
-        }
-      } catch (err) {
-        console.warn('Gagal upload fisik ke server, simpan metadata:', err);
-      } finally {
-        setIsUploading(false);
-      }
+    if (!uploadNoSk.trim()) {
+      setUploadError('Nomor Surat Keputusan (SK) wajib diisi.');
+      return;
+    }
+    if (!uploadFileData || !uploadFileName) {
+      setUploadError('Silakan pilih berkas PDF / scan dokumen SK terlebih dahulu.');
+      return;
     }
 
-    addRiwayatJabatan({
-      id_anggota: uploadMemberId,
-      id_desa: uploadDesaId,
-      id_jabatan: Number(uploadJabatanId),
-      no_sk_pengangkatan: uploadNoSk,
-      tgl_sk_pengangkatan: uploadTglSk,
-      tmt_jabatan: uploadTmt,
-      status_aktif: 'Aktif',
-      file_sk: targetFileUrl,
-      keterangan: 'Arsip Surat Keputusan digital baru',
-    });
+    let targetFileUrl = '';
 
-    setShowUploadModal(false);
-    setUploadNoSk('');
-    setUploadFileName('');
-    setUploadFileData('');
+    try {
+      setIsUploading(true);
+      const selectedMember = uploadMemberOptions.find((m) => m.anggota.id_anggota === uploadMemberId);
+      const res = await safeFetchJson('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'sk',
+          fileName: uploadFileName,
+          fileData: uploadFileData,
+          nik: selectedMember?.anggota.nik,
+        }),
+      });
+      const json = res.data;
+      if (res.ok && json?.success && json.url) {
+        targetFileUrl = json.url;
+      } else {
+        // Fallback offline jika server tidak terjangkau
+        targetFileUrl = uploadFileData;
+      }
+    } catch (err) {
+      console.warn('Gagal upload fisik ke server, simpan data URL lokal:', err);
+      targetFileUrl = uploadFileData;
+    }
+
+    try {
+      await addRiwayatJabatan({
+        id_anggota: uploadMemberId,
+        id_desa: uploadDesaId,
+        id_jabatan: Number(uploadJabatanId),
+        no_sk_pengangkatan: uploadNoSk.trim(),
+        tgl_sk_pengangkatan: uploadTglSk,
+        tmt_jabatan: uploadTmt,
+        status_aktif: 'Aktif',
+        file_sk: targetFileUrl,
+        keterangan: 'Arsip Surat Keputusan digital terunggah',
+      });
+
+      await fetchFolderData();
+      setShowUploadModal(false);
+      setUploadNoSk('');
+      setUploadFileName('');
+      setUploadFileData('');
+      setUploadError('');
+    } catch (err: any) {
+      setUploadError(err?.message || 'Gagal menyimpan data SK ke database.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -233,29 +318,36 @@ export const ArsipSKView: React.FC = () => {
           <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Cari Nomor SK, Nama Perangkat Desa, atau Desa..."
+            placeholder="Cari Nomor SK, Nama Perangkat Desa, Desa, atau File..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 bg-neutral-50 border border-neutral-200 rounded-lg text-neutral-900 focus:outline-hidden focus:bg-white"
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <label className="text-neutral-500 font-medium whitespace-nowrap">Filter Kecamatan:</label>
-          <select
-            aria-label="Filter Kecamatan untuk e-Arsip"
-            value={filterKec}
-            disabled={userRole === 'Admin_Kecamatan' || userRole === 'Admin_Desa' || userRole === 'Anggota'}
-            onChange={(e) => setFilterKec(e.target.value)}
-            className="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-xs text-neutral-800 focus:outline-hidden disabled:opacity-75 disabled:bg-neutral-100"
-          >
-            <option value="all">Semua Kecamatan ({kecamatanList.length})</option>
-            {kecamatanList.map((k) => (
-              <option key={k.id_kecamatan} value={k.id_kecamatan}>
-                Kec. {k.nama_kecamatan}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold text-[11px]">
+            <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>SK Terunggah: {filteredDocs.length} berkas</span>
+          </span>
+
+          <div className="flex items-center gap-2">
+            <label className="text-neutral-500 font-medium whitespace-nowrap">Filter Kecamatan:</label>
+            <select
+              aria-label="Filter Kecamatan untuk e-Arsip"
+              value={filterKec}
+              disabled={userRole === 'Admin_Kecamatan' || userRole === 'Admin_Desa' || userRole === 'Anggota'}
+              onChange={(e) => setFilterKec(e.target.value)}
+              className="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-xs text-neutral-800 focus:outline-hidden disabled:opacity-75 disabled:bg-neutral-100"
+            >
+              <option value="all">Semua Kecamatan ({kecamatanList.length})</option>
+              {kecamatanList.map((k) => (
+                <option key={k.id_kecamatan} value={k.id_kecamatan}>
+                  Kec. {k.nama_kecamatan}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -277,20 +369,42 @@ export const ArsipSKView: React.FC = () => {
             <tbody className="divide-y divide-neutral-200 text-neutral-800">
               {filteredDocs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-neutral-400">
-                    Tidak ada arsip berkas SK yang cocok dengan pencarian
+                  <td colSpan={7} className="py-12 px-4 text-center text-neutral-500">
+                    {scopedUploadedDocs.length === 0 ? (
+                      <div className="space-y-1.5 max-w-md mx-auto">
+                        <FileText className="w-8 h-8 text-neutral-300 mx-auto" />
+                        <div className="font-semibold text-neutral-700">
+                          Belum ada berkas SK yang sudah diunggah
+                        </div>
+                        <p className="text-[11px] text-neutral-400">
+                          Halaman e-Arsip hanya menampilkan SK yang dokumen PDF/scan-nya sudah benar-benar diunggah. Gunakan tombol <strong>Upload SK Baru</strong> atau unggah SK pada formulir data anggota.
+                        </p>
+                      </div>
+                    ) : (
+                      <span>Tidak ada berkas SK terunggah yang cocok dengan filter atau kata kunci pencarian.</span>
+                    )}
                   </td>
                 </tr>
               ) : (
-                filteredDocs.map((doc) => (
+                filteredDocs.map((doc) => {
+                  const fileLabel = doc.riwayat.file_sk?.startsWith('data:')
+                    ? 'Dokumen SK Terunggah (Data Lokal)'
+                    : doc.riwayat.file_sk?.split('/').pop() || '-';
+                  return (
                   <tr key={doc.riwayat.id_riwayat} className="hover:bg-neutral-50/70 transition-colors">
                     <td className="py-3 px-4 font-mono font-medium text-neutral-900">
                       <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
                         <span>{doc.riwayat.no_sk_pengangkatan}</span>
                       </div>
-                      <div className="text-[10px] text-neutral-400 font-sans mt-0.5">
-                        File: {doc.riwayat.file_sk || 'SK_DOKUMEN_RESMI.pdf'}
+                      <div className="text-[10px] text-emerald-700 font-sans mt-0.5 flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-emerald-50 border border-emerald-200 font-semibold">
+                          <CheckCircle className="w-2.5 h-2.5" />
+                          Terunggah
+                        </span>
+                        <span className="text-neutral-500 font-mono truncate max-w-[220px]" title={doc.riwayat.file_sk}>
+                          {fileLabel}
+                        </span>
                       </div>
                     </td>
 
@@ -346,7 +460,8 @@ export const ArsipSKView: React.FC = () => {
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -354,18 +469,29 @@ export const ArsipSKView: React.FC = () => {
       </div>
 
       {/* Document Viewer Modal */}
-      {selectedSkDoc && (
+      {selectedSkDoc && (() => {
+        const rawSk = (selectedSkDoc.riwayat.file_sk || '').trim();
+        const resolvedUrl =
+          rawSk.startsWith('/') || rawSk.startsWith('http') || rawSk.startsWith('data:')
+            ? rawSk
+            : `/uploads/sk/${rawSk}`;
+        const lowerUrl = resolvedUrl.toLowerCase();
+        const isPdf = lowerUrl.endsWith('.pdf') || lowerUrl.startsWith('data:application/pdf');
+        const isImage =
+          /\.(jpg|jpeg|png|webp|gif)$/i.test(lowerUrl) || lowerUrl.startsWith('data:image/');
+
+        return (
         <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col my-6 border border-neutral-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col my-4 border border-neutral-200">
             <div className="p-4 border-b border-neutral-200 flex items-center justify-between bg-neutral-50 rounded-t-xl">
               <div className="flex items-center gap-2">
                 <FileCheck className="w-5 h-5 text-emerald-700" />
                 <div>
                   <h3 className="font-bold text-neutral-900 text-xs">
-                    Pratinjau Dokumen SK Digital
+                    Pratinjau Berkas SK Terunggah
                   </h3>
                   <div className="text-[10px] font-mono text-neutral-500">
-                    {selectedSkDoc.riwayat.no_sk_pengangkatan}
+                    {selectedSkDoc.riwayat.no_sk_pengangkatan} · {rawSk.startsWith('data:') ? 'Berkas Terlampir' : rawSk.split('/').pop()}
                   </div>
                 </div>
               </div>
@@ -377,84 +503,80 @@ export const ArsipSKView: React.FC = () => {
               </button>
             </div>
 
-            {/* Document Body */}
-            <div className="p-8 overflow-y-auto font-serif text-neutral-900 space-y-4 bg-neutral-50/50">
-              <div className="bg-white p-8 rounded-lg shadow-sm border border-neutral-300 space-y-4 text-xs">
-                {/* Kop Surat */}
-                <div className="text-center pb-3 border-b-2 border-neutral-800 space-y-1">
-                  <div className="font-bold text-sm tracking-wider">PEMERINTAH KABUPATEN BANDUNG</div>
-                  <div className="font-bold text-base tracking-wider uppercase">
-                    KECAMATAN {selectedSkDoc.member?.kecamatan?.nama_kecamatan || 'SOREANG'}
-                  </div>
-                  <div className="font-bold text-sm uppercase">
-                    KANTOR KEPALA DESA {selectedSkDoc.member?.desa?.nama_desa || 'PAMEKARAN'}
-                  </div>
-                  <div className="text-[10px] font-sans text-neutral-500">
-                    {selectedSkDoc.member?.desa?.alamat_kantor_desa}
-                  </div>
+            {/* Metadata + File Preview Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 bg-neutral-50/50 flex-1">
+              <div className="bg-white p-3.5 rounded-lg border border-neutral-200 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[10px] text-neutral-400 block">Nama Perangkat Desa</span>
+                  <span className="font-bold text-neutral-900 uppercase">
+                    {selectedSkDoc.member?.anggota.nama_lengkap || '-'}
+                  </span>
                 </div>
-
-                {/* Judul SK */}
-                <div className="text-center space-y-1 pt-2">
-                  <div className="font-bold underline text-xs">KEPUTUSAN KEPALA DESA</div>
-                  <div className="font-mono text-[11px]">
-                    NOMOR: {selectedSkDoc.riwayat.no_sk_pengangkatan}
-                  </div>
-                  <div className="text-[10px] italic font-sans">TENTANG</div>
-                  <div className="font-bold text-xs uppercase">
-                    PENGANGKATAN PERANGKAT DESA {selectedSkDoc.member?.desa?.nama_desa}
-                  </div>
+                <div>
+                  <span className="text-[10px] text-neutral-400 block">Jabatan & Wilayah</span>
+                  <span className="font-semibold text-neutral-800">
+                    {selectedSkDoc.member?.jabatanRef?.nama_jabatan || 'Perangkat Desa'} · Desa{' '}
+                    {selectedSkDoc.member?.desa?.nama_desa || '-'}
+                  </span>
                 </div>
-
-                {/* Isi Konsideran */}
-                <div className="space-y-2 font-sans text-[11px] pt-2 text-justify leading-relaxed">
-                  <p>
-                    <strong>Menimbang:</strong> bahwa untuk kelancaran penyelenggaraan pemerintahan desa, pembangunan, pembinaan kemasyarakatan, dan pemberdayaan masyarakat desa, dipandang perlu mengangkat Perangkat Desa yang memenuhi syarat.
-                  </p>
-                  <p>
-                    <strong>Mengingat:</strong> Undang-Undang Nomor 6 Tahun 2014 tentang Desa sebagaimana telah diubah dengan Undang-Undang Nomor 3 Tahun 2024; Peraturan Menteri Dalam Negeri Nomor 83 Tahun 2015 tentang Pengangkatan dan Pemberhentian Perangkat Desa.
-                  </p>
-                  <p>
-                    <strong>MEMUTUSKAN:</strong>
-                  </p>
-                  <p>
-                    <strong>KESATU:</strong> Mengangkat Saudara/i <strong className="uppercase">{selectedSkDoc.member?.anggota.nama_lengkap.toUpperCase()}</strong>, NIK: <span className="font-mono">{selectedSkDoc.member?.anggota.nik}</span>, sebagai <strong>{selectedSkDoc.member?.jabatanRef?.nama_jabatan}</strong> pada Pemerintah Desa {selectedSkDoc.member?.desa?.nama_desa}.
-                  </p>
-                  <p>
-                    <strong>KEDUA:</strong> Keputusan ini mulai berlaku sejak Terhitung Mulai Tanggal (TMT) <strong>{formatDateIndo(selectedSkDoc.riwayat.tmt_jabatan)}</strong> sampai dengan yang bersangkutan mencapai batas usia 60 (enam puluh) tahun.
-                  </p>
+                <div>
+                  <span className="text-[10px] text-neutral-400 block">Nomor SK</span>
+                  <span className="font-mono font-semibold text-neutral-900">
+                    {selectedSkDoc.riwayat.no_sk_pengangkatan}
+                  </span>
                 </div>
-
-                {/* Tanda Tangan */}
-                <div className="pt-6 flex justify-end font-sans text-xs">
-                  <div className="text-center space-y-1">
-                    <div>Ditetapkan di: {selectedSkDoc.member?.desa?.nama_desa}</div>
-                    <div>Pada tanggal: {formatDateIndo(selectedSkDoc.riwayat.tgl_sk_pengangkatan)}</div>
-                    <div className="font-bold pt-8">KEPALA DESA {selectedSkDoc.member?.desa?.nama_desa}</div>
-                    <div className="text-[9px] text-neutral-400 font-mono">[Cap Stempel Resmi & TTD]</div>
-                  </div>
+                <div>
+                  <span className="text-[10px] text-neutral-400 block">Tanggal SK & TMT Jabatan</span>
+                  <span className="text-neutral-800">
+                    {formatDateIndo(selectedSkDoc.riwayat.tgl_sk_pengangkatan)} · TMT{' '}
+                    {formatDateIndo(selectedSkDoc.riwayat.tmt_jabatan)}
+                  </span>
                 </div>
               </div>
+
+              {isPdf ? (
+                <iframe
+                  src={resolvedUrl}
+                  title={`Pratinjau SK ${selectedSkDoc.riwayat.no_sk_pengangkatan}`}
+                  className="w-full h-[54vh] rounded-lg border border-neutral-300 bg-white shadow-inner"
+                />
+              ) : isImage ? (
+                <div className="bg-white p-3 rounded-lg border border-neutral-300 flex items-center justify-center">
+                  <img
+                    src={resolvedUrl}
+                    alt={`Berkas SK ${selectedSkDoc.riwayat.no_sk_pengangkatan}`}
+                    className="max-h-[54vh] w-auto object-contain rounded"
+                  />
+                </div>
+              ) : (
+                <div className="bg-white p-8 rounded-lg border border-dashed border-neutral-300 text-center space-y-2 text-xs">
+                  <FileText className="w-10 h-10 text-emerald-700 mx-auto" />
+                  <div className="font-semibold text-neutral-800">
+                    Pratinjau langsung tidak tersedia untuk format berkas ini
+                  </div>
+                  <p className="text-[11px] text-neutral-500 font-mono">
+                    {rawSk.split('/').pop()}
+                  </p>
+                  <p className="text-[11px] text-neutral-500">
+                    Klik tombol <strong>Buka / Unduh File Asli</strong> di bawah untuk membuka atau mengunduh berkas SK.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border-t border-neutral-200 flex flex-wrap justify-between items-center gap-3 bg-white rounded-b-xl">
               <span className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1.5">
                 <CheckCircle className="w-4 h-4 text-emerald-600" />
-                <span>Arsip Tersimpan di Database & Folder Server</span>
+                <span>Berkas SK Asli Terunggah</span>
               </span>
 
               <div className="flex items-center gap-2">
                 {selectedSkDoc.riwayat.file_sk && (
                   <a
-                    href={
-                      selectedSkDoc.riwayat.file_sk.startsWith('/') ||
-                      selectedSkDoc.riwayat.file_sk.startsWith('http') ||
-                      selectedSkDoc.riwayat.file_sk.startsWith('data:')
-                        ? selectedSkDoc.riwayat.file_sk
-                        : `/uploads/sk/${selectedSkDoc.riwayat.file_sk}`
-                    }
+                    href={resolvedUrl}
                     target="_blank"
                     rel="noreferrer"
+                    download={rawSk.startsWith('data:') ? `SK_${selectedSkDoc.riwayat.no_sk_pengangkatan.replace(/\W+/g, '_')}` : undefined}
                     className="px-3 py-1.5 text-xs font-semibold text-white bg-[#064E3B] hover:bg-[#043d2e] rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -471,7 +593,8 @@ export const ArsipSKView: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Upload New SK Modal */}
       {showUploadModal && (
@@ -493,11 +616,25 @@ export const ArsipSKView: React.FC = () => {
             </div>
 
             <form onSubmit={handleUploadSubmit} className="space-y-3">
+              {uploadError && (
+                <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[11px] flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-neutral-700 font-medium mb-1">Pilih Perangkat Desa</label>
                 <select
                   value={uploadMemberId}
-                  onChange={(e) => setUploadMemberId(e.target.value)}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setUploadMemberId(nextId);
+                    const matchedMember = uploadMemberOptions.find((m) => m.anggota.id_anggota === nextId);
+                    if (matchedMember?.desa?.id_desa) {
+                      setUploadDesaId(matchedMember.desa.id_desa);
+                    }
+                  }}
                   className="w-full p-2 border border-neutral-300 rounded-lg bg-white"
                 >
                   {uploadMemberOptions.map((m) => (
@@ -544,7 +681,10 @@ export const ArsipSKView: React.FC = () => {
                   type="text"
                   placeholder="141.1/Kep.45-Desa/2026"
                   value={uploadNoSk}
-                  onChange={(e) => setUploadNoSk(e.target.value)}
+                  onChange={(e) => {
+                    setUploadNoSk(e.target.value);
+                    if (uploadError) setUploadError('');
+                  }}
                   className="w-full p-2 border border-neutral-300 rounded-lg font-mono"
                   required
                 />
@@ -572,19 +712,26 @@ export const ArsipSKView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-neutral-700 font-medium mb-1">Pilih File PDF / Scan Dokumen</label>
+                <label className="block text-neutral-700 font-medium mb-1">
+                  Pilih File PDF / Scan Dokumen <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="file"
                   accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                  required
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) {
                       setUploadFileName(f.name);
+                      if (uploadError) setUploadError('');
                       const reader = new FileReader();
                       reader.onload = () => {
                         setUploadFileData(reader.result as string);
                       };
                       reader.readAsDataURL(f);
+                    } else {
+                      setUploadFileName('');
+                      setUploadFileData('');
                     }
                   }}
                   className="w-full p-2 border border-dashed border-neutral-300 rounded-lg bg-neutral-50 text-xs"

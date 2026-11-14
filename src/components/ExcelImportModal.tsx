@@ -334,7 +334,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
           tgl_sk_pengangkatan: r.tglSk,
           tmt_jabatan: r.tmtJabatan,
           status_aktif: 'Aktif',
-          file_sk: `SK_${r.namaLengkap.replace(/\s+/g, '_').toUpperCase()}_${new Date().getFullYear()}.pdf`,
+          file_sk: '',
         },
         keanggotaan: {
           tgl_bergabung: new Date().toISOString().split('T')[0],

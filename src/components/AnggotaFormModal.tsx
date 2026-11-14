@@ -594,7 +594,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       tgl_sk_pengangkatan: newRwTglSk,
       tmt_jabatan: newRwTmt,
       status_aktif: newRwStatus,
-      file_sk: newRwFileSk || newRwFileSkName || `SK_${editMember.anggota.nama_lengkap.replace(/\s+/g, '_')}_${new Date().getFullYear()}.pdf`,
+      file_sk: newRwFileSk || newRwFileSkName || '',
       keterangan: newRwKeterangan,
     });
 
@@ -736,7 +736,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
             no_sk_pengangkatan: effectiveNoSk,
             tgl_sk_pengangkatan: tglSk,
             tmt_jabatan: tmtJabatan,
-            file_sk: fileSk || fileSkName || `SK_${namaLengkap.replace(/\s+/g, '_').toUpperCase()}_${new Date().getFullYear()}.pdf`,
+            file_sk: fileSk || fileSkName || '',
           },
           jabatanPengurus
         );
