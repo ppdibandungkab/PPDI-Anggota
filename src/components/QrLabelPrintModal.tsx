@@ -268,7 +268,7 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
     let cancelled = false;
     setIsGeneratingPreview(true);
 
-    Promise.all(missing.map((m) => buildMemberQrLabelData(m)))
+    Promise.all(missing.map((m) => buildMemberQrLabelData(m, kecamatanList || [], desaList || [])))
       .then((results) => {
         if (cancelled) return;
         setLabelCache((prev) => {
@@ -286,7 +286,7 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, selectedMembers, labelCache]);
+  }, [isOpen, selectedMembers, labelCache, kecamatanList, desaList]);
 
   // Close on Escape
   useEffect(() => {
@@ -327,7 +327,9 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
       const missing = selectedMembers.filter((m) => !labelCache[m.anggota.id_anggota]);
       const mergedCache = { ...labelCache };
       if (missing.length > 0) {
-        const built = await Promise.all(missing.map((m) => buildMemberQrLabelData(m)));
+        const built = await Promise.all(
+          missing.map((m) => buildMemberQrLabelData(m, kecamatanList || [], desaList || []))
+        );
         built.forEach((item) => {
           mergedCache[item.member.anggota.id_anggota] = item;
         });
@@ -343,6 +345,8 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
         sizePreset,
         appName: appSettings?.appName || 'PPDI KAB. BANDUNG',
         show1DBarcode,
+        kecamatanList: kecamatanList || [],
+        desaList: desaList || [],
       });
 
       setExportSuccessMsg(
@@ -673,18 +677,19 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
                                 {item.member.jabatanRef?.nama_jabatan || 'Perangkat Desa'}
                               </div>
                               <div className="text-[10px] text-neutral-500 truncate">
-                                {item.member.desa?.nama_desa
-                                  ? `Ds. ${item.member.desa.nama_desa}`
-                                  : ''}
-                                {item.member.kecamatan?.nama_kecamatan
-                                  ? `, Kec. ${item.member.kecamatan.nama_kecamatan}`
-                                  : ''}
+                                {item.desaLabel || 'Ds. -'}
+                              </div>
+                              <div className="text-[10px] font-semibold text-neutral-700 truncate">
+                                {item.kecamatanLabel || 'Kec. -'}
                               </div>
                               <div className="text-[9px] font-mono font-bold text-[#064E3B] truncate pt-0.5">
                                 {item.uniqueSerial}
                               </div>
                               <div className="text-[9px] font-mono text-neutral-500 truncate">
                                 NIK: {item.member.anggota.nik || '-'}
+                              </div>
+                              <div className="text-[9px] font-mono text-neutral-500 truncate">
+                                NIPD: {(item.member.anggota.nipd || '').trim() || '-'}
                               </div>
                             </div>
                           </div>
@@ -761,18 +766,19 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
                       {item.member.jabatanRef?.nama_jabatan || 'Perangkat Desa'}
                     </div>
                     <div className="text-[8px] text-neutral-600 truncate">
-                      {item.member.desa?.nama_desa
-                        ? `Ds. ${item.member.desa.nama_desa}`
-                        : ''}
-                      {item.member.kecamatan?.nama_kecamatan
-                        ? `, Kec. ${item.member.kecamatan.nama_kecamatan}`
-                        : ''}
+                      {item.desaLabel || 'Ds. -'}
+                    </div>
+                    <div className="text-[8px] font-semibold text-neutral-800 truncate">
+                      {item.kecamatanLabel || 'Kec. -'}
                     </div>
                     <div className="text-[8px] font-mono font-bold text-[#064E3B] truncate">
                       {item.uniqueSerial}
                     </div>
                     <div className="text-[8px] font-mono text-neutral-600 truncate">
                       NIK: {item.member.anggota.nik || '-'}
+                    </div>
+                    <div className="text-[8px] font-mono text-neutral-600 truncate">
+                      NIPD: {(item.member.anggota.nipd || '').trim() || '-'}
                     </div>
                   </div>
                 </div>
