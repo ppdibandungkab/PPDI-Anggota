@@ -38,7 +38,13 @@ import {
   FileCheck,
 } from 'lucide-react';
 import { PendaftaranPerangkatDesa } from '../types/ppdi';
-import { getWhatsAppApprovalUrl, formatPhoneForWhatsApp } from '../utils/ppdiHelpers';
+import {
+  getWhatsAppApprovalUrl,
+  buildWhatsAppApprovalMessage,
+  dispatchWhatsAppNotification,
+  isFonnteWebhookActive,
+  formatPhoneForWhatsApp,
+} from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl, getFileNameDisplay, handleImageError } from '../utils/fileHelpers';
 
 interface PendaftaranApprovalViewProps {
@@ -58,6 +64,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     setActiveTab,
     hasPermission,
     fullMembers,
+    appSettings,
   } = usePPDI();
 
   // Role detection
@@ -227,6 +234,38 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const [isSendingWaNotif, setIsSendingWaNotif] = useState(false);
+
+  const handleSendApprovalWhatsApp = async (params: {
+    phone: string;
+    name: string;
+    noKta: string;
+    nik?: string;
+    idAnggota?: string;
+    desa?: string;
+    kecamatan?: string;
+  }) => {
+    setIsSendingWaNotif(true);
+    try {
+      const message = buildWhatsAppApprovalMessage(params);
+      const result = await dispatchWhatsAppNotification({
+        phone: params.phone,
+        message,
+        recipientName: params.name,
+        category: 'approval-pendaftaran',
+        whatsappSettings: appSettings?.whatsappSettings,
+      });
+      pushToast({
+        type: result.success ? 'success' : 'error',
+        title: result.mode === 'fonnte' ? 'WhatsApp Fonnte Gateway' : 'WhatsApp API (wa.me)',
+        message: result.message,
+      });
+      return result;
+    } finally {
+      setIsSendingWaNotif(false);
+    }
+  };
+
   // Batch selection & condensed dropdown state
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
@@ -271,6 +310,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     nama: string;
     phone: string;
     noKta: string;
+    nik?: string;
     desa?: string;
     kecamatan?: string;
   } | null>(null);
@@ -471,6 +511,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
         nama: approvingItem.nama_lengkap,
         phone: approvingItem.no_hp_wa,
         noKta: assignedNoKta,
+        nik: approvingItem.nik,
         desa: approvingItem.nama_desa || approvingItem.id_desa || '',
         kecamatan: approvingItem.nama_kecamatan || approvingItem.id_kecamatan || '',
       });
@@ -1473,24 +1514,30 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => {
+                disabled={isSendingWaNotif}
+                onClick={async () => {
                   const target = openDropdown.item;
                   const member = fullMembers.find((m) => m.anggota.nik === target.nik);
                   const ktaStr = member?.keanggotaan?.no_kta || 'KTA PPDI REGISTERED';
-                  const waUrl = getWhatsAppApprovalUrl({
+                  setOpenDropdown(null);
+                  await handleSendApprovalWhatsApp({
                     phone: target.no_hp_wa,
                     name: target.nama_lengkap,
                     noKta: ktaStr,
+                    nik: target.nik,
+                    idAnggota: member?.anggota.id_anggota,
                     desa: target.nama_desa || target.id_desa,
                     kecamatan: target.nama_kecamatan || target.id_kecamatan,
                   });
-                  window.open(waUrl, '_blank');
-                  setOpenDropdown(null);
                 }}
-                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer font-bold"
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer font-bold disabled:opacity-50"
               >
                 <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Kirim Notifikasi WA</span>
+                <span>
+                  {isFonnteWebhookActive(appSettings?.whatsappSettings)
+                    ? 'Kirim Notif WA (Fonnte)'
+                    : 'Kirim Notifikasi WA'}
+                </span>
               </button>
             )}
 
@@ -1859,22 +1906,31 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                 </button>
                 {selectedItem.status_approval === 'Disetujui' && selectedItem.no_hp_wa && (
                   <button
-                    onClick={() => {
+                    type="button"
+                    disabled={isSendingWaNotif}
+                    onClick={async () => {
                       const member = fullMembers.find((m) => m.anggota.nik === selectedItem.nik);
                       const ktaStr = member?.keanggotaan?.no_kta || 'KTA PPDI REGISTERED';
-                      const waUrl = getWhatsAppApprovalUrl({
+                      await handleSendApprovalWhatsApp({
                         phone: selectedItem.no_hp_wa,
                         name: selectedItem.nama_lengkap,
                         noKta: ktaStr,
+                        nik: selectedItem.nik,
+                        idAnggota: member?.anggota.id_anggota,
                         desa: selectedItem.nama_desa || selectedItem.id_desa,
                         kecamatan: selectedItem.nama_kecamatan || selectedItem.id_kecamatan,
                       });
-                      window.open(waUrl, '_blank');
                     }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
                   >
                     <MessageSquare className="w-4 h-4 text-emerald-100" />
-                    <span>Kirim Notifikasi WA</span>
+                    <span>
+                      {isSendingWaNotif
+                        ? 'Mengirim...'
+                        : isFonnteWebhookActive(appSettings?.whatsappSettings)
+                        ? 'Kirim Notif WA (Fonnte)'
+                        : 'Kirim Notifikasi WA'}
+                    </span>
                   </button>
                 )}
                 {selectedItem.status_approval === 'Menunggu' && canReject && (
@@ -2144,21 +2200,30 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const waUrl = getWhatsAppApprovalUrl({
+                disabled={isSendingWaNotif}
+                onClick={async () => {
+                  const res = await handleSendApprovalWhatsApp({
                     phone: approvedSuccessData.phone,
                     name: approvedSuccessData.nama,
                     noKta: approvedSuccessData.noKta,
+                    nik: approvedSuccessData.nik,
                     desa: approvedSuccessData.desa,
                     kecamatan: approvedSuccessData.kecamatan,
                   });
-                  window.open(waUrl, '_blank');
-                  setApprovedSuccessData(null);
+                  if (res.success) {
+                    setApprovedSuccessData(null);
+                  }
                 }}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Send className="w-4 h-4 text-emerald-100" />
-                <span>Kirim Notifikasi WA</span>
+                <span>
+                  {isSendingWaNotif
+                    ? 'Mengirim...'
+                    : isFonnteWebhookActive(appSettings?.whatsappSettings)
+                    ? 'Kirim Notif WA (Fonnte)'
+                    : 'Kirim Notifikasi WA'}
+                </span>
               </button>
             </div>
           </div>

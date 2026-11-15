@@ -1,7 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
-import { formatDateIndo, getWhatsAppKTAReminderUrl, getWhatsAppIuranReminderUrl, formatPhoneForWhatsApp } from '../utils/ppdiHelpers';
+import {
+  formatDateIndo,
+  getWhatsAppKTAReminderUrl,
+  getWhatsAppIuranReminderUrl,
+  buildWhatsAppKTAReminderMessage,
+  buildWhatsAppIuranReminderMessage,
+  getPortalVerifikasiEktaUrl,
+  formatPhoneForWhatsApp,
+  dispatchWhatsAppNotification,
+  isFonnteWebhookActive,
+} from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
 import { exportAnggotaToExcel, exportAnggotaToCSV } from '../utils/excelExport';
 import {
@@ -30,6 +40,7 @@ import {
 import { ExcelImportModal } from './ExcelImportModal';
 import { QrLabelPrintModal } from './QrLabelPrintModal';
 import { BulkKtaExportModal } from './BulkKtaExportModal';
+import { BulkWhatsAppModal } from './BulkWhatsAppModal';
 import { PermissionGate } from './PermissionGate';
 
 interface AnggotaListViewProps {
@@ -53,6 +64,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     deleteAnggota,
     currentUser,
     hasPermission,
+    appSettings,
   } = usePPDI();
 
   // Search & Filter state
@@ -71,11 +83,13 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isQrLabelModalOpen, setIsQrLabelModalOpen] = useState(false);
   const [isBulkKtaModalOpen, setIsBulkKtaModalOpen] = useState(false);
+  const [isBulkWaModalOpen, setIsBulkWaModalOpen] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
 
   // WhatsApp Notification Dispatch Modal State
   const [waModalMember, setWaModalMember] = useState<AnggotaFullDetail | null>(null);
   const [waType, setWaType] = useState<'kta' | 'iuran'>('kta');
+  const [isSendingWa, setIsSendingWa] = useState(false);
 
   const handleConfirmDelete = async () => {
     if (!memberToDelete) return;
@@ -325,6 +339,32 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               <CreditCard className="w-3.5 h-3.5 text-amber-300" />
               <span>
                 Unduh E-KTA PDF
+                {selectedMembersList.length > 0 ? ` (${selectedMembersList.length})` : ''}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedMembersList.length === 0) {
+                  setToastMessage({
+                    type: 'error',
+                    text: 'Centang terlebih dahulu minimal 1 anggota pada tabel untuk mengirim notifikasi WhatsApp massal.',
+                  });
+                  return;
+                }
+                setIsBulkWaModalOpen(true);
+              }}
+              title="Kirim Notifikasi WhatsApp Massal via Fonnte untuk anggota yang dicentang"
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs border ${
+                selectedMembersList.length > 0
+                  ? 'text-white bg-emerald-700 hover:bg-emerald-800 border-emerald-800'
+                  : 'text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border-emerald-300'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
+              <span>
+                Kirim WA Massal
                 {selectedMembersList.length > 0 ? ` (${selectedMembersList.length})` : ''}
               </span>
             </button>
@@ -609,18 +649,26 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 {selectedMembersList.length} Perangkat Desa Dipilih
               </span>
               <span className="text-emerald-200 ml-2 hidden sm:inline">
-                Siap diunduh ke dalam berkas PDF E-KTA Digital
+                Siap diunduh ke PDF E-KTA atau dikirimi notifikasi WhatsApp massal
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={clearSelection}
               className="px-3 py-1.5 text-xs font-medium text-emerald-100 hover:text-white hover:bg-emerald-800 rounded-lg border border-emerald-700 transition-colors cursor-pointer"
             >
               Kosongkan Pilihan
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkWaModalOpen(true)}
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/50 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Kirim Notif WA Massal</span>
             </button>
             <button
               type="button"
@@ -987,11 +1035,24 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 <MessageSquare className="w-5 h-5 text-emerald-700" />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-bold text-neutral-900 uppercase">
-                  Kirim Notifikasi WhatsApp Anggota
-                </h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-neutral-900 uppercase">
+                    Kirim Notifikasi WhatsApp Anggota
+                  </h3>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                      isFonnteWebhookActive(appSettings?.whatsappSettings)
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : 'bg-neutral-100 text-neutral-700 border-neutral-300'
+                    }`}
+                  >
+                    {isFonnteWebhookActive(appSettings?.whatsappSettings) ? 'Via Fonnte API' : 'Via API wa.me'}
+                  </span>
+                </div>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Pengiriman pesan resmi pengurus via WhatsApp Web / Application
+                  {isFonnteWebhookActive(appSettings?.whatsappSettings)
+                    ? 'Webhook aktif: pesan dikirim otomatis melalui Gateway Fonnte.'
+                    : 'Webhook nonaktif: pengiriman otomatis membuka API wa.me standar.'}
                 </p>
               </div>
               <button
@@ -1062,17 +1123,56 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 </div>
               </div>
 
-              {/* Message Preview Box */}
-              <div className="p-3 bg-[#064E3B]/5 border border-emerald-200 rounded-xl space-y-1">
-                <span className="text-[10px] text-emerald-900 font-bold uppercase tracking-wider block">
-                  Pratinjau Format Pesan WhatsApp:
-                </span>
-                <p className="text-[11px] text-neutral-700 leading-relaxed font-mono whitespace-pre-line max-h-36 overflow-y-auto">
-                  {waType === 'kta'
-                    ? `Yth. ${waModalMember.anggota.nama_lengkap.toUpperCase()},\nInformasi E-KTA Digital PPDI Kab. Bandung:\n• No KTA: ${waModalMember.keanggotaan?.no_kta || '-'}\n• Status: ${(waModalMember.keanggotaan?.status_kta || 'Aktif').toUpperCase()}`
-                    : `Yth. ${waModalMember.anggota.nama_lengkap.toUpperCase()},\nPemberitahuan kewajiban iuran kas bulanan PPDI (Rp 35.000 / bulan).`}
-                </p>
-              </div>
+              {/* Portal Verifikasi Link & Message Preview Box */}
+              {(() => {
+                const portalVerifyUrl = getPortalVerifikasiEktaUrl({
+                  noKta: waModalMember.keanggotaan?.no_kta,
+                  nik: waModalMember.anggota.nik,
+                  idAnggota: waModalMember.anggota.id_anggota,
+                });
+                const previewMessage =
+                  waType === 'kta'
+                    ? buildWhatsAppKTAReminderMessage({
+                        name: waModalMember.anggota.nama_lengkap,
+                        noKta: waModalMember.keanggotaan?.no_kta,
+                        nik: waModalMember.anggota.nik,
+                        idAnggota: waModalMember.anggota.id_anggota,
+                        statusKta: waModalMember.keanggotaan?.status_kta,
+                        desa: waModalMember.desa?.nama_desa,
+                        kecamatan: waModalMember.kecamatan?.nama_kecamatan,
+                        verifyUrl: portalVerifyUrl,
+                      })
+                    : buildWhatsAppIuranReminderMessage({
+                        name: waModalMember.anggota.nama_lengkap,
+                        desa: waModalMember.desa?.nama_desa,
+                        noKta: waModalMember.keanggotaan?.no_kta,
+                        nik: waModalMember.anggota.nik,
+                        idAnggota: waModalMember.anggota.id_anggota,
+                        verifyUrl: portalVerifyUrl,
+                      });
+
+                return (
+                  <>
+                    <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1 font-sans">
+                      <span className="text-[10px] text-amber-900 font-bold uppercase tracking-wider block">
+                        Link Portal Verifikasi Keabsahan E-KTA (Terlampir di Pesan):
+                      </span>
+                      <div className="text-[11px] font-mono text-emerald-900 bg-white border border-amber-200/80 rounded-lg px-2.5 py-1.5 break-all select-all">
+                        {portalVerifyUrl}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-[#064E3B]/5 border border-emerald-200 rounded-xl space-y-1">
+                      <span className="text-[10px] text-emerald-900 font-bold uppercase tracking-wider block">
+                        Pratinjau Format Pesan WhatsApp:
+                      </span>
+                      <p className="text-[11px] text-neutral-700 leading-relaxed font-mono whitespace-pre-line max-h-44 overflow-y-auto">
+                        {previewMessage}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {/* Modal Footer Actions */}
@@ -1080,35 +1180,77 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               <button
                 type="button"
                 onClick={() => setWaModalMember(null)}
-                className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg cursor-pointer"
+                disabled={isSendingWa}
+                className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg cursor-pointer disabled:opacity-50"
               >
                 Batal
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const url =
+                disabled={isSendingWa}
+                onClick={async () => {
+                  const targetMember = waModalMember;
+                  const verifyUrl = getPortalVerifikasiEktaUrl({
+                    noKta: targetMember.keanggotaan?.no_kta,
+                    nik: targetMember.anggota.nik,
+                    idAnggota: targetMember.anggota.id_anggota,
+                  });
+                  const messageText =
                     waType === 'kta'
-                      ? getWhatsAppKTAReminderUrl({
-                          phone: waModalMember.anggota.no_hp_wa,
-                          name: waModalMember.anggota.nama_lengkap,
-                          noKta: waModalMember.keanggotaan?.no_kta,
-                          statusKta: waModalMember.keanggotaan?.status_kta,
-                          desa: waModalMember.desa?.nama_desa,
-                          kecamatan: waModalMember.kecamatan?.nama_kecamatan,
+                      ? buildWhatsAppKTAReminderMessage({
+                          name: targetMember.anggota.nama_lengkap,
+                          noKta: targetMember.keanggotaan?.no_kta,
+                          nik: targetMember.anggota.nik,
+                          idAnggota: targetMember.anggota.id_anggota,
+                          statusKta: targetMember.keanggotaan?.status_kta,
+                          desa: targetMember.desa?.nama_desa,
+                          kecamatan: targetMember.kecamatan?.nama_kecamatan,
+                          verifyUrl,
                         })
-                      : getWhatsAppIuranReminderUrl({
-                          phone: waModalMember.anggota.no_hp_wa,
-                          name: waModalMember.anggota.nama_lengkap,
-                          desa: waModalMember.desa?.nama_desa,
+                      : buildWhatsAppIuranReminderMessage({
+                          name: targetMember.anggota.nama_lengkap,
+                          desa: targetMember.desa?.nama_desa,
+                          noKta: targetMember.keanggotaan?.no_kta,
+                          nik: targetMember.anggota.nik,
+                          idAnggota: targetMember.anggota.id_anggota,
+                          verifyUrl,
                         });
-                  window.open(url, '_blank');
-                  setWaModalMember(null);
+
+                  setIsSendingWa(true);
+                  try {
+                    const result = await dispatchWhatsAppNotification({
+                      phone: targetMember.anggota.no_hp_wa,
+                      message: messageText,
+                      recipientName: targetMember.anggota.nama_lengkap,
+                      idAnggota: targetMember.anggota.id_anggota,
+                      category: waType === 'kta' ? 'notifikasi-kta' : 'notifikasi-iuran',
+                      whatsappSettings: appSettings?.whatsappSettings,
+                    });
+                    setToastMessage({
+                      type: result.success ? 'success' : 'error',
+                      text: result.message,
+                    });
+                    if (result.success) {
+                      setWaModalMember(null);
+                    }
+                  } finally {
+                    setIsSendingWa(false);
+                  }
                 }}
-                className="px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-md disabled:opacity-60"
               >
-                <Send className="w-3.5 h-3.5 text-emerald-200" />
-                <span>Kirim via WhatsApp</span>
+                {isSendingWa ? (
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-200 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5 text-emerald-200" />
+                )}
+                <span>
+                  {isSendingWa
+                    ? 'Mengirim...'
+                    : isFonnteWebhookActive(appSettings?.whatsappSettings)
+                    ? 'Kirim via Fonnte'
+                    : 'Kirim via WhatsApp'}
+                </span>
               </button>
             </div>
           </div>
@@ -1138,6 +1280,22 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         setToastMessage({
           type: 'error',
           text: msg,
+        });
+      }}
+    />
+
+    <BulkWhatsAppModal
+      isOpen={isBulkWaModalOpen}
+      onClose={() => setIsBulkWaModalOpen(false)}
+      selectedMembers={selectedMembersList}
+      onRemoveMember={(id) => toggleMemberSelection(id)}
+      onComplete={({ sentCount, failedCount }) => {
+        setToastMessage({
+          type: sentCount > 0 ? 'success' : 'error',
+          text:
+            failedCount === 0
+              ? `Notifikasi WhatsApp massal berhasil dikirim ke ${sentCount} anggota melalui Fonnte.`
+              : `Pengiriman WhatsApp massal selesai: ${sentCount} berhasil, ${failedCount} gagal.`,
         });
       }}
     />

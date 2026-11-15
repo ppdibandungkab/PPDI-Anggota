@@ -188,6 +188,52 @@ CREATE TABLE IF NOT EXISTS \`pendaftaran_perangkat_desa\` (
   PRIMARY KEY (\`id_pendaftaran\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 11. TABEL whatsapp_senders (Penyimpan Pengirim & Konfigurasi Gateway Fonnte)
+CREATE TABLE IF NOT EXISTS \`whatsapp_senders\` (
+  \`id_sender\` INT AUTO_INCREMENT NOT NULL,
+  \`sender_label\` VARCHAR(100) NOT NULL DEFAULT 'Gateway Utama PPDI',
+  \`sender_number\` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'Nomor WhatsApp device Fonnte',
+  \`provider\` VARCHAR(30) NOT NULL DEFAULT 'fonnte',
+  \`fonnte_token\` VARCHAR(255) NOT NULL DEFAULT '',
+  \`webhook_url\` VARCHAR(500) NULL,
+  \`webhook_secret\` VARCHAR(255) NULL,
+  \`country_code\` VARCHAR(10) NOT NULL DEFAULT '62',
+  \`is_enabled\` TINYINT(1) NOT NULL DEFAULT 0,
+  \`auto_reply_enabled\` TINYINT(1) NOT NULL DEFAULT 1,
+  \`is_default\` TINYINT(1) NOT NULL DEFAULT 1,
+  \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id_sender\`),
+  KEY \`idx_wa_sender_number\` (\`sender_number\`),
+  KEY \`idx_wa_sender_default\` (\`is_default\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 12. TABEL whatsapp_logs (Log Pengirim, Pesan Keluar/Masuk & Callback Webhook)
+CREATE TABLE IF NOT EXISTS \`whatsapp_logs\` (
+  \`id\` VARCHAR(64) NOT NULL,
+  \`timestamp\` VARCHAR(40) NOT NULL,
+  \`direction\` ENUM('outbound', 'inbound', 'status') NOT NULL DEFAULT 'outbound',
+  \`provider\` VARCHAR(30) NOT NULL DEFAULT 'fonnte',
+  \`sender_number\` VARCHAR(30) NULL COMMENT 'Nomor pengirim gateway',
+  \`target_or_sender\` VARCHAR(50) NOT NULL COMMENT 'Nomor tujuan / pengirim masuk',
+  \`sender_name\` VARCHAR(150) NULL,
+  \`id_anggota\` VARCHAR(36) NULL,
+  \`category\` VARCHAR(50) NULL,
+  \`status\` VARCHAR(30) NOT NULL DEFAULT 'sent',
+  \`message\` TEXT NOT NULL,
+  \`fonnte_id\` VARCHAR(100) NULL,
+  \`batch_id\` VARCHAR(64) NULL COMMENT 'ID batch pengiriman massal',
+  \`raw_payload\` LONGTEXT NULL,
+  \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  KEY \`idx_wa_logs_created\` (\`created_at\`),
+  KEY \`idx_wa_logs_direction\` (\`direction\`),
+  KEY \`idx_wa_logs_status\` (\`status\`),
+  KEY \`idx_wa_logs_target\` (\`target_or_sender\`),
+  KEY \`idx_wa_logs_fonnte_id\` (\`fonnte_id\`),
+  KEY \`idx_wa_logs_batch_id\` (\`batch_id\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ====================================================================
@@ -480,9 +526,44 @@ return new class extends Migration {
             $table->string('catatan', 255)->nullable();
             $table->timestamps();
         });
+
+        Schema::create('whatsapp_senders', function (Blueprint $table) {
+            $table->id('id_sender');
+            $table->string('sender_label', 100)->default('Gateway Utama PPDI');
+            $table->string('sender_number', 30)->default('')->index();
+            $table->string('provider', 30)->default('fonnte');
+            $table->string('fonnte_token', 255)->default('');
+            $table->string('webhook_url', 500)->nullable();
+            $table->string('webhook_secret', 255)->nullable();
+            $table->string('country_code', 10)->default('62');
+            $table->boolean('is_enabled')->default(false);
+            $table->boolean('auto_reply_enabled')->default(true);
+            $table->boolean('is_default')->default(true)->index();
+            $table->timestamps();
+        });
+
+        Schema::create('whatsapp_logs', function (Blueprint $table) {
+            $table->string('id', 64)->primary();
+            $table->string('timestamp', 40);
+            $table->enum('direction', ['outbound', 'inbound', 'status'])->default('outbound')->index();
+            $table->string('provider', 30)->default('fonnte');
+            $table->string('sender_number', 30)->nullable();
+            $table->string('target_or_sender', 50)->index();
+            $table->string('sender_name', 150)->nullable();
+            $table->string('id_anggota', 36)->nullable();
+            $table->string('category', 50)->nullable();
+            $table->string('status', 30)->default('sent')->index();
+            $table->text('message');
+            $table->string('fonnte_id', 100)->nullable()->index();
+            $table->string('batch_id', 64)->nullable()->index();
+            $table->longText('raw_payload')->nullable();
+            $table->timestamp('created_at')->useCurrent()->index();
+        });
     }
 
     public function down(): void {
+        Schema::dropIfExists('whatsapp_logs');
+        Schema::dropIfExists('whatsapp_senders');
         Schema::dropIfExists('iuran_anggota');
         Schema::dropIfExists('keanggotaan_ppdi');
         Schema::dropIfExists('riwayat_jabatan');

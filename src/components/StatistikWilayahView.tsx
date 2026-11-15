@@ -149,7 +149,14 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
   const cleanId = (id?: string | null) => (id ? String(id).replace(/\./g, '').trim() : '');
 
   // Aggregate member counts per Kecamatan
-  const { kecamatanStats, totalAnggotaKabupaten, maxAnggotaCount, avgAnggotaPerKecamatan } = useMemo(() => {
+  const {
+    kecamatanStats,
+    topKecamatans,
+    topKecamatanCount,
+    totalAnggotaKabupaten,
+    maxAnggotaCount,
+    avgAnggotaPerKecamatan,
+  } = useMemo(() => {
     const list = kecamatanList || [];
     const members = visibleMembers || fullMembers || [];
     const totalCount = members.length;
@@ -235,13 +242,19 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
       };
     });
 
-    const maxCount = Math.max(...stats.map((s) => s.totalAnggota), 1);
+    // Sort descending by member count so index 0 is always highest (ties broken alphabetically)
+    stats.sort((a, b) => b.totalAnggota - a.totalAnggota || a.nama_kecamatan.localeCompare(b.nama_kecamatan));
+
+    const maxCount = stats.length > 0 ? Math.max(...stats.map((s) => s.totalAnggota), 0) : 0;
+    const topKecamatans = maxCount > 0 ? stats.filter((s) => s.totalAnggota === maxCount) : [];
     const avg = stats.length > 0 ? Number((totalCount / stats.length).toFixed(1)) : 0;
 
     return {
       kecamatanStats: stats,
+      topKecamatans,
+      topKecamatanCount: maxCount,
       totalAnggotaKabupaten: totalCount,
-      maxAnggotaCount: maxCount,
+      maxAnggotaCount: Math.max(maxCount, 1),
       avgAnggotaPerKecamatan: avg,
     };
   }, [kecamatanList, desaList, visibleMembers, fullMembers]);
@@ -442,17 +455,42 @@ export const StatistikWilayahView: React.FC<StatistikWilayahViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-neutral-50 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between">
+        <div
+          onClick={() => {
+            if (topKecamatans[0]) {
+              handleBarClick(topKecamatans[0]);
+            }
+          }}
+          title={
+            topKecamatans.length > 1
+              ? `Kecamatan terbanyak (${topKecamatanCount} anggota): ${topKecamatans.map((k) => k.nama_kecamatan).join(', ')}`
+              : topKecamatans[0]
+              ? `Klik untuk melihat rincian desa Kec. ${topKecamatans[0].nama_kecamatan}`
+              : 'Belum ada data anggota'
+          }
+          className={`bg-neutral-50 p-3 sm:p-3.5 rounded-xl border border-neutral-200 flex flex-col justify-between ${
+            topKecamatans[0] ? 'cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-colors' : ''
+          }`}
+        >
           <div className="flex items-center justify-between text-neutral-600 text-xs font-semibold mb-1.5 gap-1">
             <span className="leading-tight">Kec. Terbanyak</span>
             <Award className="w-4 h-4 text-amber-600 shrink-0" />
           </div>
           <div>
             <div className="text-sm sm:text-base font-bold text-neutral-900 truncate leading-snug">
-              {kecamatanStats[0]?.nama_kecamatan || '-'}
+              {topKecamatans.length === 0
+                ? '-'
+                : topKecamatans.length === 1
+                ? topKecamatans[0].nama_kecamatan
+                : `${topKecamatans[0].nama_kecamatan} (+${topKecamatans.length - 1})`}
             </div>
             <div className="text-[11px] sm:text-xs font-mono text-amber-700 font-semibold mt-1">
-              {kecamatanStats[0]?.totalAnggota || 0} Perangkat Desa
+              {topKecamatanCount} Perangkat Desa
+              {topKecamatans.length === 1
+                ? ` (${topKecamatans[0].persentaseTotal}%)`
+                : topKecamatans.length > 1
+                ? ` · ${topKecamatans.length} Kec. Sama`
+                : ''}
             </div>
           </div>
         </div>

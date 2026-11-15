@@ -203,6 +203,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-role': { view: true, add: true, edit: true, delete: true },
     'settings-db': { view: true, add: true, edit: true, delete: true },
     'settings-telemetry': { view: true, add: true, edit: true, delete: true },
+    'settings-whatsapp': { view: true, add: true, edit: true, delete: true },
     'skema': { view: true, add: true, edit: true, delete: true },
   },
   'Admin_Kabupaten': {
@@ -219,6 +220,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
     'settings-telemetry': { view: true, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: true, add: true, edit: true, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Admin_Kecamatan': {
@@ -235,6 +237,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
     'settings-telemetry': { view: false, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Admin_Desa': {
@@ -251,6 +254,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
     'settings-telemetry': { view: false, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Anggota': {
@@ -267,9 +271,20 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
     'settings-telemetry': { view: false, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
 };
+
+export interface WhatsAppSettings {
+  enabled: boolean;
+  senderNumber: string;
+  fonnteToken: string;
+  webhookUrl: string;
+  webhookSecret?: string;
+  autoReplyEnabled?: boolean;
+  countryCode?: string;
+}
 
 export interface AppSettings {
   appName: string;
@@ -280,6 +295,7 @@ export interface AppSettings {
   loginOverlayOpacity?: string;
   syncIntervalSeconds: number;
   rolePermissions?: RoleConfig;
+  whatsappSettings?: WhatsAppSettings;
 }
 
 export interface DbStatusInfo {

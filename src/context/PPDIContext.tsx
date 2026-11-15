@@ -240,6 +240,15 @@ const DEFAULT_SETTINGS: AppSettings = {
   loginOverlayOpacity: '0.4',
   syncIntervalSeconds: 60,
   rolePermissions: DEFAULT_ROLE_PERMISSIONS,
+  whatsappSettings: {
+    enabled: false,
+    senderNumber: '',
+    fonnteToken: '',
+    webhookUrl: '',
+    webhookSecret: '',
+    autoReplyEnabled: true,
+    countryCode: '62',
+  },
 };
 
 export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -319,6 +328,10 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           rolePermissions: parsed.rolePermissions && Object.keys(parsed.rolePermissions).length > 0
             ? parsed.rolePermissions
             : DEFAULT_ROLE_PERMISSIONS,
+          whatsappSettings: {
+            ...DEFAULT_SETTINGS.whatsappSettings!,
+            ...(parsed.whatsappSettings || {}),
+          },
         };
       }
     } catch (_) {}
@@ -546,6 +559,11 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 : prev.rolePermissions && Object.keys(prev.rolePermissions).length > 0
                 ? prev.rolePermissions
                 : DEFAULT_ROLE_PERMISSIONS,
+            whatsappSettings: {
+              ...DEFAULT_SETTINGS.whatsappSettings!,
+              ...(prev.whatsappSettings || {}),
+              ...(incoming.whatsappSettings || {}),
+            },
           };
         });
       }

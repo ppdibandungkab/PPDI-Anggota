@@ -48,7 +48,7 @@ export const SqlSchemaView: React.FC = () => {
             Rancangan Skema Database Relasional (MySQL / MariaDB)
           </h1>
           <p className="text-xs text-neutral-500 mt-0.5">
-            Arsitektur 8 tabel normalisasi, index komposit, view agregasi, dan script migrasi backend Laravel / CI4
+            Arsitektur 12 tabel normalisasi (termasuk penyimpan &amp; log WhatsApp Fonnte), index komposit, view agregasi, dan script migrasi backend Laravel / CI4
           </p>
         </div>
 
@@ -144,7 +144,8 @@ export const SqlSchemaView: React.FC = () => {
           <ul className="space-y-1 text-neutral-600 text-[11px]">
             <li>7. <strong className="font-mono">iuran_anggota</strong>: Kas Rp 35rb/bln, Verifikasi</li>
             <li>8. <strong className="font-mono">users</strong>: Akses Superadmin, Camat, Anggota</li>
-            <li>+ <strong className="font-mono">Views</strong>: Agregat Aktif & Purna Tugas Alert</li>
+            <li>9. <strong className="font-mono">whatsapp_senders</strong>: Penyimpan pengirim &amp; token Fonnte</li>
+            <li>10. <strong className="font-mono">whatsapp_logs</strong>: Log pengirim, inbound &amp; massal</li>
           </ul>
         </div>
       </div>
@@ -321,6 +322,30 @@ export const SqlSchemaView: React.FC = () => {
               <div className="text-neutral-600">role (ENUM)</div>
               <div className="text-emerald-700">🔗 id_anggota (FK)</div>
               <div className="text-emerald-700">🔗 id_kecamatan (FK)</div>
+            </div>
+
+            {/* Table 9: whatsapp_senders */}
+            <div className="p-3 bg-emerald-50/50 rounded-lg border border-emerald-300 space-y-1">
+              <div className="font-bold text-emerald-900 pb-1 border-b border-emerald-200 flex items-center justify-between">
+                <span>whatsapp_senders</span>
+                <span className="text-[10px] text-emerald-700 font-sans">Gateway WA</span>
+              </div>
+              <div className="text-neutral-800 font-semibold">🔑 id_sender (PK)</div>
+              <div className="text-neutral-600">sender_label, sender_number</div>
+              <div className="text-neutral-600">provider, fonnte_token</div>
+              <div className="text-neutral-600">webhook_url, is_enabled</div>
+            </div>
+
+            {/* Table 10: whatsapp_logs */}
+            <div className="p-3 bg-emerald-50/50 rounded-lg border border-emerald-300 space-y-1">
+              <div className="font-bold text-emerald-900 pb-1 border-b border-emerald-200 flex items-center justify-between">
+                <span>whatsapp_logs</span>
+                <span className="text-[10px] text-emerald-700 font-sans">Log Pengirim</span>
+              </div>
+              <div className="text-neutral-800 font-semibold">🔑 id (PK)</div>
+              <div className="text-neutral-600">direction, provider, status</div>
+              <div className="text-neutral-600">sender_number, target_or_sender</div>
+              <div className="text-emerald-700">🔗 id_anggota, batch_id</div>
             </div>
           </div>
         </div>

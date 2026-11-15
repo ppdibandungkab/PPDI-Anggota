@@ -21,6 +21,7 @@ import { PublicVerifyModal } from './components/PublicVerifyModal';
 import { DbConnectionModal } from './components/DbConnectionModal';
 import { DbSettingsView } from './components/DbSettingsView';
 import { TelemetrySettingsView } from './components/TelemetrySettingsView';
+import { WhatsAppSettingsView } from './components/WhatsAppSettingsView';
 import { StatistikWilayahView } from './components/StatistikWilayahView';
 import { LogAktivitasView } from './components/LogAktivitasView';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
@@ -65,11 +66,13 @@ const MainAppContent: React.FC = () => {
           setVerifyInitialQuery(token);
           setIsVerifyModalOpen(true);
         }
-      } else if (search.includes('v=') || search.includes('token=')) {
+      } else if (search.includes('v=') || search.includes('token=') || search.includes('verify=')) {
         const params = new URLSearchParams(search);
         const token = params.get('v') || params.get('token');
         if (token) {
           setVerifyInitialQuery(token);
+        }
+        if (token || params.get('verify')) {
           setIsVerifyModalOpen(true);
         }
       }
@@ -179,6 +182,7 @@ const MainAppContent: React.FC = () => {
           {activeTab === 'settings-user' && <UserSettingsView />}
           {activeTab === 'settings-role' && <RoleManagementView />}
           {activeTab === 'settings-db' && <DbSettingsView />}
+          {activeTab === 'settings-whatsapp' && <WhatsAppSettingsView />}
           {activeTab === 'settings-telemetry' && (
             <TelemetrySettingsView
               onOpenDbModal={() => setIsDbModalOpen(true)}

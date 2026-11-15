@@ -1,4 +1,5 @@
-import { Anggota, RiwayatJabatan, KeanggotaanPPDI, RefDesa, RefKecamatan, RefJabatan, AnggotaFullDetail, IuranAnggota } from '../types/ppdi';
+import { Anggota, RiwayatJabatan, KeanggotaanPPDI, RefDesa, RefKecamatan, RefJabatan, AnggotaFullDetail, IuranAnggota, WhatsAppSettings } from '../types/ppdi';
+import { generateKtaShortUrl } from './qrCrypto';
 
 // Reference date for 2026-10-14
 const TODAY = new Date('2026-10-14T00:00:00Z');
@@ -686,22 +687,58 @@ export function formatPhoneForWhatsApp(phone?: string | null): string {
 }
 
 /**
- * Generates WhatsApp approval notification URL for approved members
+ * Generates direct URL to Portal Verifikasi Keabsahan E-KTA (encrypted token when noKta & nik exist)
  */
-export function getWhatsAppApprovalUrl(params: {
-  phone: string;
+export function getPortalVerifikasiEktaUrl(params?: {
+  noKta?: string;
+  nik?: string;
+  idAnggota?: string;
+  verifyUrl?: string;
+}): string {
+  if (params?.verifyUrl && params.verifyUrl.trim()) {
+    return params.verifyUrl.trim();
+  }
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin.replace(/\/+$/, '')
+      : 'https://ppdi-bandungkab.id';
+
+  const cleanKta = (params?.noKta || '').trim();
+  const cleanNik = (params?.nik || '').trim();
+
+  if (cleanKta && cleanNik) {
+    return generateKtaShortUrl(
+      { no_kta: cleanKta, nik: cleanNik, id_anggota: params?.idAnggota },
+      origin
+    ).url;
+  }
+  if (cleanKta) {
+    return `${origin}/?v=${encodeURIComponent(cleanKta)}`;
+  }
+  return `${origin}/?verify=1`;
+}
+
+export function buildWhatsAppApprovalMessage(params: {
   name: string;
   noKta: string;
+  nik?: string;
+  idAnggota?: string;
   desa?: string;
   kecamatan?: string;
+  verifyUrl?: string;
 }): string {
-  const cleanPhone = formatPhoneForWhatsApp(params.phone);
   const formattedName = (params.name || '').toUpperCase().trim();
   const desaName = params.desa ? `Desa ${params.desa.replace(/^desa\s+/i, '')}` : 'Desa';
   const kecName = params.kecamatan ? `Kec. ${params.kecamatan.replace(/^kec(amatan)?\s+/i, '')}` : '';
   const wilStr = [desaName, kecName].filter(Boolean).join(', ');
+  const portalVerifyUrl = getPortalVerifikasiEktaUrl({
+    noKta: params.noKta,
+    nik: params.nik,
+    idAnggota: params.idAnggota,
+    verifyUrl: params.verifyUrl,
+  });
 
-  const message =
+  return (
     `*NOTIFIKASI RESMI PPDI KABUPATEN BANDUNG*\n\n` +
     `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
     `Selamat! Formulir Pendaftaran Keanggotaan *PERSATUAN PERANGKAT DESA INDONESIA (PPDI)* Anda telah *DISETUJUI*.\n\n` +
@@ -710,11 +747,69 @@ export function getWhatsAppApprovalUrl(params: {
     `• Wilayah Tugas: *${wilStr}*\n` +
     `• Nomor KTA Digital: *${params.noKta}*\n` +
     `• Status Keanggotaan: *AKTIF*\n\n` +
+    `*Portal Verifikasi Keabsahan E-KTA:*\n` +
+    `${portalVerifyUrl}\n\n` +
     `Kartu Tanda Anggota (E-KTA) Digital Anda telah resmi diterbitkan. Anda kini dapat login dan mengunduh E-KTA resmi di portal aplikasi PPDI.\n\n` +
     `Salam Perjuangan,\n` +
-    `*Pengurus Daerah PPDI Kabupaten Bandung*`;
+    `*Pengurus Daerah PPDI Kabupaten Bandung*`
+  );
+}
 
+/**
+ * Generates WhatsApp approval notification URL for approved members
+ */
+export function getWhatsAppApprovalUrl(params: {
+  phone: string;
+  name: string;
+  noKta: string;
+  nik?: string;
+  idAnggota?: string;
+  desa?: string;
+  kecamatan?: string;
+  verifyUrl?: string;
+}): string {
+  const cleanPhone = formatPhoneForWhatsApp(params.phone);
+  const message = buildWhatsAppApprovalMessage(params);
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+export function buildWhatsAppKTAReminderMessage(params: {
+  name: string;
+  noKta?: string;
+  nik?: string;
+  idAnggota?: string;
+  statusKta?: string;
+  desa?: string;
+  kecamatan?: string;
+  verifyUrl?: string;
+}): string {
+  const formattedName = (params.name || '').toUpperCase().trim();
+  const ktaStr = params.noKta || 'Belum Terbit / Pending';
+  const statusStr = (params.statusKta || 'Aktif').toUpperCase();
+  const desaName = params.desa ? `Desa ${params.desa.replace(/^desa\s+/i, '')}` : '';
+  const kecName = params.kecamatan ? `Kec. ${params.kecamatan.replace(/^kec(amatan)?\s+/i, '')}` : '';
+  const wilStr = [desaName, kecName].filter(Boolean).join(', ');
+  const portalVerifyUrl = getPortalVerifikasiEktaUrl({
+    noKta: params.noKta,
+    nik: params.nik,
+    idAnggota: params.idAnggota,
+    verifyUrl: params.verifyUrl,
+  });
+
+  return (
+    `*PENGINGAT RESMI KTA DIGITAL PPDI KABUPATEN BANDUNG*\n\n` +
+    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
+    `Informasi status Kartu Tanda Anggota (E-KTA) Digital Anda di sistem PPDI Kabupaten Bandung:\n\n` +
+    `• Nama Lengkap: *${formattedName}*\n` +
+    `• Wilayah Tugas: *${wilStr}*\n` +
+    `• Nomor KTA Digital: *${ktaStr}*\n` +
+    `• Status Keanggotaan: *${statusStr}*\n\n` +
+    `*Portal Verifikasi Keabsahan E-KTA:*\n` +
+    `${portalVerifyUrl}\n\n` +
+    `Pastikan profil dan data kependudukan Anda selalu diperbarui di portal aplikasi PPDI. Apabila membutuhkan bantuan cetak ulang E-KTA, silakan hubungi pengurus wilayah.\n\n` +
+    `Salam Perjuangan,\n` +
+    `*Pengurus Daerah PPDI Kabupaten Bandung*`
+  );
 }
 
 /**
@@ -724,31 +819,53 @@ export function getWhatsAppKTAReminderUrl(params: {
   phone: string;
   name: string;
   noKta?: string;
+  nik?: string;
+  idAnggota?: string;
   statusKta?: string;
   desa?: string;
   kecamatan?: string;
+  verifyUrl?: string;
 }): string {
   const cleanPhone = formatPhoneForWhatsApp(params.phone);
-  const formattedName = (params.name || '').toUpperCase().trim();
-  const ktaStr = params.noKta || 'Belum Terbit / Pending';
-  const statusStr = (params.statusKta || 'Aktif').toUpperCase();
-  const desaName = params.desa ? `Desa ${params.desa.replace(/^desa\s+/i, '')}` : '';
-  const kecName = params.kecamatan ? `Kec. ${params.kecamatan.replace(/^kec(amatan)?\s+/i, '')}` : '';
-  const wilStr = [desaName, kecName].filter(Boolean).join(', ');
-
-  const message =
-    `*PENGINGAT RESMI KTA DIGITAL PPDI KABUPATEN BANDUNG*\n\n` +
-    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
-    `Informasi status Kartu Tanda Anggota (E-KTA) Digital Anda di sistem PPDI Kabupaten Bandung:\n\n` +
-    `• Nama Lengkap: *${formattedName}*\n` +
-    `• Wilayah Tugas: *${wilStr}*\n` +
-    `• Nomor KTA Digital: *${ktaStr}*\n` +
-    `• Status Keanggotaan: *${statusStr}*\n\n` +
-    `Pastikan profil dan data kependudukan Anda selalu diperbarui di portal aplikasi PPDI. Apabila membutuhkan bantuan cetak ulang E-KTA, silakan hubungi pengurus wilayah.\n\n` +
-    `Salam Perjuangan,\n` +
-    `*Pengurus Daerah PPDI Kabupaten Bandung*`;
-
+  const message = buildWhatsAppKTAReminderMessage(params);
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+export function buildWhatsAppIuranReminderMessage(params: {
+  name: string;
+  periode?: string;
+  jumlah?: number;
+  desa?: string;
+  noKta?: string;
+  nik?: string;
+  idAnggota?: string;
+  verifyUrl?: string;
+}): string {
+  const formattedName = (params.name || '').toUpperCase().trim();
+  const nominalStr = params.jumlah ? `Rp ${params.jumlah.toLocaleString('id-ID')}` : 'Rp 35.000';
+  const periodeStr = params.periode || 'Bulan Berjalan';
+  const portalVerifyUrl = getPortalVerifikasiEktaUrl({
+    noKta: params.noKta,
+    nik: params.nik,
+    idAnggota: params.idAnggota,
+    verifyUrl: params.verifyUrl,
+  });
+
+  return (
+    `*PEMBERITAHUAN IURAN KAS PPDI KABUPATEN BANDUNG*\n\n` +
+    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
+    `Pemberitahuan kewajiban iuran kas anggota Persatuan Perangkat Desa Indonesia (PPDI):\n\n` +
+    `• Nama Anggota: *${formattedName}*\n` +
+    `• Wilayah Tugas: *Desa ${params.desa || '-'}*\n` +
+    `• Periode Iuran: *${periodeStr}*\n` +
+    `• Nominal Wajib: *${nominalStr}*\n\n` +
+    `*Portal Verifikasi Keabsahan E-KTA:*\n` +
+    `${portalVerifyUrl}\n\n` +
+    `Pembayaran iuran kas dapat disetorkan melalui Bendahara Pengurus Kecamatan / Desa atau diunggah pada aplikasi PPDI.\n\n` +
+    `Terima kasih atas partisipasi dan loyalitas Anda.\n\n` +
+    `Salam Perjuangan,\n` +
+    `*Pengurus Daerah PPDI Kabupaten Bandung*`
+  );
 }
 
 /**
@@ -760,24 +877,101 @@ export function getWhatsAppIuranReminderUrl(params: {
   periode?: string;
   jumlah?: number;
   desa?: string;
+  noKta?: string;
+  nik?: string;
+  idAnggota?: string;
+  verifyUrl?: string;
 }): string {
   const cleanPhone = formatPhoneForWhatsApp(params.phone);
-  const formattedName = (params.name || '').toUpperCase().trim();
-  const nominalStr = params.jumlah ? `Rp ${params.jumlah.toLocaleString('id-ID')}` : 'Rp 35.000';
-  const periodeStr = params.periode || 'Bulan Berjalan';
-
-  const message =
-    `*PEMBERITAHUAN IURAN KAS PPDI KABUPATEN BANDUNG*\n\n` +
-    `Yth. Bpk/Ibu *${formattedName}*,\n\n` +
-    `Pemberitahuan kewajiban iuran kas anggota Persatuan Perangkat Desa Indonesia (PPDI):\n\n` +
-    `• Nama Anggota: *${formattedName}*\n` +
-    `• Wilayah Tugas: *Desa ${params.desa || '-'}*\n` +
-    `• Periode Iuran: *${periodeStr}*\n` +
-    `• Nominal Wajib: *${nominalStr}*\n\n` +
-    `Pembayaran iuran kas dapat disetorkan melalui Bendahara Pengurus Kecamatan / Desa atau diunggah pada aplikasi PPDI.\n\n` +
-    `Terima kasih atas partisipasi dan loyalitas Anda.\n\n` +
-    `Salam Perjuangan,\n` +
-    `*Pengurus Daerah PPDI Kabupaten Bandung*`;
-
+  const message = buildWhatsAppIuranReminderMessage(params);
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+export interface DispatchWhatsAppResult {
+  success: boolean;
+  mode: 'fonnte' | 'wa_me';
+  message: string;
+  waMeUrl: string;
+  detail?: any;
+}
+
+export function isFonnteWebhookActive(whatsappSettings?: WhatsAppSettings | null): boolean {
+  return Boolean(whatsappSettings?.enabled && whatsappSettings?.fonnteToken?.trim());
+}
+
+/**
+ * Otomatis mengirim notifikasi WhatsApp:
+ * - Jika Webhook & Gateway Fonnte AKTIF -> kirim langsung melalui API Fonnte (/api/whatsapp/send)
+ * - Jika Webhook TIDAK AKTIF -> gunakan API wa.me seperti semula (buka link WhatsApp)
+ */
+export async function dispatchWhatsAppNotification(params: {
+  phone: string;
+  message: string;
+  recipientName?: string;
+  idAnggota?: string;
+  category?: string;
+  batchId?: string;
+  whatsappSettings?: WhatsAppSettings | null;
+}): Promise<DispatchWhatsAppResult> {
+  const cleanPhone = formatPhoneForWhatsApp(params.phone);
+  const waMeUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(params.message)}`;
+
+  if (!cleanPhone || cleanPhone.length < 8) {
+    return {
+      success: false,
+      mode: isFonnteWebhookActive(params.whatsappSettings) ? 'fonnte' : 'wa_me',
+      message: 'Nomor WhatsApp penerima tidak valid atau belum diisi.',
+      waMeUrl,
+    };
+  }
+
+  // Jika webhook tidak aktif, pakai API wa.me seperti semula
+  if (!isFonnteWebhookActive(params.whatsappSettings)) {
+    if (typeof window !== 'undefined') {
+      window.open(waMeUrl, '_blank', 'noopener,noreferrer');
+    }
+    return {
+      success: true,
+      mode: 'wa_me',
+      message: `Membuka WhatsApp (wa.me) untuk ${params.recipientName || cleanPhone}.`,
+      waMeUrl,
+    };
+  }
+
+  // Jika webhook aktif, kirim otomatis via backend Fonnte Gateway
+  const res = await safeFetchJson('/api/whatsapp/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      target: cleanPhone,
+      message: params.message,
+      recipientName: params.recipientName || '',
+      idAnggota: params.idAnggota || undefined,
+      category: params.category || 'notifikasi',
+      batchId: params.batchId || undefined,
+      token: params.whatsappSettings?.fonnteToken,
+      senderNumber: params.whatsappSettings?.senderNumber,
+      countryCode: params.whatsappSettings?.countryCode || '62',
+    }),
+  });
+
+  if (res.ok && res.data?.success) {
+    return {
+      success: true,
+      mode: 'fonnte',
+      message:
+        res.data?.message ||
+        `Notifikasi WhatsApp berhasil dikirim via Fonnte ke ${params.recipientName || cleanPhone}.`,
+      waMeUrl,
+      detail: res.data,
+    };
+  }
+
+  return {
+    success: false,
+    mode: 'fonnte',
+    message: res.data?.message || res.error || 'Gagal mengirim pesan melalui Gateway Fonnte.',
+    waMeUrl,
+    detail: res.data,
+  };
 }

@@ -16,6 +16,7 @@ const MODULE_LABELS: Record<string, string> = {
   'settings-user': 'Daftar Akun Pengguna',
   'settings-role': 'Tingkatan (Role)',
   'settings-db': 'Setting Database',
+  'settings-whatsapp': 'Setting WhatsApp (Fonnte)',
   'settings-telemetry': 'Telemetri & Diagnostik Live',
   skema: 'Skema Database & SQL',
 };
@@ -130,7 +131,10 @@ export const RoleManagementView: React.FC = () => {
 
       <div className="space-y-6">
         {roleList.map((role) => {
-          const roleModules = permissions[role] || DEFAULT_ROLE_PERMISSIONS[role] || {};
+          const roleModules = {
+            ...(DEFAULT_ROLE_PERMISSIONS[role] || {}),
+            ...(permissions[role] || {}),
+          };
           const isSuper = role === 'Superadmin_Kabupaten';
 
           return (

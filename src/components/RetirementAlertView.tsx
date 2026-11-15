@@ -1,7 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
-import { formatDateIndo } from '../utils/ppdiHelpers';
+import {
+  formatDateIndo,
+  dispatchWhatsAppNotification,
+  isFonnteWebhookActive,
+} from '../utils/ppdiHelpers';
 import {
   ClockAlert,
   AlertTriangle,
@@ -12,6 +16,7 @@ import {
   Calendar,
   Building,
   UserCheck,
+  RefreshCw,
 } from 'lucide-react';
 
 interface RetirementAlertViewProps {
@@ -19,9 +24,11 @@ interface RetirementAlertViewProps {
 }
 
 export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpenDetailModal }) => {
-  const { visibleMembers, updateRiwayatStatus, updateKTAStatus, currentUser } = usePPDI();
+  const { visibleMembers, updateRiwayatStatus, updateKTAStatus, currentUser, appSettings } = usePPDI();
 
   const [activeCategory, setActiveCategory] = useState<'all' | 'kritis' | 'siaga' | 'waspada' | 'sudah'>('all');
+  const [sendingWaMemberId, setSendingWaMemberId] = useState<string | null>(null);
+  const [waFeedback, setWaFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const isKepalaDesaMember = (m: AnggotaFullDetail) => {
     return (
@@ -58,8 +65,8 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
   }, [categorized, activeCategory]);
 
   // Create WhatsApp message template
-  const generateWAMessage = (m: AnggotaFullDetail) => {
-    const text = `*PEMBERITAHUAN MASA PURNA TUGAS PERANGKAT DESA*
+  const buildRetirementWAMessage = (m: AnggotaFullDetail) => {
+    return `*PEMBERITAHUAN MASA PURNA TUGAS PERANGKAT DESA*
 PPDI KABUPATEN BANDUNG
 
 Kepada Yth:
@@ -74,9 +81,25 @@ Berdasarkan UU Desa dan basis data kepegawaian PPDI Kab. Bandung:
 
 Mohon untuk segera mempersiapkan berkas administrasi dan koordinasi bersama BPD serta Pengurus PPDI setempat.
 Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
+  };
 
-    const cleanPhone = m.anggota.no_hp_wa.replace(/^0/, '62').replace(/\D/g, '');
-    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+  const handleSendRetirementWA = async (m: AnggotaFullDetail) => {
+    setSendingWaMemberId(m.anggota.id_anggota);
+    try {
+      const result = await dispatchWhatsAppNotification({
+        phone: m.anggota.no_hp_wa,
+        message: buildRetirementWAMessage(m),
+        recipientName: m.anggota.nama_lengkap,
+        category: 'peringatan-purna-tugas',
+        whatsappSettings: appSettings?.whatsappSettings,
+      });
+      setWaFeedback({
+        type: result.success ? 'success' : 'error',
+        text: result.message,
+      });
+    } finally {
+      setSendingWaMemberId(null);
+    }
   };
 
   const handleProsesPurnaTugas = (m: AnggotaFullDetail) => {
@@ -113,8 +136,36 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
           <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg font-medium">
             Jabatan Kepala Desa Dikecualikan
           </span>
+          <span
+            className={`px-3 py-1.5 rounded-lg font-mono font-semibold border ${
+              isFonnteWebhookActive(appSettings?.whatsappSettings)
+                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                : 'bg-neutral-50 text-neutral-600 border-neutral-200'
+            }`}
+          >
+            {isFonnteWebhookActive(appSettings?.whatsappSettings) ? 'WA: Fonnte Aktif' : 'WA: API wa.me'}
+          </span>
         </div>
       </div>
+
+      {waFeedback && (
+        <div
+          className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+            waFeedback.type === 'success'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'bg-red-50 border-red-300 text-red-900'
+          }`}
+        >
+          <span className="font-medium">{waFeedback.text}</span>
+          <button
+            type="button"
+            onClick={() => setWaFeedback(null)}
+            className="text-xs font-bold underline cursor-pointer shrink-0"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
 
       {/* 4 Categorized Counters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -312,16 +363,26 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* WhatsApp Reminder Blast */}
-                        <a
-                          href={generateWAMessage(m)}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Kirim Pemberitahuan WhatsApp"
-                          className="px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                        <button
+                          type="button"
+                          onClick={() => handleSendRetirementWA(m)}
+                          disabled={sendingWaMemberId === m.anggota.id_anggota}
+                          title={
+                            isFonnteWebhookActive(appSettings?.whatsappSettings)
+                              ? 'Kirim Pemberitahuan WhatsApp via Fonnte Gateway'
+                              : 'Kirim Pemberitahuan WhatsApp via wa.me'
+                          }
+                          className="px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50"
                         >
-                          <Phone className="w-3 h-3 text-emerald-600" />
-                          <span>Notif WA</span>
-                        </a>
+                          {sendingWaMemberId === m.anggota.id_anggota ? (
+                            <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin" />
+                          ) : (
+                            <Phone className="w-3 h-3 text-emerald-600" />
+                          )}
+                          <span>
+                            {sendingWaMemberId === m.anggota.id_anggota ? 'Mengirim...' : 'Notif WA'}
+                          </span>
+                        </button>
 
                         {/* Proses Purna Tugas button */}
                         {currentUser.role !== 'Anggota' && m.statusPensiun !== 'Sudah Purna Tugas' && (

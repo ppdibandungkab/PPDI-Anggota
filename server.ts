@@ -150,6 +150,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'settings-user': { view: true, add: true, edit: true, delete: true },
     'settings-role': { view: true, add: true, edit: true, delete: true },
     'settings-db': { view: true, add: true, edit: true, delete: true },
+    'settings-telemetry': { view: true, add: true, edit: true, delete: true },
+    'settings-whatsapp': { view: true, add: true, edit: true, delete: true },
     'skema': { view: true, add: true, edit: true, delete: true },
   },
   'Admin_Kabupaten': {
@@ -164,6 +166,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: true, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: true, add: true, edit: true, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Admin_Kecamatan': {
@@ -178,6 +182,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: false, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Admin_Desa': {
@@ -192,6 +198,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: false, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
   'Anggota': {
@@ -206,6 +214,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'settings-app': { view: false, add: false, edit: false, delete: false },
     'settings-role': { view: false, add: false, edit: false, delete: false },
     'settings-db': { view: false, add: false, edit: false, delete: false },
+    'settings-telemetry': { view: false, add: false, edit: false, delete: false },
+    'settings-whatsapp': { view: false, add: false, edit: false, delete: false },
     'skema': { view: false, add: false, edit: false, delete: false },
   },
 };
@@ -447,6 +457,15 @@ app.get('/api/proxy-image', async (req, res) => {
 // ====================================================================
 // 1. BACKEND SERVICE & PROXY HANDSHAKE DIAGNOSTICS
 // ====================================================================
+app.get('/api/health', (_req, res) => {
+  return res.json({
+    success: true,
+    status: 'ok',
+    port: Number(PORT),
+    uptimeSeconds: Math.round(process.uptime()),
+  });
+});
+
 app.get('/api/diagnostic', async (req, res) => {
   const mem = process.memoryUsage();
   const dbConfig = getDbConfig();
@@ -703,6 +722,58 @@ app.post('/api/db/save-env', requirePermission('settings-db', 'edit'), async (re
   }
 });
 
+async function ensureWhatsAppTables(conn: any): Promise<void> {
+  // 11. whatsapp_senders (Tabel Penyimpan Konfigurasi & Pengirim WhatsApp)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS \`whatsapp_senders\` (
+      \`id_sender\` INT AUTO_INCREMENT NOT NULL,
+      \`sender_label\` VARCHAR(100) NOT NULL DEFAULT 'Gateway Utama PPDI',
+      \`sender_number\` VARCHAR(30) NOT NULL DEFAULT '',
+      \`provider\` VARCHAR(30) NOT NULL DEFAULT 'fonnte',
+      \`fonnte_token\` VARCHAR(255) NOT NULL DEFAULT '',
+      \`webhook_url\` VARCHAR(500) NULL,
+      \`webhook_secret\` VARCHAR(255) NULL,
+      \`country_code\` VARCHAR(10) NOT NULL DEFAULT '62',
+      \`is_enabled\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`auto_reply_enabled\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`is_default\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id_sender\`),
+      KEY \`idx_wa_sender_number\` (\`sender_number\`),
+      KEY \`idx_wa_sender_default\` (\`is_default\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  // 12. whatsapp_logs (Tabel Log Pengirim, Pesan Keluar/Masuk & Webhook Fonnte)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS \`whatsapp_logs\` (
+      \`id\` VARCHAR(64) NOT NULL,
+      \`timestamp\` VARCHAR(40) NOT NULL,
+      \`direction\` ENUM('outbound', 'inbound', 'status') NOT NULL DEFAULT 'outbound',
+      \`provider\` VARCHAR(30) NOT NULL DEFAULT 'fonnte',
+      \`sender_number\` VARCHAR(30) NULL,
+      \`target_or_sender\` VARCHAR(50) NOT NULL,
+      \`sender_name\` VARCHAR(150) NULL,
+      \`id_anggota\` VARCHAR(36) NULL,
+      \`category\` VARCHAR(50) NULL,
+      \`status\` VARCHAR(30) NOT NULL DEFAULT 'sent',
+      \`message\` TEXT NOT NULL,
+      \`fonnte_id\` VARCHAR(100) NULL,
+      \`batch_id\` VARCHAR(64) NULL,
+      \`raw_payload\` LONGTEXT NULL,
+      \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_wa_logs_created\` (\`created_at\`),
+      KEY \`idx_wa_logs_direction\` (\`direction\`),
+      KEY \`idx_wa_logs_status\` (\`status\`),
+      KEY \`idx_wa_logs_target\` (\`target_or_sender\`),
+      KEY \`idx_wa_logs_fonnte_id\` (\`fonnte_id\`),
+      KEY \`idx_wa_logs_batch_id\` (\`batch_id\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 // Endpoint untuk inisialisasi / sinkronisasi struktur seluruh tabel database PPDI
 app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async (_req, res) => {
   try {
@@ -936,6 +1007,9 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         UPDATE users SET password = ? WHERE username = 'superadmin' AND (password = '' OR password IS NULL)
       `, [defaultAdminPass]);
     }
+
+    // 10 & 11. Tabel WhatsApp Sender & Log Pengirim WhatsApp
+    await ensureWhatsAppTables(conn);
 
     await conn.query('SET FOREIGN_KEY_CHECKS = 1');
     conn.release();
@@ -2769,6 +2843,16 @@ app.delete('/api/pendaftaran/:id', requirePermission('pendaftaran', 'delete'), a
 // ====================================================================
 
 
+const DEFAULT_WHATSAPP_SETTINGS = {
+  enabled: false,
+  senderNumber: process.env.FONNTE_SENDER_NUMBER || '',
+  fonnteToken: process.env.FONNTE_TOKEN || '',
+  webhookUrl: '',
+  webhookSecret: '',
+  autoReplyEnabled: true,
+  countryCode: '62',
+};
+
 const DEFAULT_SETTINGS = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
@@ -2778,37 +2862,46 @@ const DEFAULT_SETTINGS = {
   loginOverlayOpacity: '0.4',
   syncIntervalSeconds: 60,
   rolePermissions: DEFAULT_ROLE_PERMISSIONS,
+  whatsappSettings: DEFAULT_WHATSAPP_SETTINGS,
 };
 
-app.get('/api/settings', (_req, res) => {
+function readSettingsFromDisk(): any {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
       const sanitizedLogo = data.logoUrl && data.logoUrl.includes('wikimedia.org')
         ? '/logo_kabupaten_bandung.svg'
         : (data.logoUrl || DEFAULT_SETTINGS.logoUrl);
-      return res.json({
-        success: true,
-        settings: {
-          ...DEFAULT_SETTINGS,
-          ...data,
-          logoUrl: sanitizedLogo,
-          rolePermissions: (data.rolePermissions && Object.keys(data.rolePermissions).length > 0)
-            ? data.rolePermissions
-            : DEFAULT_ROLE_PERMISSIONS,
+      return {
+        ...DEFAULT_SETTINGS,
+        ...data,
+        logoUrl: sanitizedLogo,
+        rolePermissions: (data.rolePermissions && Object.keys(data.rolePermissions).length > 0)
+          ? data.rolePermissions
+          : DEFAULT_ROLE_PERMISSIONS,
+        whatsappSettings: {
+          ...DEFAULT_WHATSAPP_SETTINGS,
+          ...(data.whatsappSettings || {}),
         },
-      });
+      };
     }
-    return res.json({ success: true, settings: DEFAULT_SETTINGS });
-  } catch (err: any) {
-    return res.json({ success: true, settings: DEFAULT_SETTINGS });
-  }
+  } catch (_) {}
+  return { ...DEFAULT_SETTINGS };
+}
+
+app.get('/api/settings', (_req, res) => {
+  return res.json({ success: true, settings: readSettingsFromDisk() });
 });
 
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toString().trim();
-  const isUpdatingRoles = req.body && req.body.rolePermissions !== undefined;
-  const targetModule = isUpdatingRoles ? 'settings-role' : 'settings-app';
+  const isUpdatingRoles = req.body && req.body.rolePermissions !== undefined && req.body.appName === undefined && req.body.whatsappSettings === undefined;
+  const isUpdatingWhatsapp = req.body && req.body.whatsappSettings !== undefined && req.body.appName === undefined && req.body.rolePermissions === undefined;
+  const targetModule = isUpdatingRoles
+    ? 'settings-role'
+    : isUpdatingWhatsapp
+    ? 'settings-whatsapp'
+    : 'settings-app';
 
   if (userRole && !checkServerPermission(userRole, targetModule, 'edit')) {
     return res.status(403).json({
@@ -2819,12 +2912,983 @@ app.post('/api/settings', (req, res) => {
   }
 
   try {
-    const newSettings = { ...DEFAULT_SETTINGS, ...req.body };
+    const existing = readSettingsFromDisk();
+    const newSettings = {
+      ...existing,
+      ...req.body,
+      whatsappSettings: {
+        ...DEFAULT_WHATSAPP_SETTINGS,
+        ...(existing.whatsappSettings || {}),
+        ...(req.body?.whatsappSettings || {}),
+      },
+    };
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(newSettings, null, 2), 'utf-8');
+    if (newSettings.whatsappSettings) {
+      await syncWhatsAppSenderToDb(newSettings.whatsappSettings);
+    }
     return res.json({ success: true, message: 'Pengaturan aplikasi berhasil disimpan', settings: newSettings });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ====================================================================
+// 9.2. WHATSAPP GATEWAY, DB TABLES & FONNTE WEBHOOK INTEGRATION
+// ====================================================================
+const WHATSAPP_LOGS_FILE = path.resolve(process.cwd(), 'whatsapp_logs.json');
+let whatsappTablesEnsured = false;
+
+interface WhatsAppLogItem {
+  id: string;
+  timestamp: string;
+  direction: 'outbound' | 'inbound' | 'status';
+  provider: 'fonnte' | 'webhook';
+  senderNumber?: string;
+  targetOrSender: string;
+  senderName?: string;
+  idAnggota?: string;
+  category?: string;
+  status: 'sent' | 'delivered' | 'read' | 'failed' | 'received' | 'replied';
+  message: string;
+  fonnteId?: string;
+  batchId?: string;
+  rawPayload?: any;
+}
+
+function readWhatsAppLogs(): WhatsAppLogItem[] {
+  try {
+    if (fs.existsSync(WHATSAPP_LOGS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(WHATSAPP_LOGS_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (_) {}
+  return [];
+}
+
+function writeWhatsAppLogs(logs: WhatsAppLogItem[]): void {
+  try {
+    fs.writeFileSync(WHATSAPP_LOGS_FILE, JSON.stringify(logs.slice(0, 300), null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[WhatsApp Logs] Gagal menulis log ke disk:', err);
+  }
+}
+
+async function ensureWhatsAppTablesLazy(): Promise<boolean> {
+  if (!pool) return false;
+  if (whatsappTablesEnsured) return true;
+  let conn: any = null;
+  try {
+    conn = await pool.getConnection();
+    await ensureWhatsAppTables(conn);
+    whatsappTablesEnsured = true;
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+async function syncWhatsAppSenderToDb(waCfg: typeof DEFAULT_WHATSAPP_SETTINGS): Promise<boolean> {
+  const ready = await ensureWhatsAppTablesLazy();
+  if (!ready || !pool) return false;
+  let conn: any = null;
+  try {
+    conn = await pool.getConnection();
+    const [existingRows]: [any[], any] = await conn.query(
+      'SELECT id_sender FROM whatsapp_senders ORDER BY is_default DESC, id_sender ASC LIMIT 1'
+    );
+    if (existingRows.length > 0) {
+      await conn.query(
+        `UPDATE whatsapp_senders
+         SET sender_number = ?, fonnte_token = ?, webhook_url = ?, webhook_secret = ?,
+             country_code = ?, is_enabled = ?, auto_reply_enabled = ?, is_default = 1
+         WHERE id_sender = ?`,
+        [
+          waCfg.senderNumber || '',
+          waCfg.fonnteToken || '',
+          waCfg.webhookUrl || '',
+          waCfg.webhookSecret || '',
+          waCfg.countryCode || '62',
+          waCfg.enabled ? 1 : 0,
+          waCfg.autoReplyEnabled !== false ? 1 : 0,
+          existingRows[0].id_sender,
+        ]
+      );
+    } else {
+      await conn.query(
+        `INSERT INTO whatsapp_senders
+         (sender_label, sender_number, provider, fonnte_token, webhook_url, webhook_secret, country_code, is_enabled, auto_reply_enabled, is_default)
+         VALUES ('Gateway Utama PPDI', ?, 'fonnte', ?, ?, ?, ?, ?, ?, 1)`,
+        [
+          waCfg.senderNumber || '',
+          waCfg.fonnteToken || '',
+          waCfg.webhookUrl || '',
+          waCfg.webhookSecret || '',
+          waCfg.countryCode || '62',
+          waCfg.enabled ? 1 : 0,
+          waCfg.autoReplyEnabled !== false ? 1 : 0,
+        ]
+      );
+    }
+    return true;
+  } catch (err) {
+    console.warn('[WhatsApp DB] Gagal menyinkronkan whatsapp_senders:', err);
+    return false;
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+async function insertWhatsAppLogToDb(entry: WhatsAppLogItem): Promise<boolean> {
+  const ready = await ensureWhatsAppTablesLazy();
+  if (!ready || !pool) return false;
+  let conn: any = null;
+  try {
+    conn = await pool.getConnection();
+    await conn.query(
+      `INSERT INTO whatsapp_logs
+       (id, timestamp, direction, provider, sender_number, target_or_sender, sender_name, id_anggota, category, status, message, fonnte_id, batch_id, raw_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE status = VALUES(status), raw_payload = VALUES(raw_payload)`,
+      [
+        entry.id,
+        entry.timestamp,
+        entry.direction,
+        entry.provider,
+        entry.senderNumber || null,
+        entry.targetOrSender,
+        entry.senderName || null,
+        entry.idAnggota || null,
+        entry.category || null,
+        entry.status,
+        entry.message,
+        entry.fonnteId || null,
+        entry.batchId || null,
+        entry.rawPayload ? JSON.stringify(entry.rawPayload).slice(0, 65000) : null,
+      ]
+    );
+    return true;
+  } catch (err) {
+    console.warn('[WhatsApp DB] Gagal menyimpan log ke whatsapp_logs:', err);
+    return false;
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+async function readWhatsAppLogsFromDbOrDisk(limit = 200): Promise<{ logs: WhatsAppLogItem[]; source: 'mysql' | 'json_fallback' }> {
+  const ready = await ensureWhatsAppTablesLazy();
+  if (ready && pool) {
+    let conn: any = null;
+    try {
+      conn = await pool.getConnection();
+      const [rows]: [any[], any] = await conn.query(
+        `SELECT id, timestamp, direction, provider, sender_number, target_or_sender, sender_name,
+                id_anggota, category, status, message, fonnte_id, batch_id, raw_payload
+         FROM whatsapp_logs
+         ORDER BY created_at DESC, timestamp DESC
+         LIMIT ?`,
+        [limit]
+      );
+      if (Array.isArray(rows)) {
+        const mapped: WhatsAppLogItem[] = rows.map((r) => {
+          let parsedRaw: any = undefined;
+          if (r.raw_payload) {
+            try {
+              parsedRaw = JSON.parse(r.raw_payload);
+            } catch {
+              parsedRaw = r.raw_payload;
+            }
+          }
+          return {
+            id: r.id,
+            timestamp: r.timestamp,
+            direction: r.direction,
+            provider: r.provider,
+            senderNumber: r.sender_number || undefined,
+            targetOrSender: r.target_or_sender,
+            senderName: r.sender_name || undefined,
+            idAnggota: r.id_anggota || undefined,
+            category: r.category || undefined,
+            status: r.status,
+            message: r.message,
+            fonnteId: r.fonnte_id || undefined,
+            batchId: r.batch_id || undefined,
+            rawPayload: parsedRaw,
+          };
+        });
+        if (mapped.length > 0) {
+          return { logs: mapped, source: 'mysql' };
+        }
+        // Table exists & empty — check if JSON has historical entries
+        const diskLogs = readWhatsAppLogs();
+        if (diskLogs.length === 0) {
+          return { logs: [], source: 'mysql' };
+        }
+      }
+    } catch (_) {
+      // fallback to disk
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+  return { logs: readWhatsAppLogs().slice(0, limit), source: 'json_fallback' };
+}
+
+async function appendWhatsAppLog(entry: Omit<WhatsAppLogItem, 'id' | 'timestamp'>): Promise<WhatsAppLogItem> {
+  const newEntry: WhatsAppLogItem = {
+    id: `wa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    ...entry,
+  };
+  const existing = readWhatsAppLogs();
+  writeWhatsAppLogs([newEntry, ...existing].slice(0, 300));
+  await insertWhatsAppLogToDb(newEntry);
+  return newEntry;
+}
+
+function formatWaPhoneServer(phone?: string | null): string {
+  if (!phone) return '';
+  let clean = String(phone).replace(/\D/g, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.slice(1);
+  } else if (!clean.startsWith('62') && clean.length > 5) {
+    clean = '62' + clean;
+  }
+  return clean;
+}
+
+async function sendFonnteApiMessage(params: {
+  target: string;
+  message: string;
+  token: string;
+  countryCode?: string;
+  senderNumber?: string;
+  recipientName?: string;
+  idAnggota?: string;
+  category?: string;
+  batchId?: string;
+}): Promise<{ ok: boolean; status: number; data: any; logEntry: WhatsAppLogItem }> {
+  const formattedTarget = formatWaPhoneServer(params.target);
+  try {
+    const response = await fetch('https://api.fonnte.com/send', {
+      method: 'POST',
+      headers: {
+        Authorization: params.token.trim(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        target: formattedTarget,
+        message: params.message,
+        countryCode: params.countryCode || '62',
+      }),
+    });
+
+    const rawText = await response.text();
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = { raw: rawText };
+    }
+
+    const isSuccess = response.ok && (parsed.status === true || parsed.status === 'true');
+    const fonnteId = Array.isArray(parsed.id) ? String(parsed.id[0] || '') : parsed.id ? String(parsed.id) : undefined;
+
+    const logEntry = await appendWhatsAppLog({
+      direction: 'outbound',
+      provider: 'fonnte',
+      senderNumber: params.senderNumber || undefined,
+      targetOrSender: formattedTarget,
+      senderName: params.recipientName || undefined,
+      idAnggota: params.idAnggota || undefined,
+      category: params.category || 'notifikasi',
+      status: isSuccess ? 'sent' : 'failed',
+      message: params.message.slice(0, 1200),
+      fonnteId,
+      batchId: params.batchId || undefined,
+      rawPayload: parsed,
+    });
+
+    return { ok: isSuccess, status: response.status, data: parsed, logEntry };
+  } catch (err: any) {
+    const logEntry = await appendWhatsAppLog({
+      direction: 'outbound',
+      provider: 'fonnte',
+      senderNumber: params.senderNumber || undefined,
+      targetOrSender: formattedTarget,
+      senderName: params.recipientName || undefined,
+      idAnggota: params.idAnggota || undefined,
+      category: params.category || 'notifikasi',
+      status: 'failed',
+      message: params.message.slice(0, 1200),
+      batchId: params.batchId || undefined,
+      rawPayload: { error: err?.message || 'Network error' },
+    });
+    return {
+      ok: false,
+      status: 502,
+      data: { status: false, reason: err?.message || 'Gagal menghubungi server API Fonnte' },
+      logEntry,
+    };
+  }
+}
+
+async function lookupMemberForWhatsAppBot(queryRaw: string): Promise<string | null> {
+  const q = queryRaw.trim();
+  if (!q || !pool) return null;
+  try {
+    const conn = await pool.getConnection();
+    const [rows]: [any[], any] = await conn.query(
+      `SELECT a.nama_lengkap, a.nik, k.no_kta, k.status_kta, d.nama_desa, kec.nama_kecamatan, j.nama_jabatan
+       FROM anggota a
+       LEFT JOIN keanggotaan_ppdi k ON a.id_anggota = k.id_anggota
+       LEFT JOIN riwayat_jabatan r ON a.id_anggota = r.id_anggota AND r.status_aktif = 'Aktif'
+       LEFT JOIN ref_desa d ON r.id_desa = d.id_desa
+       LEFT JOIN ref_kecamatan kec ON d.id_kecamatan = kec.id_kecamatan
+       LEFT JOIN ref_jabatan j ON r.id_jabatan = j.id_jabatan
+       WHERE a.nik = ? OR k.no_kta = ?
+       LIMIT 1`,
+      [q, q]
+    );
+    conn.release();
+
+    if (!rows || rows.length === 0) {
+      return `Data anggota dengan NIK/No. KTA *${q}* tidak ditemukan di database PPDI Kab. Bandung.`;
+    }
+    const m = rows[0];
+    return (
+      `*HASIL CEK KEABSAHAN E-KTA PPDI KAB. BANDUNG*\n\n` +
+      `• Nama: *${m.nama_lengkap || '-'}*\n` +
+      `• Jabatan: *${m.nama_jabatan || 'Perangkat Desa'}*\n` +
+      `• Wilayah: *Desa ${m.nama_desa || '-'}, Kec. ${m.nama_kecamatan || '-'}*\n` +
+      `• No. E-KTA: *${m.no_kta || 'Belum Terbit'}*\n` +
+      `• Status KTA: *${(m.status_kta || 'Pending').toUpperCase()}*\n\n` +
+      `_Terverifikasi otomatis melalui Webhook PPDI Kab. Bandung._`
+    );
+  } catch {
+    return null;
+  }
+}
+
+// Check WhatsApp MySQL Tables Status (whatsapp_senders & whatsapp_logs)
+app.get('/api/whatsapp/db-status', async (_req, res) => {
+  const statusResult = {
+    success: true,
+    dbConnected: false,
+    storageMode: 'json_fallback' as 'mysql' | 'json_fallback',
+    tables: {
+      whatsapp_senders: { exists: false, count: 0 },
+      whatsapp_logs: { exists: false, count: 0 },
+    },
+    fallbackLogsCount: readWhatsAppLogs().length,
+  };
+
+  if (!pool) {
+    return res.json(statusResult);
+  }
+
+  let conn: any = null;
+  try {
+    conn = await pool.getConnection();
+    statusResult.dbConnected = true;
+
+    const [senderTbl]: [any[], any] = await conn.query(`SHOW TABLES LIKE 'whatsapp_senders'`);
+    if (senderTbl.length > 0) {
+      statusResult.tables.whatsapp_senders.exists = true;
+      const [cnt]: [any[], any] = await conn.query(`SELECT COUNT(*) AS cnt FROM whatsapp_senders`);
+      statusResult.tables.whatsapp_senders.count = Number(cnt[0]?.cnt || 0);
+    }
+
+    const [logsTbl]: [any[], any] = await conn.query(`SHOW TABLES LIKE 'whatsapp_logs'`);
+    if (logsTbl.length > 0) {
+      statusResult.tables.whatsapp_logs.exists = true;
+      const [cnt]: [any[], any] = await conn.query(`SELECT COUNT(*) AS cnt FROM whatsapp_logs`);
+      statusResult.tables.whatsapp_logs.count = Number(cnt[0]?.cnt || 0);
+    }
+
+    if (statusResult.tables.whatsapp_senders.exists && statusResult.tables.whatsapp_logs.exists) {
+      statusResult.storageMode = 'mysql';
+      whatsappTablesEnsured = true;
+    }
+  } catch (_) {
+    // keep fallback status
+  } finally {
+    if (conn) conn.release();
+  }
+
+  return res.json(statusResult);
+});
+
+// Explicitly Initialize & Sync WhatsApp Tables (whatsapp_senders & whatsapp_logs) in MySQL
+app.post('/api/whatsapp/init-tables', requirePermission('settings-whatsapp', 'edit'), async (_req, res) => {
+  try {
+    const currentPool = createOrGetPool();
+    const conn = await currentPool.getConnection();
+    await ensureWhatsAppTables(conn);
+    conn.release();
+    whatsappTablesEnsured = true;
+
+    const existingSettings = readSettingsFromDisk();
+    const waCfg = existingSettings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+    await syncWhatsAppSenderToDb(waCfg);
+
+    // Migrate historical disk logs into whatsapp_logs table
+    const diskLogs = readWhatsAppLogs();
+    let migratedLogs = 0;
+    for (const item of diskLogs) {
+      const ok = await insertWhatsAppLogToDb(item);
+      if (ok) migratedLogs++;
+    }
+
+    return res.json({
+      success: true,
+      message: `Tabel database MySQL 'whatsapp_senders' dan 'whatsapp_logs' berhasil dibuat/disinkronkan (${migratedLogs} riwayat log tersinkron).`,
+      migratedLogs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Gagal menginisialisasi tabel WhatsApp di database MySQL.',
+    });
+  }
+});
+
+app.get('/api/whatsapp/settings', async (_req, res) => {
+  const settings = readSettingsFromDisk();
+  let waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+
+  // Read from whatsapp_senders if MySQL table exists & has row
+  const ready = await ensureWhatsAppTablesLazy();
+  if (ready && pool) {
+    let conn: any = null;
+    try {
+      conn = await pool.getConnection();
+      const [rows]: [any[], any] = await conn.query(
+        'SELECT * FROM whatsapp_senders ORDER BY is_default DESC, id_sender ASC LIMIT 1'
+      );
+      if (rows.length > 0) {
+        const r = rows[0];
+        waCfg = {
+          enabled: Boolean(r.is_enabled),
+          senderNumber: r.sender_number || '',
+          fonnteToken: r.fonnte_token || '',
+          webhookUrl: r.webhook_url || '',
+          webhookSecret: r.webhook_secret || '',
+          autoReplyEnabled: r.auto_reply_enabled !== undefined ? Boolean(r.auto_reply_enabled) : true,
+          countryCode: r.country_code || '62',
+        };
+      }
+    } catch (_) {
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+
+  return res.json({
+    success: true,
+    whatsappSettings: waCfg,
+  });
+});
+
+app.post('/api/whatsapp/settings', requirePermission('settings-whatsapp', 'edit'), async (req, res) => {
+  try {
+    const existing = readSettingsFromDisk();
+    const incomingWa = req.body?.whatsappSettings || req.body || {};
+    const mergedWa = {
+      ...DEFAULT_WHATSAPP_SETTINGS,
+      ...(existing.whatsappSettings || {}),
+      enabled: Boolean(incomingWa.enabled),
+      senderNumber: String(incomingWa.senderNumber || '').trim(),
+      fonnteToken: String(incomingWa.fonnteToken || '').trim(),
+      webhookUrl: String(incomingWa.webhookUrl || '').trim(),
+      webhookSecret: String(incomingWa.webhookSecret || '').trim(),
+      autoReplyEnabled: incomingWa.autoReplyEnabled !== undefined ? Boolean(incomingWa.autoReplyEnabled) : true,
+      countryCode: String(incomingWa.countryCode || '62').trim() || '62',
+    };
+    const nextSettings = {
+      ...existing,
+      whatsappSettings: mergedWa,
+    };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(nextSettings, null, 2), 'utf-8');
+    const dbSynced = await syncWhatsAppSenderToDb(mergedWa);
+    return res.json({
+      success: true,
+      dbSynced,
+      message: dbSynced
+        ? 'Pengaturan WhatsApp & Webhook Fonnte berhasil disimpan ke database (whatsapp_senders) dan server.'
+        : 'Pengaturan WhatsApp & Webhook Fonnte berhasil disimpan ke konfigurasi server.',
+      whatsappSettings: mergedWa,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Send WhatsApp Notification via Fonnte Gateway
+app.post('/api/whatsapp/send', async (req, res) => {
+  const {
+    target,
+    message,
+    recipientName,
+    idAnggota,
+    category,
+    batchId,
+    senderNumber,
+    token: overrideToken,
+    countryCode,
+  } = req.body || {};
+  const settings = readSettingsFromDisk();
+  const waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+  const activeToken = String(overrideToken || waCfg.fonnteToken || '').trim();
+
+  if (!waCfg.enabled && !overrideToken) {
+    return res.status(400).json({
+      success: false,
+      fallbackWaMe: true,
+      message: 'Webhook / Gateway Fonnte sedang nonaktif. Gunakan API wa.me standar.',
+    });
+  }
+
+  if (!activeToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'Token API Fonnte belum diisi pada Menu Pengaturan -> Setting WhatsApp (Fonnte).',
+    });
+  }
+
+  if (!target || !message) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nomor tujuan (target) dan isi pesan (message) wajib diisi.',
+    });
+  }
+
+  const result = await sendFonnteApiMessage({
+    target: String(target),
+    message: String(message),
+    token: activeToken,
+    countryCode: String(countryCode || waCfg.countryCode || '62'),
+    senderNumber: String(senderNumber || waCfg.senderNumber || ''),
+    recipientName,
+    idAnggota,
+    category,
+    batchId,
+  });
+
+  if (result.ok) {
+    return res.json({
+      success: true,
+      mode: 'fonnte',
+      message: `Pesan WhatsApp berhasil dikirim via Fonnte ke ${formatWaPhoneServer(target)}.`,
+      data: result.data,
+      logEntry: result.logEntry,
+    });
+  }
+
+  return res.status(400).json({
+    success: false,
+    mode: 'fonnte',
+    message: result.data?.reason || result.data?.detail || 'Fonnte menolak atau gagal mengirim pesan.',
+    data: result.data,
+    logEntry: result.logEntry,
+  });
+});
+
+// Bulk Send WhatsApp Notifications via Fonnte Gateway
+app.post('/api/whatsapp/send-bulk', requirePermission('anggota', 'view'), async (req, res) => {
+  const { items, category, batchId: incomingBatchId, delayMs = 250 } = req.body || {};
+  const settings = readSettingsFromDisk();
+  const waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+  const activeToken = String(waCfg.fonnteToken || '').trim();
+
+  if (!waCfg.enabled || !activeToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'Gateway Fonnte belum aktif atau Token Fonnte belum dikonfigurasi di Pengaturan -> Setting WhatsApp (Fonnte).',
+    });
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Daftar penerima pesan massal tidak boleh kosong.',
+    });
+  }
+
+  const batchId = String(incomingBatchId || `batch_${Date.now()}`);
+  const results: Array<{
+    idAnggota?: string;
+    target: string;
+    recipientName?: string;
+    success: boolean;
+    message: string;
+    fonnteId?: string;
+  }> = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const cleanTarget = formatWaPhoneServer(item?.target);
+    if (!cleanTarget || cleanTarget.length < 8) {
+      results.push({
+        idAnggota: item?.idAnggota,
+        target: String(item?.target || ''),
+        recipientName: item?.recipientName,
+        success: false,
+        message: 'Nomor WhatsApp tidak valid / kosong',
+      });
+      continue;
+    }
+
+    const sendRes = await sendFonnteApiMessage({
+      target: cleanTarget,
+      message: String(item?.message || ''),
+      token: activeToken,
+      countryCode: waCfg.countryCode || '62',
+      senderNumber: waCfg.senderNumber || '',
+      recipientName: item?.recipientName,
+      idAnggota: item?.idAnggota,
+      category: String(item?.category || category || 'notifikasi-massal'),
+      batchId,
+    });
+
+    results.push({
+      idAnggota: item?.idAnggota,
+      target: cleanTarget,
+      recipientName: item?.recipientName,
+      success: sendRes.ok,
+      message: sendRes.ok
+        ? 'Terkirim via Fonnte'
+        : sendRes.data?.reason || sendRes.data?.detail || 'Gagal mengirim pesan',
+      fonnteId: sendRes.logEntry.fonnteId,
+    });
+
+    if (i < items.length - 1 && Number(delayMs) > 0) {
+      await new Promise((r) => setTimeout(r, Math.min(Number(delayMs), 1500)));
+    }
+  }
+
+  const sentCount = results.filter((r) => r.success).length;
+  const failedCount = results.length - sentCount;
+
+  return res.json({
+    success: sentCount > 0,
+    batchId,
+    total: results.length,
+    sentCount,
+    failedCount,
+    message: `Pengiriman massal selesai: ${sentCount} berhasil, ${failedCount} gagal.`,
+    results,
+  });
+});
+
+// Test Fonnte Device Status and/or Send Test Message
+app.post('/api/whatsapp/test', requirePermission('settings-whatsapp', 'edit'), async (req, res) => {
+  const settings = readSettingsFromDisk();
+  const waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+  const token = String(req.body?.fonnteToken || waCfg.fonnteToken || '').trim();
+  const testTarget = String(req.body?.testTarget || '').trim();
+  const testMessage = String(
+    req.body?.testMessage ||
+      `[UJI KONEKSI FONNTE] Halo! Notifikasi Gateway WhatsApp PPDI Kabupaten Bandung aktif & terhubung (${new Date().toLocaleString('id-ID')}).`
+  );
+
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      message: 'Token API Fonnte wajib diisi untuk menguji koneksi device.',
+    });
+  }
+
+  try {
+    // 1. Check device status on Fonnte API
+    const deviceRes = await fetch('https://api.fonnte.com/device', {
+      method: 'POST',
+      headers: {
+        Authorization: token,
+      },
+    });
+    const deviceText = await deviceRes.text();
+    let deviceJson: any = {};
+    try {
+      deviceJson = JSON.parse(deviceText);
+    } catch {
+      deviceJson = { raw: deviceText };
+    }
+
+    if (!testTarget) {
+      const ok = deviceRes.ok && (deviceJson.status === true || deviceJson.device_status === 'connect');
+      return res.status(ok ? 200 : 400).json({
+        success: ok,
+        device: deviceJson,
+        message: ok
+          ? `Device Fonnte terhubung (${deviceJson.device || deviceJson.name || 'Connected'}).`
+          : deviceJson.reason || 'Token tidak valid atau device Fonnte belum tersambung.',
+      });
+    }
+
+    // 2. If testTarget is provided, send real test message via Fonnte
+    const sendResult = await sendFonnteApiMessage({
+      target: testTarget,
+      message: testMessage,
+      token,
+      countryCode: waCfg.countryCode || '62',
+      senderNumber: waCfg.senderNumber || '',
+      recipientName: 'Uji Coba Admin',
+      category: 'test_gateway',
+    });
+
+    return res.status(sendResult.ok ? 200 : 400).json({
+      success: sendResult.ok,
+      device: deviceJson,
+      data: sendResult.data,
+      logEntry: sendResult.logEntry,
+      message: sendResult.ok
+        ? `Pesan uji coba berhasil dikirim via Fonnte ke ${formatWaPhoneServer(testTarget)}.`
+        : sendResult.data?.reason || 'Gagal mengirim pesan uji coba via Fonnte.',
+    });
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      message: err?.message || 'Gagal menghubungi API Fonnte (api.fonnte.com).',
+    });
+  }
+});
+
+// Complete Fonnte Webhook Receiver (GET verification + POST incoming/status callbacks)
+app.get('/api/webhook/fonnte', (_req, res) => {
+  const settings = readSettingsFromDisk();
+  const waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+  return res.json({
+    success: true,
+    status: 'ready',
+    service: 'PPDI Kab. Bandung - Fonnte Webhook Receiver',
+    webhookEnabled: Boolean(waCfg.enabled),
+    autoReplyEnabled: Boolean(waCfg.autoReplyEnabled),
+    senderNumber: waCfg.senderNumber || '',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+async function handleFonnteWebhookPayload(
+  payload: Record<string, any>,
+  headers: Record<string, any>,
+  query: Record<string, any>
+): Promise<{ status: number; body: any }> {
+  const settings = readSettingsFromDisk();
+  const waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+
+  // Optional secret validation if webhookSecret is configured
+  const configuredSecret = (waCfg.webhookSecret || '').trim();
+  if (configuredSecret) {
+    const providedSecret = String(
+      query.secret ||
+        headers['x-webhook-secret'] ||
+        headers['x-fonnte-secret'] ||
+        payload.secret ||
+        ''
+    ).trim();
+    if (providedSecret !== configuredSecret) {
+      return {
+        status: 401,
+        body: { status: false, success: false, message: 'Webhook secret tidak cocok' },
+      };
+    }
+  }
+
+  // Extract common Fonnte webhook fields (supports incoming chat & delivery status callbacks)
+  const sender = String(payload.sender || payload.pengirim || payload.target || payload.from || '').trim();
+  const senderName = String(payload.name || payload.pushname || '').trim();
+  const messageText = String(payload.message || payload.text || '').trim();
+  const fonnteId = payload.id ? String(payload.id) : undefined;
+  const stateVal = String(payload.state || payload.status || payload.stateid || '').trim().toLowerCase();
+  const mediaUrl = payload.url ? String(payload.url) : '';
+  const device = String(payload.device || waCfg.senderNumber || '').trim();
+  const isGroup = Boolean(payload.isgroup === true || payload.isgroup === 'true' || payload.isgroup === 1);
+
+  // Case A: Delivery / Message Status Callback from Fonnte (no incoming message body, has id/state/status)
+  if (!messageText && (stateVal || payload.stateid !== undefined) && (fonnteId || sender)) {
+    const mappedStatus: WhatsAppLogItem['status'] =
+      stateVal.includes('read')
+        ? 'read'
+        : stateVal.includes('deliver') || stateVal === '2'
+        ? 'delivered'
+        : stateVal.includes('fail') || stateVal.includes('invalid') || stateVal === '0'
+        ? 'failed'
+        : 'sent';
+
+    const logs = readWhatsAppLogs();
+    let updatedExisting = false;
+    const nextLogs = logs.map((item) => {
+      if (fonnteId && item.fonnteId && item.fonnteId === fonnteId && item.direction === 'outbound') {
+        updatedExisting = true;
+        return { ...item, status: mappedStatus };
+      }
+      return item;
+    });
+    if (updatedExisting) {
+      writeWhatsAppLogs(nextLogs);
+    }
+
+    if (fonnteId && pool && (await ensureWhatsAppTablesLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        const [updRes]: [any, any] = await conn.query(
+          `UPDATE whatsapp_logs SET status = ? WHERE fonnte_id = ? AND direction = 'outbound'`,
+          [mappedStatus, fonnteId]
+        );
+        if (updRes?.affectedRows > 0) updatedExisting = true;
+        conn.release();
+      } catch (_) {}
+    }
+
+    const statusLog = await appendWhatsAppLog({
+      direction: 'status',
+      provider: 'webhook',
+      senderNumber: device || undefined,
+      targetOrSender: sender || device || 'fonnte-status',
+      senderName: senderName || undefined,
+      category: 'delivery_status',
+      status: mappedStatus,
+      message: `Status pengiriman Fonnte: ${stateVal || mappedStatus}${payload.note ? ` (${payload.note})` : ''}`,
+      fonnteId,
+      rawPayload: payload,
+    });
+
+    return {
+      status: 200,
+      body: { status: true, success: true, type: 'status_callback', updatedExisting, logEntry: statusLog },
+    };
+  }
+
+  // Case B: Incoming WhatsApp Message from Fonnte
+  const inboundSummary = messageText
+    ? messageText
+    : mediaUrl
+    ? `[Lampiran Media] ${payload.filename || mediaUrl}`
+    : '[Webhook Event Diterima]';
+
+  const inboundLog = await appendWhatsAppLog({
+    direction: 'inbound',
+    provider: 'webhook',
+    senderNumber: device || undefined,
+    targetOrSender: sender || device || 'unknown',
+    senderName: senderName || undefined,
+    category: isGroup ? 'group_message' : 'incoming_message',
+    status: 'received',
+    message: inboundSummary.slice(0, 1200),
+    fonnteId,
+    rawPayload: payload,
+  });
+
+  // Optional Auto-Reply Bot for private messages when webhook & autoReplyEnabled are active
+  let autoReplyText: string | null = null;
+  if (waCfg.enabled && waCfg.autoReplyEnabled && sender && messageText && !isGroup) {
+    const upper = messageText.trim().toUpperCase();
+    if (upper === 'INFO' || upper === 'MENU' || upper === 'HELP' || upper === 'PPDI') {
+      autoReplyText =
+        `*PORTAL WHATSAPP RESMI PPDI KABUPATEN BANDUNG*\n\n` +
+        `Ketik perintah berikut untuk layanan otomatis:\n` +
+        `• *CEK <NIK / No. KTA>* — Cek status keabsahan E-KTA anggota\n` +
+        `• *INFO* — Menampilkan menu layanan ini\n\n` +
+        `_Terima kasih telah menghubungi Pengurus Daerah PPDI Kab. Bandung._`;
+    } else if (upper.startsWith('CEK ') || upper.startsWith('KTA ')) {
+      const keyword = messageText.trim().slice(4).trim();
+      if (keyword) {
+        autoReplyText = await lookupMemberForWhatsAppBot(keyword);
+      }
+    }
+
+    if (autoReplyText && waCfg.fonnteToken?.trim()) {
+      await sendFonnteApiMessage({
+        target: sender,
+        message: autoReplyText,
+        token: waCfg.fonnteToken,
+        countryCode: waCfg.countryCode || '62',
+        senderNumber: waCfg.senderNumber || '',
+        recipientName: senderName || sender,
+        category: 'auto_reply',
+      });
+    }
+  }
+
+  return {
+    status: 200,
+    body: {
+      status: true,
+      success: true,
+      type: 'incoming_message',
+      logEntry: inboundLog,
+      autoReplied: Boolean(autoReplyText),
+      reply: autoReplyText || undefined,
+    },
+  };
+}
+
+app.post('/api/webhook/fonnte', async (req, res) => {
+  try {
+    const result = await handleFonnteWebhookPayload(
+      (req.body || {}) as Record<string, any>,
+      req.headers as Record<string, any>,
+      req.query as Record<string, any>
+    );
+    return res.status(result.status).json(result.body);
+  } catch (err: any) {
+    console.error('[Fonnte Webhook Error]:', err);
+    return res.status(200).json({
+      status: true,
+      success: false,
+      error: err?.message || 'Internal webhook error',
+    });
+  }
+});
+
+// Local Webhook Simulation Endpoint (for Testing from Settings Page)
+app.post('/api/whatsapp/webhook-test', requirePermission('settings-whatsapp', 'edit'), async (req, res) => {
+  const settings = readSettingsFromDisk();
+  const waCfg = settings.whatsappSettings || DEFAULT_WHATSAPP_SETTINGS;
+  const mockPayload = {
+    device: waCfg.senderNumber || '6281200000000',
+    sender: req.body?.sender || '6281234567890',
+    name: req.body?.name || 'Simulasi Perangkat Desa',
+    message: req.body?.message || 'INFO',
+    timestamp: Math.floor(Date.now() / 1000),
+    simulated: true,
+  };
+  const result = await handleFonnteWebhookPayload(
+    mockPayload,
+    req.headers as Record<string, any>,
+    { secret: waCfg.webhookSecret || '' }
+  );
+  return res.status(result.status).json({
+    ...result.body,
+    message: 'Simulasi payload webhook Fonnte berhasil diproses dan dicatat di Log Webhook.',
+  });
+});
+
+app.get('/api/whatsapp/logs', async (_req, res) => {
+  const { logs, source } = await readWhatsAppLogsFromDbOrDisk(200);
+  return res.json({
+    success: true,
+    source,
+    logs,
+  });
+});
+
+app.delete('/api/whatsapp/logs', requirePermission('settings-whatsapp', 'delete'), async (_req, res) => {
+  writeWhatsAppLogs([]);
+  if (pool && (await ensureWhatsAppTablesLazy())) {
+    try {
+      const conn = await pool.getConnection();
+      await conn.query('TRUNCATE TABLE whatsapp_logs');
+      conn.release();
+    } catch (_) {}
+  }
+  return res.json({
+    success: true,
+    message: 'Seluruh riwayat log WhatsApp & Webhook Fonnte berhasil dibersihkan.',
+  });
 });
 
 // ====================================================================
@@ -3114,29 +4178,52 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production' && isCompiledBundle;
 
   if (!isProduction) {
-    try {
-      const { createServer: createViteServer } = await import('vite');
-      const vite = await createViteServer({
-        server: {
-          middlewareMode: true,
-          hmr: false,
-          proxy: {},
-        },
-        appType: 'spa',
+    let viteMiddleware: express.RequestHandler | null = null;
+    let viteFailed = false;
+
+    const viteReadyPromise = import('vite')
+      .then(({ createServer: createViteServer }) =>
+        createViteServer({
+          server: {
+            middlewareMode: true,
+            hmr: false,
+            watch: null,
+            proxy: {},
+          },
+          appType: 'spa',
+        })
+      )
+      .then((vite) => {
+        viteMiddleware = vite.middlewares;
+        console.log('[Server] Vite middleware mode aktif untuk development.');
+      })
+      .catch((viteErr) => {
+        console.warn('[Server] Gagal memuat Vite middleware, beralih ke static hosting:', viteErr);
+        viteFailed = true;
       });
-      app.use(vite.middlewares);
-      console.log('[Server] Vite middleware mode aktif untuk development.');
-    } catch (viteErr) {
-      console.warn('[Server] Gagal memuat Vite middleware, beralih ke static hosting:', viteErr);
-      if (hasDist) {
-        app.use(express.static(activeDistPath));
-        app.get('*', (req, res) => {
-          if (req.originalUrl.startsWith('/api') || req.path.startsWith('/api')) {
-            return res.status(404).json({ success: false, error: 'API_ENDPOINT_NOT_FOUND' });
-          }
-          res.sendFile(path.join(activeDistPath, 'index.html'));
-        });
+
+    app.use(async (req, res, next) => {
+      if (!viteMiddleware && !viteFailed) {
+        await viteReadyPromise;
       }
+      if (viteMiddleware) {
+        return viteMiddleware(req, res, next);
+      }
+      return next();
+    });
+
+    if (hasDist) {
+      app.use((req, res, next) => {
+        if (!viteFailed) return next();
+        return express.static(activeDistPath)(req, res, next);
+      });
+      app.get('*', (req, res, next) => {
+        if (!viteFailed) return next();
+        if (req.originalUrl.startsWith('/api') || req.path.startsWith('/api')) {
+          return res.status(404).json({ success: false, error: 'API_ENDPOINT_NOT_FOUND' });
+        }
+        return res.sendFile(path.join(activeDistPath, 'index.html'));
+      });
     }
   } else {
     console.log(`[Server] Production mode aktif. Menyajikan dist dari: ${activeDistPath}`);

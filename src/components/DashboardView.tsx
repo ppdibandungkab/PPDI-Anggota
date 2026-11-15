@@ -1,6 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
-import { formatRupiah, formatDateIndo } from '../utils/ppdiHelpers';
+import {
+  formatRupiah,
+  formatDateIndo,
+  dispatchWhatsAppNotification,
+  isFonnteWebhookActive,
+} from '../utils/ppdiHelpers';
 import { exportStatistikWilayahToPDF, WilayahStatRow } from '../utils/pdfWilayahExport';
 import { exportMonthlyReportToPDF } from '../utils/pdfMonthlyReportExport';
 import { AnggotaFullDetail } from '../types/ppdi';
@@ -106,6 +111,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     iuranList,
     setActiveTab,
     hasPermission,
+    appSettings,
   } = usePPDI();
 
   // Regional Filter State for Recharts Data Visualization
@@ -130,6 +136,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     window.setTimeout(() => {
       setActionToast((prev) => (prev?.message === message ? null : prev));
     }, 5500);
+  };
+
+  const [sendingWaId, setSendingWaId] = useState<string | null>(null);
+
+  const handleSendDashboardWA = async (params: {
+    idAnggota: string;
+    phone: string;
+    name: string;
+    message: string;
+  }) => {
+    setSendingWaId(params.idAnggota);
+    try {
+      const result = await dispatchWhatsAppNotification({
+        phone: params.phone,
+        message: params.message,
+        recipientName: params.name,
+        category: 'peringatan-purna-tugas',
+        whatsappSettings: appSettings?.whatsappSettings,
+      });
+      showActionToast(
+        result.mode === 'fonnte' ? 'WhatsApp Fonnte Gateway' : 'WhatsApp API (wa.me)',
+        result.message
+      );
+    } finally {
+      setSendingWaId(null);
+    }
   };
 
   // Filtered desa list based on selected kecamatan
@@ -873,17 +905,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
                     <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-[11px] font-mono text-neutral-600">
                       <span>Purna: {formatDateIndo(tglPurnaIso)}</span>
                       {m.anggota.no_hp_wa && (
-                        <a
-                          href={`https://wa.me/${m.anggota.no_hp_wa.replace(/\D/g, '')}?text=${encodeURIComponent(
-                            `Yth. ${m.anggota.nama_lengkap}, pengingat otomatis PPDI Kab. Bandung: masa purna tugas Anda tersisa ${sisaBulan} bulan lagi. Mohon koordinasi kelengkapan berkas dengan Pengurus Kecamatan/Desa.`
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-700 font-bold hover:underline flex items-center gap-1 font-sans"
+                        <button
+                          type="button"
+                          disabled={sendingWaId === m.anggota.id_anggota}
+                          onClick={() =>
+                            handleSendDashboardWA({
+                              idAnggota: m.anggota.id_anggota,
+                              phone: m.anggota.no_hp_wa,
+                              name: m.anggota.nama_lengkap,
+                              message: `Yth. ${m.anggota.nama_lengkap}, pengingat otomatis PPDI Kab. Bandung: masa purna tugas Anda tersisa ${sisaBulan} bulan lagi. Mohon koordinasi kelengkapan berkas dengan Pengurus Kecamatan/Desa.`,
+                            })
+                          }
+                          title={
+                            isFonnteWebhookActive(appSettings?.whatsappSettings)
+                              ? 'Kirim pengingat WhatsApp via Fonnte'
+                              : 'Hubungi via WhatsApp (wa.me)'
+                          }
+                          className="text-emerald-700 font-bold hover:underline flex items-center gap-1 font-sans cursor-pointer disabled:opacity-50"
                         >
                           <Phone className="w-3 h-3" />
-                          <span>Hubungi WA</span>
-                        </a>
+                          <span>{sendingWaId === m.anggota.id_anggota ? 'Mengirim...' : 'Hubungi WA'}</span>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1033,16 +1075,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
                       <div className="mt-2.5 pt-2 border-t border-neutral-200/60 flex items-center justify-between text-[11px] text-neutral-600 font-mono">
                         <span>Purna: {formatDateIndo(m.anggota.tanggal_lahir ? new Date(new Date(m.anggota.tanggal_lahir).setFullYear(new Date(m.anggota.tanggal_lahir).getFullYear() + 60)).toISOString() : undefined)}</span>
                         {m.anggota.no_hp_wa && (
-                          <a
-                            href={`https://wa.me/${m.anggota.no_hp_wa.replace(/\D/g, '')}?text=${encodeURIComponent(`Halo ${m.anggota.nama_lengkap}, pemberitahuan resmi PPDI Kab. Bandung mengenai persiapan berkas purna tugas (${sisaTotalBulan} bulan ke depan).`)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-emerald-700 font-bold hover:underline flex items-center gap-1 font-sans"
-                            title="Kirim Pesan WhatsApp Pengingat"
+                          <button
+                            type="button"
+                            disabled={sendingWaId === m.anggota.id_anggota}
+                            onClick={() =>
+                              handleSendDashboardWA({
+                                idAnggota: m.anggota.id_anggota,
+                                phone: m.anggota.no_hp_wa,
+                                name: m.anggota.nama_lengkap,
+                                message: `Halo ${m.anggota.nama_lengkap}, pemberitahuan resmi PPDI Kab. Bandung mengenai persiapan berkas purna tugas (${sisaTotalBulan} bulan ke depan).`,
+                              })
+                            }
+                            className="text-emerald-700 font-bold hover:underline flex items-center gap-1 font-sans cursor-pointer disabled:opacity-50"
+                            title={
+                              isFonnteWebhookActive(appSettings?.whatsappSettings)
+                                ? 'Kirim Pesan WhatsApp Pengingat via Fonnte'
+                                : 'Kirim Pesan WhatsApp Pengingat (wa.me)'
+                            }
                           >
                             <Phone className="w-3 h-3 text-emerald-600" />
-                            <span>WA</span>
-                          </a>
+                            <span>{sendingWaId === m.anggota.id_anggota ? 'Mengirim...' : 'WA'}</span>
+                          </button>
                         )}
                       </div>
                     </div>
