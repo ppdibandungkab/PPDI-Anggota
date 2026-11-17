@@ -1131,7 +1131,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                   )}
                 </div>
 
-                <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-2 gap-2">
+                <div className="sm:col-span-3 grid grid-cols-3 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-neutral-700 font-medium mb-1">Gelar Depan</label>
                     <input
