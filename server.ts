@@ -379,7 +379,8 @@ app.get('/api/uploads/list', (_req, res) => {
             sizeBytes: stat.size,
             mtime: stat.mtime,
           };
-        });
+        })
+        .sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
     };
 
     const fotoFiles = listFiles(FOTO_DIR, 'foto');
@@ -774,6 +775,17 @@ async function ensureWhatsAppTables(conn: any): Promise<void> {
   `);
 }
 
+async function ensureAppSettingsTable(conn: any): Promise<void> {
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS \`app_settings\` (
+      \`setting_key\` VARCHAR(64) NOT NULL,
+      \`setting_value\` LONGTEXT NOT NULL,
+      \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`setting_key\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 // Endpoint untuk inisialisasi / sinkronisasi struktur seluruh tabel database PPDI
 app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async (_req, res) => {
   try {
@@ -1008,8 +1020,9 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
       `, [defaultAdminPass]);
     }
 
-    // 10 & 11. Tabel WhatsApp Sender & Log Pengirim WhatsApp
+    // 10, 11 & 12. Tabel WhatsApp Sender, Log Pengirim WhatsApp, dan App Settings
     await ensureWhatsAppTables(conn);
+    await ensureAppSettingsTable(conn);
 
     await conn.query('SET FOREIGN_KEY_CHECKS = 1');
     conn.release();
@@ -1078,19 +1091,41 @@ app.get('/api/anggota', async (_req, res) => {
       ORDER BY a.created_at DESC, a.id_anggota ASC
     `);
 
-    const [riwayatRows]: [any[], any] = await conn.query(`
-      SELECT 
-        id_riwayat,
-        id_anggota,
-        id_desa,
-        id_jabatan,
-        no_sk_pengangkatan,
-        DATE_FORMAT(tgl_sk_pengangkatan, '%Y-%m-%d') as tgl_sk_pengangkatan,
-        DATE_FORMAT(tmt_jabatan, '%Y-%m-%d') as tmt_jabatan,
-        status_aktif,
-        file_sk
-      FROM riwayat_jabatan
-    `);
+    let riwayatRows: any[] = [];
+    try {
+      const [rows]: [any[], any] = await conn.query(`
+        SELECT 
+          id_riwayat,
+          id_anggota,
+          id_desa,
+          id_jabatan,
+          no_sk_pengangkatan,
+          DATE_FORMAT(tgl_sk_pengangkatan, '%Y-%m-%d') as tgl_sk_pengangkatan,
+          DATE_FORMAT(tmt_jabatan, '%Y-%m-%d') as tmt_jabatan,
+          status_aktif,
+          file_sk,
+          created_at
+        FROM riwayat_jabatan
+        ORDER BY created_at DESC, tgl_sk_pengangkatan DESC, id_riwayat DESC
+      `);
+      riwayatRows = rows;
+    } catch {
+      const [rows]: [any[], any] = await conn.query(`
+        SELECT 
+          id_riwayat,
+          id_anggota,
+          id_desa,
+          id_jabatan,
+          no_sk_pengangkatan,
+          DATE_FORMAT(tgl_sk_pengangkatan, '%Y-%m-%d') as tgl_sk_pengangkatan,
+          DATE_FORMAT(tmt_jabatan, '%Y-%m-%d') as tmt_jabatan,
+          status_aktif,
+          file_sk
+        FROM riwayat_jabatan
+        ORDER BY tgl_sk_pengangkatan DESC, id_riwayat DESC
+      `);
+      riwayatRows = rows;
+    }
 
     const [ktaRows]: [any[], any] = await conn.query(`
       SELECT 
@@ -1685,18 +1720,20 @@ app.delete('/api/anggota/:id', requirePermission('anggota', 'delete'), async (re
 // 4. RIWAYAT JABATAN & MUTASI
 // ====================================================================
 app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) => {
-  const { id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk } = req.body;
+  const { id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, keterangan } = req.body;
 
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
 
     const validDesaId = await resolveDesaId(conn, id_desa);
+    const newIdRiwayat = crypto.randomUUID();
 
     await conn.query(
-      `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, keterangan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        newIdRiwayat,
         id_anggota,
         validDesaId,
         id_jabatan || 2,
@@ -1705,11 +1742,12 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
         tmt_jabatan,
         status_aktif || 'Aktif',
         file_sk || null,
+        keterangan || null,
       ]
     );
 
     conn.release();
-    return res.json({ success: true, message: 'Riwayat mutasi/jabatan berhasil disimpan di MySQL' });
+    return res.json({ success: true, id_riwayat: newIdRiwayat, message: 'Riwayat mutasi/jabatan berhasil disimpan di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -2857,6 +2895,10 @@ const DEFAULT_SETTINGS = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
   logoUrl: '/logo_kabupaten_bandung.svg',
+  watermarkLogoUrl: '',
+  watermarkOpacity: 0.09,
+  watermarkOpacityFront: 0.09,
+  watermarkOpacityBack: 0.07,
   loginBackgroundType: 'preset_emerald', // 'preset_emerald' | 'gradient_mesh' | 'custom_image' | 'dark_slate'
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
@@ -2865,32 +2907,88 @@ const DEFAULT_SETTINGS = {
   whatsappSettings: DEFAULT_WHATSAPP_SETTINGS,
 };
 
+function mergeSettingsWithDefaults(data: any): any {
+  const { success: _s, settings: _st, ...cleanData } = data || {};
+  const sanitizedLogo = cleanData?.logoUrl && String(cleanData.logoUrl).includes('wikimedia.org')
+    ? '/logo_kabupaten_bandung.svg'
+    : (cleanData?.logoUrl || DEFAULT_SETTINGS.logoUrl);
+  return {
+    ...DEFAULT_SETTINGS,
+    ...cleanData,
+    logoUrl: sanitizedLogo,
+    rolePermissions: (cleanData?.rolePermissions && Object.keys(cleanData.rolePermissions).length > 0)
+      ? cleanData.rolePermissions
+      : DEFAULT_ROLE_PERMISSIONS,
+    whatsappSettings: {
+      ...DEFAULT_WHATSAPP_SETTINGS,
+      ...(cleanData?.whatsappSettings || {}),
+    },
+  };
+}
+
 function readSettingsFromDisk(): any {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
-      const sanitizedLogo = data.logoUrl && data.logoUrl.includes('wikimedia.org')
-        ? '/logo_kabupaten_bandung.svg'
-        : (data.logoUrl || DEFAULT_SETTINGS.logoUrl);
-      return {
-        ...DEFAULT_SETTINGS,
-        ...data,
-        logoUrl: sanitizedLogo,
-        rolePermissions: (data.rolePermissions && Object.keys(data.rolePermissions).length > 0)
-          ? data.rolePermissions
-          : DEFAULT_ROLE_PERMISSIONS,
-        whatsappSettings: {
-          ...DEFAULT_WHATSAPP_SETTINGS,
-          ...(data.whatsappSettings || {}),
-        },
-      };
+      return mergeSettingsWithDefaults(data);
     }
   } catch (_) {}
   return { ...DEFAULT_SETTINGS };
 }
 
-app.get('/api/settings', (_req, res) => {
-  return res.json({ success: true, settings: readSettingsFromDisk() });
+async function readSettingsFromDbOrDisk(): Promise<any> {
+  const diskSettings = readSettingsFromDisk();
+  try {
+    const activePool = createOrGetPool();
+    if (!activePool) return diskSettings;
+    const conn = await activePool.getConnection();
+    try {
+      await ensureAppSettingsTable(conn);
+      const [rows]: [any[], any] = await conn.query(
+        'SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1',
+        ['global']
+      );
+      if (rows && rows.length > 0 && rows[0].setting_value) {
+        const parsed = JSON.parse(rows[0].setting_value);
+        const merged = mergeSettingsWithDefaults(parsed);
+        return merged;
+      } else {
+        // Seed DB once from disk settings
+        await conn.query(
+          'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+          ['global', JSON.stringify(diskSettings)]
+        );
+      }
+    } finally {
+      conn.release();
+    }
+  } catch (_) {}
+  return diskSettings;
+}
+
+async function saveSettingsToDb(settingsObj: any): Promise<boolean> {
+  try {
+    const activePool = createOrGetPool();
+    if (!activePool) return false;
+    const conn = await activePool.getConnection();
+    try {
+      await ensureAppSettingsTable(conn);
+      await conn.query(
+        'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+        ['global', JSON.stringify(settingsObj)]
+      );
+      return true;
+    } finally {
+      conn.release();
+    }
+  } catch (_) {
+    return false;
+  }
+}
+
+app.get('/api/settings', async (_req, res) => {
+  const settings = await readSettingsFromDbOrDisk();
+  return res.json({ success: true, settings });
 });
 
 app.post('/api/settings', async (req, res) => {
@@ -2912,8 +3010,8 @@ app.post('/api/settings', async (req, res) => {
   }
 
   try {
-    const existing = readSettingsFromDisk();
-    const newSettings = {
+    const existing = await readSettingsFromDbOrDisk();
+    const newSettings = mergeSettingsWithDefaults({
       ...existing,
       ...req.body,
       whatsappSettings: {
@@ -2921,8 +3019,9 @@ app.post('/api/settings', async (req, res) => {
         ...(existing.whatsappSettings || {}),
         ...(req.body?.whatsappSettings || {}),
       },
-    };
+    });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(newSettings, null, 2), 'utf-8');
+    await saveSettingsToDb(newSettings);
     if (newSettings.whatsappSettings) {
       await syncWhatsAppSenderToDb(newSettings.whatsappSettings);
     }

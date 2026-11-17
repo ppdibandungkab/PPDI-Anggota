@@ -103,6 +103,45 @@ const MainAppContent: React.FC = () => {
     setIsVerifyModalOpen(true);
   };
 
+  // Close topmost active App-level modal when pressing Escape
+  React.useEffect(() => {
+    const handleGlobalEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (isChangePasswordModalOpen && !mustChangeDefaultPassword) {
+        e.preventDefault();
+        closeChangePasswordModal();
+      } else if (isVerifyModalOpen) {
+        e.preventDefault();
+        setIsVerifyModalOpen(false);
+      } else if (isDbModalOpen) {
+        e.preventDefault();
+        setIsDbModalOpen(false);
+      } else if (detailMember) {
+        e.preventDefault();
+        setDetailMember(null);
+      } else if (isAddModalOpen) {
+        e.preventDefault();
+        setIsAddModalOpen(false);
+        setEditingMember(null);
+      } else if (isRegistrationModalOpen) {
+        e.preventDefault();
+        setIsRegistrationModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalEsc);
+    return () => window.removeEventListener('keydown', handleGlobalEsc);
+  }, [
+    isChangePasswordModalOpen,
+    mustChangeDefaultPassword,
+    closeChangePasswordModal,
+    isVerifyModalOpen,
+    isDbModalOpen,
+    detailMember,
+    isAddModalOpen,
+    isRegistrationModalOpen,
+  ]);
+
   if (!isAuthenticated) {
     return (
       <>
@@ -164,6 +203,14 @@ const MainAppContent: React.FC = () => {
               onOpenDetailModal={handleOpenDetailModal}
               onOpenEditModal={handleOpenEditModal}
               onSelectForKTA={handleSelectForKTA}
+              hasExternalModalOpen={
+                isAddModalOpen ||
+                Boolean(detailMember) ||
+                isVerifyModalOpen ||
+                isDbModalOpen ||
+                isRegistrationModalOpen ||
+                isChangePasswordModalOpen
+              }
             />
           )}
           {activeTab === 'ekta' && (

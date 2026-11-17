@@ -8,7 +8,6 @@ import {
   Upload,
   Eye,
   Download,
-  Building,
   CheckCircle,
   X,
   FileCheck,
@@ -17,8 +16,11 @@ import {
   ExternalLink,
   RefreshCw,
   AlertCircle,
+  History,
+  Clock,
 } from 'lucide-react';
 import { PermissionGate } from './PermissionGate';
+import { MemberCombobox } from './MemberCombobox';
 
 export const ArsipSKView: React.FC = () => {
   const { fullMembers, riwayatList, kecamatanList, desaList, jabatanList, addRiwayatJabatan, hasPermission, currentUser } = usePPDI();
@@ -36,6 +38,7 @@ export const ArsipSKView: React.FC = () => {
     riwayat: RiwayatJabatan;
     member?: AnggotaFullDetail;
   } | null>(null);
+  const [historyModalMemberKey, setHistoryModalMemberKey] = useState<string | null>(null);
 
   // Scoped members for upload modal
   const uploadMemberOptions = useMemo(() => {
@@ -113,14 +116,27 @@ export const ArsipSKView: React.FC = () => {
     }
   }, [showFolderModal]);
 
-  const serverSkUrlSet = useMemo(() => {
+  const serverSkMetaMap = useMemo(() => {
     const urls = new Set<string>();
     const names = new Set<string>();
+    const mtimeByUrl = new Map<string, number>();
+    const mtimeByName = new Map<string, number>();
     (folderData?.sk.files || []).forEach((f) => {
+      const mtimeMs = f.mtime ? new Date(f.mtime).getTime() : 0;
       urls.add(f.url);
       names.add(f.name);
+      if (mtimeMs > 0) {
+        mtimeByUrl.set(f.url, mtimeMs);
+        mtimeByName.set(f.name, mtimeMs);
+      }
     });
-    return { urls, names, loaded: Boolean(folderData?.success) };
+    return {
+      urls,
+      names,
+      mtimeByUrl,
+      mtimeByName,
+      loaded: Boolean(folderData?.success),
+    };
   }, [folderData]);
 
   // Helper: hanya menganggap SK sudah terupload jika memiliki file nyata (bukan placeholder dummy)
@@ -135,39 +151,148 @@ export const ArsipSKView: React.FC = () => {
 
     // 2. Path upload lokal server (/uploads/sk/...)
     if (raw.startsWith('/uploads/')) {
-      if (serverSkUrlSet.loaded) {
-        return serverSkUrlSet.urls.has(raw) || serverSkUrlSet.names.has(raw.split('/').pop() || '');
+      if (serverSkMetaMap.loaded) {
+        return serverSkMetaMap.urls.has(raw) || serverSkMetaMap.names.has(raw.split('/').pop() || '');
       }
       return true;
     }
 
     // 3. Nama file polos hanya dianggap valid jika benar-benar ada secara fisik di /uploads/sk/
-    if (serverSkUrlSet.loaded) {
-      return serverSkUrlSet.names.has(raw) || serverSkUrlSet.urls.has(`/uploads/sk/${raw}`);
+    if (serverSkMetaMap.loaded) {
+      return serverSkMetaMap.names.has(raw) || serverSkMetaMap.urls.has(`/uploads/sk/${raw}`);
     }
 
     return false;
   };
 
-  // Combined documents list — HANYA menampilkan SK yang filenya sudah terupload
-  const skDocuments = useMemo(() => {
-    return riwayatList
-      .filter((rw) => isUploadedSkFile(rw.file_sk))
-      .map((rw) => {
-        const member = fullMembers.find((m) => m.anggota.id_anggota === rw.id_anggota);
-        const desa = desaList.find((d) => d.id_desa === rw.id_desa);
-        const kec = desa ? kecamatanList.find((k) => k.id_kecamatan === desa.id_kecamatan) : undefined;
-        const jabatan = jabatanList.find((j) => j.id_jabatan === rw.id_jabatan);
+  // Resolusi waktu unggah: (1) mtime file fisik server, (2) created_at DB, (3) tgl SK, (4) TMT
+  const resolveUploadTimestampInfo = (
+    rw: RiwayatJabatan
+  ): { uploadTs: number; hasExactTime: boolean } => {
+    const raw = (rw.file_sk || '').trim();
+    const fileName = raw.split('/').pop() || '';
+    const diskMtime =
+      serverSkMetaMap.mtimeByUrl.get(raw) ?? serverSkMetaMap.mtimeByName.get(fileName);
+    if (typeof diskMtime === 'number' && diskMtime > 0) {
+      return { uploadTs: diskMtime, hasExactTime: true };
+    }
 
-        return {
-          riwayat: rw,
-          member,
-          desa,
-          kecamatan: kec,
-          jabatan,
-        };
+    if (rw.created_at) {
+      const createdMs = new Date(rw.created_at).getTime();
+      if (!Number.isNaN(createdMs) && createdMs > 0) {
+        return { uploadTs: createdMs, hasExactTime: true };
+      }
+    }
+
+    const tglSkMs = rw.tgl_sk_pengangkatan ? new Date(rw.tgl_sk_pengangkatan).getTime() : 0;
+    if (!Number.isNaN(tglSkMs) && tglSkMs > 0) {
+      return { uploadTs: tglSkMs, hasExactTime: false };
+    }
+
+    const tmtMs = rw.tmt_jabatan ? new Date(rw.tmt_jabatan).getTime() : 0;
+    return { uploadTs: Number.isNaN(tmtMs) ? 0 : tmtMs, hasExactTime: false };
+  };
+
+  const formatUploadTimestampLabel = (
+    uploadTs: number,
+    hasExactTime: boolean,
+    rw: RiwayatJabatan
+  ): string => {
+    if (uploadTs > 0 && hasExactTime) {
+      return (
+        new Date(uploadTs).toLocaleString('id-ID', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }) + ' WIB'
+      );
+    }
+    if (rw.tgl_sk_pengangkatan) {
+      return `Tgl SK ${formatDateIndo(rw.tgl_sk_pengangkatan)}`;
+    }
+    if (rw.tmt_jabatan) {
+      return `TMT ${formatDateIndo(rw.tmt_jabatan)}`;
+    }
+    return 'Waktu unggah tidak tercatat';
+  };
+
+  // Combined documents list — menampilkan file SK terbaru di tabel utama & menyimpan seluruh riwayat versi per anggota
+  const skDocuments = useMemo(() => {
+    const uploadedEntries = riwayatList
+      .map((rw, idx) => {
+        const { uploadTs, hasExactTime } = resolveUploadTimestampInfo(rw);
+        return { rw, idx, uploadTs, hasExactTime };
+      })
+      .filter(({ rw }) => isUploadedSkFile(rw.file_sk))
+      .sort((a, b) => {
+        if (b.uploadTs !== a.uploadTs) return b.uploadTs - a.uploadTs;
+        return a.idx - b.idx;
       });
-  }, [riwayatList, fullMembers, desaList, kecamatanList, jabatanList, serverSkUrlSet]);
+
+    const versionsByMember = new Map<
+      string,
+      Array<{
+        riwayat: RiwayatJabatan;
+        uploadTs: number;
+        hasExactTime: boolean;
+        fileLabel: string;
+        desa: (typeof desaList)[number] | undefined;
+        kecamatan: (typeof kecamatanList)[number] | undefined;
+        jabatan: (typeof jabatanList)[number] | undefined;
+      }>
+    >();
+
+    for (const { rw, uploadTs, hasExactTime } of uploadedEntries) {
+      const memberKey = String(rw.id_anggota || rw.id_riwayat);
+      const desa = desaList.find((d) => d.id_desa === rw.id_desa);
+      const kec = desa ? kecamatanList.find((k) => k.id_kecamatan === desa.id_kecamatan) : undefined;
+      const jabatan = jabatanList.find((j) => j.id_jabatan === rw.id_jabatan);
+      const fileLabel = rw.file_sk?.startsWith('data:')
+        ? 'Dokumen SK Terunggah (Data Lokal)'
+        : rw.file_sk?.split('/').pop() || '-';
+
+      const entry = {
+        riwayat: rw,
+        uploadTs,
+        hasExactTime,
+        fileLabel,
+        desa,
+        kecamatan: kec,
+        jabatan,
+      };
+
+      const existing = versionsByMember.get(memberKey);
+      if (existing) {
+        existing.push(entry);
+      } else {
+        versionsByMember.set(memberKey, [entry]);
+      }
+    }
+
+    return Array.from(versionsByMember.entries()).map(([memberKey, versions]) => {
+      const latest = versions[0];
+      const member = fullMembers.find((m) => m.anggota.id_anggota === latest.riwayat.id_anggota);
+
+      return {
+        memberKey,
+        riwayat: latest.riwayat,
+        uploadTs: latest.uploadTs,
+        hasExactTime: latest.hasExactTime,
+        member,
+        desa: latest.desa,
+        kecamatan: latest.kecamatan,
+        jabatan: latest.jabatan,
+        versions,
+      };
+    });
+  }, [riwayatList, fullMembers, desaList, kecamatanList, jabatanList, serverSkMetaMap]);
+
+  const historyModalDoc = useMemo(
+    () => skDocuments.find((d) => d.memberKey === historyModalMemberKey) || null,
+    [skDocuments, historyModalMemberKey]
+  );
 
   // Scope documents by role before search/kecamatan UI filters (for accurate empty state & counts)
   const scopedUploadedDocs = useMemo(() => {
@@ -200,11 +325,14 @@ export const ArsipSKView: React.FC = () => {
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        const matchSk = doc.riwayat.no_sk_pengangkatan.toLowerCase().includes(q);
         const matchName = doc.member?.anggota.nama_lengkap.toLowerCase().includes(q);
         const matchDesa = doc.desa?.nama_desa.toLowerCase().includes(q);
-        const matchFile = (doc.riwayat.file_sk || '').toLowerCase().includes(q);
-        if (!matchSk && !matchName && !matchDesa && !matchFile) return false;
+        const matchVersions = doc.versions.some(
+          (v) =>
+            v.riwayat.no_sk_pengangkatan.toLowerCase().includes(q) ||
+            (v.riwayat.file_sk || '').toLowerCase().includes(q)
+        );
+        if (!matchName && !matchDesa && !matchVersions) return false;
       }
       return true;
     });
@@ -326,9 +454,12 @@ export const ArsipSKView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold text-[11px]">
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold text-[11px]"
+            title="Hanya menampilkan file SK yang diupload terakhir untuk masing-masing perangkat desa"
+          >
             <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>SK Terunggah: {filteredDocs.length} berkas</span>
+            <span>SK Terakhir Diunggah: {filteredDocs.length} berkas</span>
           </span>
 
           <div className="flex items-center gap-2">
@@ -396,13 +527,21 @@ export const ArsipSKView: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
                         <span>{doc.riwayat.no_sk_pengangkatan}</span>
+                        {doc.versions.length > 1 && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-mono text-[10px] font-bold tabular-nums"
+                            title={`${doc.versions.length} versi berkas SK tersimpan`}
+                          >
+                            v{doc.versions.length}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-[10px] text-emerald-700 font-sans mt-0.5 flex items-center gap-1.5">
+                      <div className="text-[10px] text-emerald-700 font-sans mt-0.5 flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-emerald-50 border border-emerald-200 font-semibold">
                           <CheckCircle className="w-2.5 h-2.5" />
                           Terunggah
                         </span>
-                        <span className="text-neutral-500 font-mono truncate max-w-[220px]" title={doc.riwayat.file_sk}>
+                        <span className="text-neutral-500 font-mono truncate max-w-[200px]" title={doc.riwayat.file_sk}>
                           {fileLabel}
                         </span>
                       </div>
@@ -451,13 +590,28 @@ export const ArsipSKView: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => setSelectedSkDoc({ riwayat: doc.riwayat, member: doc.member })}
-                        className="px-2.5 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors cursor-pointer inline-flex items-center gap-1"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Buka Berkas</span>
-                      </button>
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setHistoryModalMemberKey(doc.memberKey)}
+                          className="px-2.5 py-1 text-xs font-medium text-neutral-700 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded-md transition-colors cursor-pointer inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                          title={`Riwayat Versi Upload SK (${doc.versions.length} versi)`}
+                        >
+                          <History className="w-3.5 h-3.5 text-neutral-600" />
+                          <span>History</span>
+                          <span className="text-[10px] font-mono font-semibold text-neutral-500 tabular-nums">
+                            ({doc.versions.length})
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSkDoc({ riwayat: doc.riwayat, member: doc.member })}
+                          className="px-2.5 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors cursor-pointer inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Buka Berkas</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );
@@ -467,6 +621,157 @@ export const ArsipSKView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Version History Modal */}
+      {historyModalDoc && (
+        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col my-4 border border-neutral-200 text-xs">
+            <div className="p-4 border-b border-neutral-200 flex items-center justify-between bg-neutral-50 rounded-t-xl">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                  <History className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-neutral-900 text-sm truncate">
+                    Riwayat Versi Berkas SK
+                  </h3>
+                  <div className="text-[11px] text-neutral-600 truncate">
+                    <span className="font-semibold uppercase text-neutral-800">
+                      {historyModalDoc.member?.anggota.nama_lengkap || '-'}
+                    </span>{' '}
+                    · Desa {historyModalDoc.desa?.nama_desa || '-'}, Kec.{' '}
+                    {historyModalDoc.kecamatan?.nama_kecamatan || '-'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalMemberKey(null)}
+                className="p-1 text-neutral-400 hover:text-neutral-700 rounded-lg cursor-pointer shrink-0"
+                aria-label="Tutup Riwayat Versi"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-4 py-2.5 bg-emerald-50/60 border-b border-emerald-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-900">
+              <span>
+                Total <strong className="tabular-nums">{historyModalDoc.versions.length}</strong> versi berkas SK tersimpan di arsip
+              </span>
+              <span className="text-neutral-500 font-mono text-[10px]">
+                Diurutkan dari unggahan paling baru
+              </span>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-3 flex-1 bg-neutral-50/40">
+              {historyModalDoc.versions.map((ver, idx) => {
+                const versionNumber = historyModalDoc.versions.length - idx;
+                const isLatest = idx === 0;
+                const rawSk = (ver.riwayat.file_sk || '').trim();
+                const resolvedUrl =
+                  rawSk.startsWith('/') || rawSk.startsWith('http') || rawSk.startsWith('data:')
+                    ? rawSk
+                    : `/uploads/sk/${rawSk}`;
+                const tsLabel = formatUploadTimestampLabel(ver.uploadTs, ver.hasExactTime, ver.riwayat);
+
+                return (
+                  <div
+                    key={ver.riwayat.id_riwayat || `${versionNumber}-${rawSk}`}
+                    className={`p-3.5 rounded-xl border transition-colors ${
+                      isLatest
+                        ? 'bg-white border-emerald-300 shadow-2xs'
+                        : 'bg-white border-neutral-200'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-neutral-900 text-white font-mono text-[10px] font-bold tabular-nums">
+                            Versi #{versionNumber}
+                          </span>
+                          {isLatest ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-semibold">
+                              <CheckCircle className="w-3 h-3 text-emerald-600" />
+                              Terbaru (Aktif Ditampilkan)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-neutral-100 border border-neutral-200 text-neutral-600 text-[10px] font-medium">
+                              Versi Sebelumnya
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono text-neutral-600">
+                            <Clock className="w-3 h-3 text-neutral-400 shrink-0" />
+                            <span>{tsLabel}</span>
+                          </span>
+                        </div>
+
+                        <div className="font-mono font-bold text-neutral-900 text-xs flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                          <span className="truncate">{ver.riwayat.no_sk_pengangkatan || '-'}</span>
+                        </div>
+
+                        <div className="text-[11px] text-neutral-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="font-mono text-neutral-500 truncate max-w-[260px]" title={rawSk}>
+                            File: {ver.fileLabel}
+                          </span>
+                          <span>
+                            Jabatan: <strong className="text-neutral-800">{ver.jabatan?.nama_jabatan || '-'}</strong>
+                          </span>
+                          <span>
+                            Tgl SK: {formatDateIndo(ver.riwayat.tgl_sk_pengangkatan)} · TMT {formatDateIndo(ver.riwayat.tmt_jabatan)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedSkDoc({
+                              riwayat: ver.riwayat,
+                              member: historyModalDoc.member,
+                            })
+                          }
+                          className="px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Pratinjau</span>
+                        </button>
+                        {rawSk && (
+                          <a
+                            href={resolvedUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            download={
+                              rawSk.startsWith('data:')
+                                ? `SK_${ver.riwayat.no_sk_pengangkatan.replace(/\W+/g, '_')}_v${versionNumber}`
+                                : undefined
+                            }
+                            className="px-2.5 py-1.5 text-[11px] font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 border border-neutral-200 rounded-lg transition-colors inline-flex items-center gap-1 whitespace-nowrap"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Unduh</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-3.5 border-t border-neutral-200 flex justify-end bg-white rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => setHistoryModalMemberKey(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Document Viewer Modal */}
       {selectedSkDoc && (() => {
@@ -481,7 +786,7 @@ export const ArsipSKView: React.FC = () => {
           /\.(jpg|jpeg|png|webp|gif)$/i.test(lowerUrl) || lowerUrl.startsWith('data:image/');
 
         return (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[60] bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col my-4 border border-neutral-200">
             <div className="p-4 border-b border-neutral-200 flex items-center justify-between bg-neutral-50 rounded-t-xl">
               <div className="flex items-center gap-2">
@@ -625,24 +930,20 @@ export const ArsipSKView: React.FC = () => {
 
               <div>
                 <label className="block text-neutral-700 font-medium mb-1">Pilih Perangkat Desa</label>
-                <select
+                <MemberCombobox
+                  options={uploadMemberOptions}
                   value={uploadMemberId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
+                  onChange={(nextId, matchedMember) => {
                     setUploadMemberId(nextId);
-                    const matchedMember = uploadMemberOptions.find((m) => m.anggota.id_anggota === nextId);
                     if (matchedMember?.desa?.id_desa) {
                       setUploadDesaId(matchedMember.desa.id_desa);
                     }
                   }}
-                  className="w-full p-2 border border-neutral-300 rounded-lg bg-white"
-                >
-                  {uploadMemberOptions.map((m) => (
-                    <option key={m.anggota.id_anggota} value={m.anggota.id_anggota}>
-                      {m.anggota.nama_lengkap.toUpperCase()} (Desa {m.desa?.nama_desa})
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Pilih Perangkat Desa untuk Upload SK"
+                  placeholder="Ketik Nama, Desa, Kecamatan, atau NIK..."
+                  showNoKta={false}
+                  className="w-full"
+                />
               </div>
 
               <div>

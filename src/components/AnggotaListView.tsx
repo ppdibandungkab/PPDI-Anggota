@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
 import {
@@ -36,6 +36,8 @@ import {
   Send,
   Wallet,
   QrCode,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 import { QrLabelPrintModal } from './QrLabelPrintModal';
@@ -48,6 +50,7 @@ interface AnggotaListViewProps {
   onOpenDetailModal: (member: AnggotaFullDetail) => void;
   onOpenEditModal: (member: AnggotaFullDetail) => void;
   onSelectForKTA: (member: AnggotaFullDetail) => void;
+  hasExternalModalOpen?: boolean;
 }
 
 export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
@@ -55,6 +58,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   onOpenDetailModal,
   onOpenEditModal,
   onSelectForKTA,
+  hasExternalModalOpen = false,
 }) => {
   const {
     visibleMembers,
@@ -75,6 +79,13 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [filterJabatan, setFilterJabatan] = useState('all');
   const [filterStatusKTA, setFilterStatusKTA] = useState('all');
   const [filterStatusPensiun, setFilterStatusPensiun] = useState('all');
+
+  // Pagination state (default 25 rows per page)
+  const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500] as const;
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [highlightedRowIndex, setHighlightedRowIndex] = useState<number>(-1);
+  const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
 
   // Delete Confirmation Modal & Notification State
   const [memberToDelete, setMemberToDelete] = useState<AnggotaFullDetail | null>(null);
@@ -196,17 +207,198 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     filterStatusPensiun,
   ]);
 
+  // Pagination derived values
+  const totalFiltered = filteredList.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalFiltered);
+
+  const paginatedList = useMemo(() => {
+    return filteredList.slice(startIndex, startIndex + pageSize);
+  }, [filteredList, startIndex, pageSize]);
+
+  // Reset to page 1 when filters, search, or page size change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchQuery,
+    filterKecamatan,
+    filterDesa,
+    filterKategori,
+    filterJabatan,
+    filterStatusKTA,
+    filterStatusPensiun,
+    pageSize,
+  ]);
+
+  // Keep currentPage valid if filteredList shrinks (e.g. after delete)
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const pageNumbers = useMemo<(number | 'ellipsis-left' | 'ellipsis-right')[]>(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages: (number | 'ellipsis-left' | 'ellipsis-right')[] = [1];
+    const left = Math.max(2, safeCurrentPage - 1);
+    const right = Math.min(totalPages - 1, safeCurrentPage + 1);
+    if (left > 2) pages.push('ellipsis-left');
+    for (let p = left; p <= right; p++) pages.push(p);
+    if (right < totalPages - 1) pages.push('ellipsis-right');
+    pages.push(totalPages);
+    return pages;
+  }, [totalPages, safeCurrentPage]);
+
+  // Reset highlighted row when page or filter criteria change
+  useEffect(() => {
+    setHighlightedRowIndex(-1);
+  }, [
+    safeCurrentPage,
+    pageSize,
+    searchQuery,
+    filterKecamatan,
+    filterDesa,
+    filterKategori,
+    filterJabatan,
+    filterStatusKTA,
+    filterStatusPensiun,
+  ]);
+
+  // Clamp highlightedRowIndex if paginatedList shrinks
+  useEffect(() => {
+    if (highlightedRowIndex >= paginatedList.length) {
+      setHighlightedRowIndex(paginatedList.length - 1);
+    }
+  }, [highlightedRowIndex, paginatedList.length]);
+
+  // Auto-scroll highlighted table row into view
+  useEffect(() => {
+    if (highlightedRowIndex >= 0) {
+      rowRefs.current[highlightedRowIndex]?.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
+    }
+  }, [highlightedRowIndex]);
+
+  // Global keyboard navigation: ArrowUp / ArrowDown / Enter on table, Esc to close active modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (waModalMember) {
+          if (!isSendingWa) {
+            e.preventDefault();
+            setWaModalMember(null);
+          }
+          return;
+        }
+        if (memberToDelete) {
+          if (!isDeleting) {
+            e.preventDefault();
+            setMemberToDelete(null);
+          }
+          return;
+        }
+        if (isBulkWaModalOpen) {
+          e.preventDefault();
+          setIsBulkWaModalOpen(false);
+          return;
+        }
+        if (isBulkKtaModalOpen) {
+          e.preventDefault();
+          setIsBulkKtaModalOpen(false);
+          return;
+        }
+        if (isQrLabelModalOpen) {
+          e.preventDefault();
+          setIsQrLabelModalOpen(false);
+          return;
+        }
+        if (isImportModalOpen) {
+          e.preventDefault();
+          setIsImportModalOpen(false);
+          return;
+        }
+        if (!hasExternalModalOpen && !document.querySelector('.fixed.inset-0') && highlightedRowIndex >= 0) {
+          setHighlightedRowIndex(-1);
+        }
+        return;
+      }
+
+      const anyInternalModalOpen = Boolean(
+        waModalMember ||
+          memberToDelete ||
+          isBulkWaModalOpen ||
+          isBulkKtaModalOpen ||
+          isQrLabelModalOpen ||
+          isImportModalOpen
+      );
+      if (anyInternalModalOpen || hasExternalModalOpen || document.querySelector('.fixed.inset-0')) {
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      const tagName = target?.tagName?.toUpperCase() || '';
+      const isEditable =
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        tagName === 'SELECT' ||
+        Boolean(target?.isContentEditable);
+      if (isEditable) return;
+
+      if (e.key === 'ArrowDown') {
+        if (paginatedList.length === 0) return;
+        e.preventDefault();
+        setHighlightedRowIndex((prev) =>
+          prev < 0 ? 0 : Math.min(paginatedList.length - 1, prev + 1)
+        );
+      } else if (e.key === 'ArrowUp') {
+        if (paginatedList.length === 0) return;
+        e.preventDefault();
+        setHighlightedRowIndex((prev) =>
+          prev < 0 ? paginatedList.length - 1 : Math.max(0, prev - 1)
+        );
+      } else if (e.key === 'Enter') {
+        const isButtonOrLink = tagName === 'BUTTON' || tagName === 'A';
+        if (!isButtonOrLink && highlightedRowIndex >= 0 && paginatedList[highlightedRowIndex]) {
+          e.preventDefault();
+          onOpenDetailModal(paginatedList[highlightedRowIndex]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    paginatedList,
+    highlightedRowIndex,
+    onOpenDetailModal,
+    waModalMember,
+    isSendingWa,
+    memberToDelete,
+    isDeleting,
+    isBulkWaModalOpen,
+    isBulkKtaModalOpen,
+    isQrLabelModalOpen,
+    isImportModalOpen,
+    hasExternalModalOpen,
+  ]);
+
   // Selection helpers (scoped safely by visibleMembers)
   const selectedMembersList = useMemo(() => {
     if (selectedMemberIds.size === 0) return [];
     return visibleMembers.filter((m) => selectedMemberIds.has(m.anggota.id_anggota));
   }, [visibleMembers, selectedMemberIds]);
 
-  const allFilteredSelected =
-    filteredList.length > 0 &&
-    filteredList.every((m) => selectedMemberIds.has(m.anggota.id_anggota));
+  const allPageSelected =
+    paginatedList.length > 0 &&
+    paginatedList.every((m) => selectedMemberIds.has(m.anggota.id_anggota));
 
-  const someFilteredSelected = filteredList.some((m) =>
+  const somePageSelected = paginatedList.some((m) =>
     selectedMemberIds.has(m.anggota.id_anggota)
   );
 
@@ -222,14 +414,22 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     });
   };
 
-  const toggleSelectAllFiltered = () => {
+  const toggleSelectAllPage = () => {
     setSelectedMemberIds((prev) => {
       const next = new Set(prev);
-      if (allFilteredSelected) {
-        filteredList.forEach((m) => next.delete(m.anggota.id_anggota));
+      if (allPageSelected) {
+        paginatedList.forEach((m) => next.delete(m.anggota.id_anggota));
       } else {
-        filteredList.forEach((m) => next.add(m.anggota.id_anggota));
+        paginatedList.forEach((m) => next.add(m.anggota.id_anggota));
       }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedMemberIds((prev) => {
+      const next = new Set(prev);
+      filteredList.forEach((m) => next.add(m.anggota.id_anggota));
       return next;
     });
   };
@@ -268,7 +468,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             Data Induk Perangkat Desa (Anggota PPDI)
           </h1>
           <p className="text-xs text-neutral-500 mt-0.5">
-            Database relasional aparatur pemerintah desa dengan NIK, NIAP, SK Pengangkatan, & No KTA
+            Database relasional aparatur pemerintah desa dengan NIK, NIPD, SK Pengangkatan, & No KTA
           </p>
         </div>
 
@@ -338,7 +538,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             >
               <CreditCard className="w-3.5 h-3.5 text-amber-300" />
               <span>
-                Unduh E-KTA PDF
+                Export PDF
                 {selectedMembersList.length > 0 ? ` (${selectedMembersList.length})` : ''}
               </span>
             </button>
@@ -427,7 +627,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             <Search className="w-4.5 h-4.5 text-emerald-700 absolute left-3.5 pointer-events-none" />
             <input
               type="text"
-              placeholder="Ketik Nama Lengkap, Nomor KTA Digital (mis. 32.04...), NIK 16 digit, NIAP, Desa, atau Kecamatan..."
+              placeholder="Ketik Nama Lengkap, Nomor KTA Digital (mis. 32.04...), NIK 16 digit, NIPD , Desa, atau Kecamatan..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-10 py-2.5 text-xs font-mono bg-emerald-50/40 border border-emerald-300/80 rounded-xl text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#064E3B] focus:border-transparent focus:bg-white shadow-2xs transition-all font-medium placeholder:text-neutral-400"
@@ -628,13 +828,54 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         )}
       </div>
 
-      {/* Total Found Indicator */}
-      <div className="flex items-center justify-between text-xs text-neutral-500 px-1">
+      {/* Total Found & Page Size Dropdown Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-neutral-500 px-1">
         <span>
-          Menampilkan <strong className="text-neutral-900 font-semibold">{filteredList.length}</strong> dari{' '}
-          {visibleMembers.length} perangkat desa
+          {totalFiltered === 0 ? (
+            <>
+              Menampilkan <strong className="text-neutral-900 font-semibold tabular-nums">0</strong> dari{' '}
+              <span className="tabular-nums">{visibleMembers.length}</span> perangkat desa
+            </>
+          ) : (
+            <>
+              Menampilkan{' '}
+              <strong className="text-neutral-900 font-semibold tabular-nums">
+                {startIndex + 1}–{endIndex}
+              </strong>{' '}
+              dari <strong className="text-neutral-900 font-semibold tabular-nums">{totalFiltered}</strong> perangkat desa
+              {totalFiltered !== visibleMembers.length && (
+                <span className="text-neutral-400"> (total {visibleMembers.length})</span>
+              )}
+            </>
+          )}
         </span>
-        <span className="text-[11px]">Format No. KTA: 32.04.[KodeKec].[KodeDesa].[NoUrut]</span>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="anggota-page-size" className="text-neutral-600 font-medium whitespace-nowrap">
+              Tampilkan:
+            </label>
+            <select
+              id="anggota-page-size"
+              aria-label="Jumlah data yang ditampilkan"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="bg-white border border-neutral-300 rounded-md px-2 py-1 text-xs font-mono font-semibold text-neutral-800 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#064E3B]/20 focus:border-[#064E3B] shadow-2xs"
+            >
+              {PAGE_SIZE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt} data
+                </option>
+              ))}
+            </select>
+          </div>
+          <span className="text-[11px] hidden lg:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-neutral-100 border border-neutral-200 font-mono text-neutral-600">
+            ↑↓ Sorot Baris · Enter Detail · Esc Tutup Modal
+          </span>
+          <span className="text-[11px] hidden md:inline text-neutral-400">
+            Format No. KTA: 32.04.[KodeKec].[KodeDesa].[NoUrut]
+          </span>
+        </div>
       </div>
 
       {/* Bulk Selection Action Bar */}
@@ -655,6 +896,15 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {allPageSelected && filteredList.length > selectedMembersList.length && (
+              <button
+                type="button"
+                onClick={selectAllFiltered}
+                className="px-3 py-1.5 text-xs font-semibold text-amber-200 hover:text-amber-100 hover:bg-emerald-800 rounded-lg border border-amber-400/40 transition-colors cursor-pointer"
+              >
+                Pilih Semua ({filteredList.length})
+              </button>
+            )}
             <button
               type="button"
               onClick={clearSelection}
@@ -676,7 +926,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               className="px-3.5 py-1.5 text-xs font-bold text-neutral-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Unduh E-KTA Massal (PDF)</span>
+              <span>Export PDF ({selectedMembersList.length})</span>
             </button>
           </div>
         </div>
@@ -691,14 +941,14 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 <th className="py-3 px-3 w-10 text-center">
                   <input
                     type="checkbox"
-                    aria-label="Pilih semua anggota tampil"
-                    checked={allFilteredSelected}
+                    aria-label="Pilih semua anggota pada halaman ini"
+                    checked={allPageSelected}
                     ref={(el) => {
                       if (el) {
-                        el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                        el.indeterminate = somePageSelected && !allPageSelected;
                       }
                     }}
-                    onChange={toggleSelectAllFiltered}
+                    onChange={toggleSelectAllPage}
                     className="w-4 h-4 rounded border-neutral-300 text-[#064E3B] focus:ring-[#064E3B] cursor-pointer accent-[#064E3B]"
                   />
                 </th>
@@ -713,7 +963,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200 text-neutral-800">
-              {filteredList.length === 0 ? (
+              {paginatedList.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-neutral-400">
                     <p className="font-medium text-neutral-600">Tidak ada data perangkat desa yang sesuai</p>
@@ -721,19 +971,33 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredList.map((item, idx) => {
+                paginatedList.map((item, idx) => {
                   const hasFullName = (
                     (item.anggota.gelar_depan ? `${item.anggota.gelar_depan} ` : '') +
                     item.anggota.nama_lengkap +
                     (item.anggota.gelar_belakang ? `, ${item.anggota.gelar_belakang}` : '')
                   ).toUpperCase();
                   const isSelected = selectedMemberIds.has(item.anggota.id_anggota);
+                  const isHighlighted = idx === highlightedRowIndex;
 
                   return (
                     <tr
                       key={item.anggota.id_anggota}
+                      ref={(el) => {
+                        rowRefs.current[idx] = el;
+                      }}
+                      aria-selected={isHighlighted}
+                      onClick={(e) => {
+                        const targetEl = e.target as HTMLElement;
+                        if (targetEl.closest('button, input, a')) return;
+                        setHighlightedRowIndex(idx);
+                      }}
                       className={`transition-colors ${
-                        isSelected ? 'bg-emerald-50/70 hover:bg-emerald-50' : 'hover:bg-neutral-50/70'
+                        isHighlighted
+                          ? 'bg-amber-50/90 ring-2 ring-inset ring-[#064E3B]'
+                          : isSelected
+                          ? 'bg-emerald-50/70 hover:bg-emerald-50'
+                          : 'hover:bg-neutral-50/70'
                       }`}
                     >
                       {/* Checkbox */}
@@ -749,7 +1013,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
 
                       {/* No */}
                       <td className="py-2.5 px-3 text-center font-mono text-neutral-400 tabular-nums">
-                        {idx + 1}
+                        {startIndex + idx + 1}
                       </td>
 
                       {/* Profil & NIK */}
@@ -771,7 +1035,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                               {item.anggota.nipd && (
                                 <>
                                   <span>·</span>
-                                  <span>NIAP: {item.anggota.nipd}</span>
+                                  <span>NIPD: {item.anggota.nipd}</span>
                                 </>
                               )}
                             </div>
@@ -915,6 +1179,73 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Table Pagination Footer */}
+        {totalFiltered > 0 && (
+          <div className="px-4 py-2.5 bg-neutral-50/80 border-t border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-center gap-3 text-neutral-600">
+              <span className="tabular-nums">
+                Halaman <strong className="text-neutral-900">{safeCurrentPage}</strong> dari{' '}
+                <strong className="text-neutral-900">{totalPages}</strong> ·{' '}
+                <span className="text-neutral-500">
+                  ({startIndex + 1}–{endIndex} dari {totalFiltered} data)
+                </span>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="px-2 py-1 rounded-md border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1 transition-colors"
+                aria-label="Halaman sebelumnya"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Prev</span>
+              </button>
+
+              {pageNumbers.map((pageItem) => {
+                if (pageItem === 'ellipsis-left' || pageItem === 'ellipsis-right') {
+                  return (
+                    <span
+                      key={pageItem}
+                      className="px-1.5 py-1 text-neutral-400 font-mono select-none"
+                    >
+                      …
+                    </span>
+                  );
+                }
+                const isActive = pageItem === safeCurrentPage;
+                return (
+                  <button
+                    key={pageItem}
+                    type="button"
+                    onClick={() => setCurrentPage(pageItem)}
+                    className={`min-w-[28px] px-2 py-1 rounded-md font-mono font-semibold tabular-nums transition-colors cursor-pointer border ${
+                      isActive
+                        ? 'bg-[#064E3B] text-white border-[#064E3B] shadow-2xs'
+                        : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-100'
+                    }`}
+                  >
+                    {pageItem}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="px-2 py-1 rounded-md border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1 transition-colors"
+                aria-label="Halaman berikutnya"
+              >
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MODAL KONFIRMASI HAPUS ANGGOTA (REPLACE NATIVE WINDOW.CONFIRM) */}

@@ -1,0 +1,454 @@
+{
+  "appName": "PPDI KABUPATEN BANDUNG",
+  "appSubtitle": "SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA",
+  "logoUrl": "/logo_kabupaten_bandung.svg",
+  "watermarkLogoUrl": "",
+  "watermarkOpacity": 0.09,
+  "watermarkOpacityFront": 0.09,
+  "watermarkOpacityBack": 0.07,
+  "loginBackgroundType": "preset_emerald",
+  "loginBackgroundImage": "",
+  "loginOverlayOpacity": "0.4",
+  "syncIntervalSeconds": 60,
+  "rolePermissions": {
+    "Superadmin_Kabupaten": {
+      "dashboard": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "pendaftaran": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "anggota": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "ekta": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "pensiun": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "arsip": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "iuran": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-app": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-user": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-role": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-db": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-telemetry": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-whatsapp": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "skema": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      }
+    },
+    "Admin_Kabupaten": {
+      "dashboard": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "pendaftaran": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "anggota": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "ekta": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "pensiun": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "arsip": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "iuran": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-user": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": true
+      },
+      "settings-app": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-role": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-db": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-telemetry": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-whatsapp": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": false
+      },
+      "skema": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      }
+    },
+    "Admin_Kecamatan": {
+      "dashboard": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "pendaftaran": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": false
+      },
+      "anggota": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": false
+      },
+      "ekta": {
+        "view": true,
+        "add": true,
+        "edit": false,
+        "delete": false
+      },
+      "pensiun": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "arsip": {
+        "view": true,
+        "add": true,
+        "edit": false,
+        "delete": false
+      },
+      "iuran": {
+        "view": true,
+        "add": true,
+        "edit": true,
+        "delete": false
+      },
+      "settings-user": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-app": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-role": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-db": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-telemetry": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-whatsapp": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "skema": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      }
+    },
+    "Admin_Desa": {
+      "dashboard": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "pendaftaran": {
+        "view": true,
+        "add": true,
+        "edit": false,
+        "delete": false
+      },
+      "anggota": {
+        "view": true,
+        "add": false,
+        "edit": true,
+        "delete": false
+      },
+      "ekta": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "pensiun": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "arsip": {
+        "view": true,
+        "add": true,
+        "edit": false,
+        "delete": false
+      },
+      "iuran": {
+        "view": true,
+        "add": true,
+        "edit": false,
+        "delete": false
+      },
+      "settings-user": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-app": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-role": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-db": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-telemetry": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-whatsapp": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "skema": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      }
+    },
+    "Anggota": {
+      "dashboard": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "pendaftaran": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "anggota": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "ekta": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "pensiun": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "arsip": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "iuran": {
+        "view": true,
+        "add": true,
+        "edit": false,
+        "delete": false
+      },
+      "settings-user": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-app": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-role": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-db": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-telemetry": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "settings-whatsapp": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      },
+      "skema": {
+        "view": false,
+        "add": false,
+        "edit": false,
+        "delete": false
+      }
+    }
+  },
+  "whatsappSettings": {
+    "enabled": false,
+    "senderNumber": "",
+    "fonnteToken": "",
+    "webhookUrl": "",
+    "webhookSecret": "",
+    "autoReplyEnabled": true,
+    "countryCode": "62"
+  }
+}

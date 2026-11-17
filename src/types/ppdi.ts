@@ -68,6 +68,7 @@ export interface RiwayatJabatan {
   status_aktif: StatusAktifJabatan;
   file_sk?: string; // URL or doc name
   keterangan?: string;
+  created_at?: string;
 }
 
 export interface KeanggotaanPPDI {
@@ -290,6 +291,10 @@ export interface AppSettings {
   appName: string;
   appSubtitle: string;
   logoUrl: string;
+  watermarkLogoUrl?: string;
+  watermarkOpacity?: number;
+  watermarkOpacityFront?: number;
+  watermarkOpacityBack?: number;
   loginBackgroundType: 'preset_emerald' | 'gradient_mesh' | 'custom_image' | 'dark_slate';
   loginBackgroundImage?: string;
   loginOverlayOpacity?: string;

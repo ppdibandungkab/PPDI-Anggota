@@ -235,6 +235,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
   logoUrl: '/logo_kabupaten_bandung.svg',
+  watermarkLogoUrl: '',
+  watermarkOpacity: 0.09,
+  watermarkOpacityFront: 0.09,
+  watermarkOpacityBack: 0.07,
   loginBackgroundType: 'preset_emerald',
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
@@ -1376,6 +1380,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const newRw: RiwayatJabatan = {
       ...data,
       id_riwayat: `rw-${Date.now().toString().slice(-6)}`,
+      created_at: new Date().toISOString(),
     };
     setRiwayatList((prev) => [newRw, ...prev]);
 

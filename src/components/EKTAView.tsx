@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import QRCode from 'qrcode';
 import jsPDF from 'jspdf';
 import { toPng } from 'html-to-image';
@@ -12,13 +12,13 @@ import {
   Printer,
   Download,
   ShieldCheck,
-  Search,
   CheckCircle,
   ExternalLink,
   Shield,
   Layers,
   Lock,
 } from 'lucide-react';
+import { MemberCombobox } from './MemberCombobox';
 
 interface EKTAViewProps {
   selectedMemberId?: string;
@@ -49,10 +49,23 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
     });
   }, [fullMembers, userRole, userKecId, userDesaId, userMemberId]);
 
-  // App Logo synchronized from Application Settings
-  const appLogo =
-    appSettings?.logoUrl ||
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png';
+  // App Logo & Global Watermark synchronized from Application Settings
+  const appLogo = appSettings?.logoUrl || '/logo_kabupaten_bandung.svg';
+  const watermarkLogo = appSettings?.watermarkLogoUrl?.trim() || appLogo;
+  const globalOpacity =
+    typeof appSettings?.watermarkOpacity === 'number'
+      ? Math.min(1, Math.max(0, appSettings.watermarkOpacity))
+      : undefined;
+  const watermarkOpacityFront =
+    globalOpacity ??
+    (typeof appSettings?.watermarkOpacityFront === 'number'
+      ? appSettings.watermarkOpacityFront
+      : 0.09);
+  const watermarkOpacityBack =
+    globalOpacity ??
+    (typeof appSettings?.watermarkOpacityBack === 'number'
+      ? appSettings.watermarkOpacityBack
+      : 0.07);
 
   // Selected member state
   const [activeMemberId, setActiveMemberId] = useState<string>(() => {
@@ -73,7 +86,6 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [verifyUrl, setVerifyUrl] = useState<string>('');
   const [shortDisplay, setShortDisplay] = useState<string>('');
-  const [searchMember, setSearchMember] = useState('');
   const [cardSide, setCardSide] = useState<'both' | 'front' | 'back'>('both');
 
   const currentMember = scopedMembers.find((m) => m.anggota.id_anggota === activeMemberId) || scopedMembers[0] || fullMembers[0];
@@ -146,6 +158,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
           pixelRatio: 3, // 300 DPI high-definition crisp card print
           cacheBust: true,
           skipFonts: true, // Prevents cross-origin web font fetching issues
+          backgroundColor: '#042f2e',
         });
       };
 
@@ -250,23 +263,19 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
 
       {/* Member Selector Bar */}
       <div className="bg-white p-3 rounded-xl border border-neutral-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs no-print">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto flex-1">
           <label className="font-semibold text-neutral-700 whitespace-nowrap">
             Pilih Perangkat Desa:
           </label>
-          <select
-            aria-label="Pilih Perangkat Desa untuk Kartu"
+          <MemberCombobox
+            options={scopedMembers}
             value={activeMemberId}
+            onChange={(id) => setActiveMemberId(id)}
             disabled={userRole === 'Anggota'}
-            onChange={(e) => setActiveMemberId(e.target.value)}
-            className="bg-neutral-50 border border-neutral-300 rounded-lg px-3 py-1.5 text-xs font-medium text-neutral-900 w-full sm:w-80 focus:outline-hidden disabled:opacity-75 disabled:bg-neutral-100"
-          >
-            {scopedMembers.map((m: AnggotaFullDetail) => (
-              <option key={m.anggota.id_anggota} value={m.anggota.id_anggota}>
-                {m.anggota.nama_lengkap} - Desa {m.desa?.nama_desa} ({m.keanggotaan?.no_kta || 'KTA Pending'})
-              </option>
-            ))}
-          </select>
+            ariaLabel="Pilih Perangkat Desa untuk Kartu"
+            placeholder="Ketik Nama, Desa, Kec., NIK, atau No. KTA..."
+            className="w-full sm:w-96"
+          />
         </div>
 
         {/* View toggle */}
@@ -315,7 +324,8 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   className="w-full aspect-[85.6/54] text-white rounded-2xl shadow-xl relative overflow-hidden p-4 sm:p-5 flex flex-col justify-between"
                   style={{
                     minHeight: '260px',
-                    background: 'linear-gradient(135deg, #064e3b 0%, #065f46 50%, #042f2e 100%)',
+                    backgroundColor: '#064e3b',
+                    backgroundImage: 'linear-gradient(135deg, #064e3b 0%, #065f46 50%, #042f2e 100%)',
                     border: '1px solid rgba(5, 150, 105, 0.4)',
                     color: '#ffffff',
                   }}
@@ -333,11 +343,14 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                     style={{ backgroundColor: 'rgba(251, 191, 36, 0.1)' }}
                   ></div>
 
-                  {/* Organization Logo Watermark (Sesuai Logo Aplikasi) */}
-                  {appLogo && (
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.09] pointer-events-none select-none flex items-center justify-center">
+                  {/* Organization Logo Watermark (Sesuai Pengaturan Global) */}
+                  {watermarkLogo && watermarkOpacityFront > 0 && (
+                    <div
+                      className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 pointer-events-none select-none flex items-center justify-center"
+                      style={{ opacity: watermarkOpacityFront }}
+                    >
                       <img
-                        src={appLogo}
+                        src={watermarkLogo}
                         alt=""
                         className="w-full h-full object-contain filter grayscale brightness-200"
                       />
@@ -469,7 +482,8 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   className="w-full aspect-[85.6/54] text-white rounded-2xl shadow-xl relative overflow-hidden p-4 sm:p-5 flex flex-col justify-between"
                   style={{
                     minHeight: '260px',
-                    background: 'linear-gradient(315deg, #022c22 0%, #064e3b 50%, #065f46 100%)',
+                    backgroundColor: '#064e3b',
+                    backgroundImage: 'linear-gradient(315deg, #022c22 0%, #064e3b 50%, #065f46 100%)',
                     border: '1px solid rgba(5, 150, 105, 0.4)',
                     color: '#ffffff',
                   }}
@@ -487,11 +501,14 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                     style={{ backgroundColor: 'rgba(5, 150, 105, 0.2)' }}
                   ></div>
 
-                  {/* Organization Logo Watermark */}
-                  {appLogo && (
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.07] pointer-events-none select-none flex items-center justify-center">
+                  {/* Organization Logo Watermark (Sesuai Pengaturan Global) */}
+                  {watermarkLogo && watermarkOpacityBack > 0 && (
+                    <div
+                      className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 pointer-events-none select-none flex items-center justify-center"
+                      style={{ opacity: watermarkOpacityBack }}
+                    >
                       <img
-                        src={appLogo}
+                        src={watermarkLogo}
                         alt=""
                         className="w-full h-full object-contain filter grayscale brightness-200"
                       />

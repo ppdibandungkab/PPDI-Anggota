@@ -13,6 +13,10 @@ export interface BulkKtaExportOptions {
   cardSide: BulkKtaCardSide;
   appName?: string;
   appLogo?: string;
+  watermarkLogo?: string;
+  watermarkOpacity?: number;
+  watermarkOpacityFront?: number;
+  watermarkOpacityBack?: number;
   kecamatanList?: RefKecamatan[];
   desaList?: RefDesa[];
   onProgress?: (current: number, total: number) => void;
@@ -105,6 +109,228 @@ async function loadSafeImageDataUrl(
   return resolved;
 }
 
+/**
+ * Generates a grayscale, brightened, semi-transparent PNG data URL matching EKTAView's
+ * Organization Logo Watermark (`filter grayscale brightness-200` + subtle opacity).
+ */
+async function buildWatermarkDataUrl(
+  logoDataUrl: string | null,
+  opacity: number
+): Promise<string | null> {
+  if (!logoDataUrl) return null;
+
+  return await new Promise<string | null>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const timer = window.setTimeout(() => resolve(null), 3000);
+
+    img.onload = () => {
+      window.clearTimeout(timer);
+      try {
+        const size = 360;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+
+        const iw = img.naturalWidth || size;
+        const ih = img.naturalHeight || size;
+        const ratio = Math.min(size / iw, size / ih);
+        const dw = iw * ratio;
+        const dh = ih * ratio;
+        const dx = (size - dw) / 2;
+        const dy = (size - dh) / 2;
+
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, dx, dy, dw, dh);
+
+        const imageData = ctx.getImageData(0, 0, size, size);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3];
+          if (a === 0) continue;
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          const bright = Math.min(255, Math.round(lum * 2));
+          data[i] = bright;
+          data[i + 1] = bright;
+          data[i + 2] = bright;
+          data[i + 3] = Math.round(a * opacity);
+        }
+        ctx.putImageData(imageData, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(null);
+      }
+    };
+
+    img.onerror = () => {
+      window.clearTimeout(timer);
+      resolve(null);
+    };
+
+    img.src = logoDataUrl;
+  });
+}
+
+/**
+ * Merender background kartu E-KTA beresolusi tinggi (~300 DPI) via Canvas agar gradasi
+ * diagonal emerald (`135deg` depan / `315deg` belakang), ambient radial glow, dan
+ * dot-matrix emas tampil identik 1:1 dengan pratinjau tanpa garis patah antarblok.
+ */
+function buildCardBackgroundDataUrl(side: 'front' | 'back', rounded = true): string | null {
+  try {
+    const width = 1028;
+    const height = 648;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (rounded) {
+      const r = Math.round((2.5 / CARD_W_MM) * width); // ~30px matches 2.5mm radius
+      ctx.beginPath();
+      ctx.moveTo(r, 0);
+      ctx.lineTo(width - r, 0);
+      ctx.quadraticCurveTo(width, 0, width, r);
+      ctx.lineTo(width, height - r);
+      ctx.quadraticCurveTo(width, height, width - r, height);
+      ctx.lineTo(r, height);
+      ctx.quadraticCurveTo(0, height, 0, height - r);
+      ctx.lineTo(0, r);
+      ctx.quadraticCurveTo(0, 0, r, 0);
+      ctx.closePath();
+      ctx.clip();
+    }
+
+    // 1. Diagonal Emerald Gradient matching CSS linear-gradient(135deg / 315deg)
+    const grad =
+      side === 'front'
+        ? ctx.createLinearGradient(0, 0, width, height) // 135deg
+        : ctx.createLinearGradient(width, height, 0, 0); // 315deg
+
+    if (side === 'front') {
+      grad.addColorStop(0, '#064e3b');
+      grad.addColorStop(0.5, '#065f46');
+      grad.addColorStop(1, '#042f2e');
+    } else {
+      grad.addColorStop(0, '#022c22');
+      grad.addColorStop(0.5, '#064e3b');
+      grad.addColorStop(1, '#065f46');
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // 2. Ambient Soft Glow matching EKTAView radial flare
+    if (side === 'front') {
+      const glow = ctx.createRadialGradient(
+        width * 0.92,
+        height * 0.08,
+        0,
+        width * 0.92,
+        height * 0.08,
+        width * 0.42
+      );
+      glow.addColorStop(0, 'rgba(251, 191, 36, 0.14)');
+      glow.addColorStop(0.6, 'rgba(251, 191, 36, 0.04)');
+      glow.addColorStop(1, 'rgba(251, 191, 36, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, width, height);
+    } else {
+      const glow = ctx.createRadialGradient(
+        width * 0.08,
+        height * 0.92,
+        0,
+        width * 0.08,
+        height * 0.92,
+        width * 0.45
+      );
+      glow.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
+      glow.addColorStop(0.6, 'rgba(5, 150, 105, 0.07)');
+      glow.addColorStop(1, 'rgba(5, 150, 105, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    // 3. Subtle Guilloche Gold Dot Matrix matching radial-gradient(#fde047 1px) at 10% opacity
+    const step = side === 'front' ? 38 : 34;
+    const dotRadius = side === 'front' ? 2.1 : 1.9;
+    ctx.fillStyle = 'rgba(253, 224, 71, 0.105)';
+    for (let gx = Math.round(step / 2); gx < width; gx += step) {
+      for (let gy = Math.round(step / 2); gy < height; gy += step) {
+        ctx.beginPath();
+        ctx.arc(gx, gy, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    return canvas.toDataURL('image/png');
+  } catch {
+    return null;
+  }
+}
+
+export interface PdfWatermarkOptions {
+  cardX: number;
+  cardY: number;
+  cardW: number;
+  cardH: number;
+  side?: 'front' | 'back';
+  opacity?: number;
+  watermarkDataUrl?: string | null;
+  logoDataUrl?: string | null;
+}
+
+/**
+ * Menyisipkan Organization Logo Watermark ke dalam PDF (jsPDF) agar posisi, proporsi,
+ * dan transparansi konsisten dengan EKTAView (`right-4 top-1/2 -translate-y-1/2 w-48 h-48`,
+ * opacity 0.09 pada sisi depan & 0.07 pada sisi belakang).
+ */
+export function addWatermarkToPdf(doc: jsPDF, options: PdfWatermarkOptions): void {
+  const {
+    cardX,
+    cardY,
+    cardW,
+    cardH,
+    side = 'front',
+    opacity = side === 'back' ? 0.07 : 0.09,
+    watermarkDataUrl,
+    logoDataUrl,
+  } = options;
+
+  const s = cardW / CARD_W_MM;
+  const wmSize = 35.5 * s;
+  const wmX = cardX + cardW - 3.0 * s - wmSize;
+  const wmY = cardY + (cardH - wmSize) / 2;
+
+  if (watermarkDataUrl) {
+    doc.addImage(watermarkDataUrl, 'PNG', wmX, wmY, wmSize, wmSize);
+    return;
+  }
+
+  if (!logoDataUrl) return;
+
+  const jsPdfAny = doc as any;
+  if (typeof jsPdfAny.GState === 'function' && typeof jsPdfAny.setGState === 'function') {
+    if (typeof jsPdfAny.saveGraphicsState === 'function') {
+      jsPdfAny.saveGraphicsState();
+    }
+    jsPdfAny.setGState(new jsPdfAny.GState({ opacity }));
+    doc.addImage(logoDataUrl, 'PNG', wmX, wmY, wmSize, wmSize);
+    if (typeof jsPdfAny.restoreGraphicsState === 'function') {
+      jsPdfAny.restoreGraphicsState();
+    } else {
+      jsPdfAny.setGState(new jsPdfAny.GState({ opacity: 1 }));
+    }
+  }
+}
+
 function getInitials(name: string): string {
   const parts = (name || 'PD').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return 'PD';
@@ -122,6 +348,10 @@ function drawKtaFrontCard(
   opts: {
     appName: string;
     logoDataUrl: string | null;
+    frontBgDataUrl: string | null;
+    watermarkLogoDataUrl: string | null;
+    frontWatermarkDataUrl: string | null;
+    frontOpacity: number;
     photoDataUrl: string | null;
     desaName: string;
     kecName: string;
@@ -129,21 +359,32 @@ function drawKtaFrontCard(
 ) {
   const s = w / CARD_W_MM;
 
-  // Card Base Gradient-like Emerald Layered Fill
-  doc.setFillColor(6, 78, 59); // #064e3b
-  doc.roundedRect(x, y, w, h, 2.5 * s, 2.5 * s, 'F');
-
-  // Subtle darker right panel accent
-  doc.setFillColor(4, 47, 46); // #042f2e
-  doc.roundedRect(x + w * 0.45, y, w * 0.55, h, 2.5 * s, 2.5 * s, 'F');
-  doc.rect(x + w * 0.45, y, 4 * s, h, 'F');
-
-  // Subtle decorative gold dot matrix
-  doc.setFillColor(16, 110, 82);
-  for (let gx = 4 * s; gx < w - 3 * s; gx += 4.5 * s) {
-    for (let gy = 12 * s; gy < h - 7 * s; gy += 4.5 * s) {
-      doc.circle(x + gx, y + gy, 0.16 * s, 'F');
+  // Card Base Gradient + Radial Glow + Dot Matrix matching Preview 1:1
+  if (opts.frontBgDataUrl) {
+    doc.addImage(opts.frontBgDataUrl, 'PNG', x, y, w, h);
+  } else {
+    doc.setFillColor(6, 78, 59); // #064e3b fallback
+    doc.roundedRect(x, y, w, h, 2.5 * s, 2.5 * s, 'F');
+    doc.setFillColor(16, 110, 82);
+    for (let gx = 4 * s; gx < w - 3 * s; gx += 4.5 * s) {
+      for (let gy = 12 * s; gy < h - 7 * s; gy += 4.5 * s) {
+        doc.circle(x + gx, y + gy, 0.16 * s, 'F');
+      }
     }
+  }
+
+  // Organization Logo Watermark (matching EKTAView front card)
+  if (opts.frontOpacity > 0) {
+    addWatermarkToPdf(doc, {
+      cardX: x,
+      cardY: y,
+      cardW: w,
+      cardH: h,
+      side: 'front',
+      opacity: opts.frontOpacity,
+      watermarkDataUrl: opts.frontWatermarkDataUrl,
+      logoDataUrl: opts.watermarkLogoDataUrl,
+    });
   }
 
   // Outer card gold trim border
@@ -354,24 +595,40 @@ function drawKtaBackCard(
   qrDataUrl: string | null,
   opts: {
     logoDataUrl: string | null;
+    backBgDataUrl: string | null;
+    watermarkLogoDataUrl: string | null;
+    backWatermarkDataUrl: string | null;
+    backOpacity: number;
   }
 ) {
   const s = w / CARD_W_MM;
 
-  // Background
-  doc.setFillColor(2, 44, 34); // #022c22
-  doc.roundedRect(x, y, w, h, 2.5 * s, 2.5 * s, 'F');
-
-  doc.setFillColor(6, 78, 59); // #064e3b
-  doc.roundedRect(x + w * 0.35, y, w * 0.65, h, 2.5 * s, 2.5 * s, 'F');
-  doc.rect(x + w * 0.35, y, 4 * s, h, 'F');
-
-  // Subtle decorative gold dot matrix
-  doc.setFillColor(16, 110, 82);
-  for (let gx = 4 * s; gx < w - 3 * s; gx += 4.2 * s) {
-    for (let gy = 10.5 * s; gy < h - 12 * s; gy += 4.2 * s) {
-      doc.circle(x + gx, y + gy, 0.14 * s, 'F');
+  // Card Base Gradient + Radial Glow + Dot Matrix matching Preview 1:1
+  if (opts.backBgDataUrl) {
+    doc.addImage(opts.backBgDataUrl, 'PNG', x, y, w, h);
+  } else {
+    doc.setFillColor(6, 78, 59); // #064e3b fallback
+    doc.roundedRect(x, y, w, h, 2.5 * s, 2.5 * s, 'F');
+    doc.setFillColor(16, 110, 82);
+    for (let gx = 4 * s; gx < w - 3 * s; gx += 4.2 * s) {
+      for (let gy = 10.5 * s; gy < h - 12 * s; gy += 4.2 * s) {
+        doc.circle(x + gx, y + gy, 0.14 * s, 'F');
+      }
     }
+  }
+
+  // Organization Logo Watermark (matching EKTAView back card)
+  if (opts.backOpacity > 0) {
+    addWatermarkToPdf(doc, {
+      cardX: x,
+      cardY: y,
+      cardW: w,
+      cardH: h,
+      side: 'back',
+      opacity: opts.backOpacity,
+      watermarkDataUrl: opts.backWatermarkDataUrl,
+      logoDataUrl: opts.watermarkLogoDataUrl,
+    });
   }
 
   // Outer card gold trim border
@@ -565,17 +822,57 @@ export async function exportBulkKtaToPDF({
   cardSide,
   appName = 'PERSATUAN PERANGKAT DESA INDONESIA',
   appLogo,
+  watermarkLogo,
+  watermarkOpacity,
+  watermarkOpacityFront,
+  watermarkOpacityBack,
   kecamatanList = [],
   desaList = [],
   onProgress,
 }: BulkKtaExportOptions): Promise<void> {
   if (!members || members.length === 0) return;
 
+  const clampOpacity = (val: number | undefined, fallback: number) => {
+    if (typeof val !== 'number' || Number.isNaN(val)) return fallback;
+    return Math.min(1, Math.max(0, val));
+  };
+
+  const hasGlobalOpacity = typeof watermarkOpacity === 'number' && !Number.isNaN(watermarkOpacity);
+  const effectiveFrontOpacity = hasGlobalOpacity
+    ? clampOpacity(watermarkOpacity, 0.09)
+    : clampOpacity(watermarkOpacityFront, 0.09);
+  const effectiveBackOpacity = hasGlobalOpacity
+    ? clampOpacity(watermarkOpacity, 0.07)
+    : clampOpacity(watermarkOpacityBack, 0.07);
+
   const imageCache = new Map<string, string | null>();
-  const defaultLogoUrl =
-    appLogo ||
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Logo_Kabupaten_Bandung.png/480px-Logo_Kabupaten_Bandung.png';
+  const defaultLogoUrl = (appLogo || '').trim() || '/logo_kabupaten_bandung.svg';
+  const effectiveWatermarkUrl = (watermarkLogo || '').trim() || defaultLogoUrl;
+
   const logoDataUrl = await loadSafeImageDataUrl(defaultLogoUrl, imageCache);
+  const watermarkLogoDataUrl =
+    effectiveWatermarkUrl === defaultLogoUrl
+      ? logoDataUrl
+      : await loadSafeImageDataUrl(effectiveWatermarkUrl, imageCache);
+
+  const isRoundedBg = format === 'a4';
+  const frontBgDataUrl =
+    cardSide === 'both' || cardSide === 'front'
+      ? buildCardBackgroundDataUrl('front', isRoundedBg)
+      : null;
+  const backBgDataUrl =
+    cardSide === 'both' || cardSide === 'back'
+      ? buildCardBackgroundDataUrl('back', isRoundedBg)
+      : null;
+
+  const [frontWatermarkDataUrl, backWatermarkDataUrl] = await Promise.all([
+    (cardSide === 'both' || cardSide === 'front') && effectiveFrontOpacity > 0
+      ? buildWatermarkDataUrl(watermarkLogoDataUrl, effectiveFrontOpacity)
+      : Promise.resolve(null),
+    (cardSide === 'both' || cardSide === 'back') && effectiveBackOpacity > 0
+      ? buildWatermarkDataUrl(watermarkLogoDataUrl, effectiveBackOpacity)
+      : Promise.resolve(null),
+  ]);
 
   // Pre-build member assets (QR & photo) with progress feedback
   const prepared: Array<{
@@ -652,6 +949,10 @@ export async function exportBulkKtaToPDF({
         drawKtaFrontCard(doc, 0, 0, CARD_W_MM, CARD_H_MM, item.member, {
           appName,
           logoDataUrl,
+          frontBgDataUrl,
+          watermarkLogoDataUrl,
+          frontWatermarkDataUrl,
+          frontOpacity: effectiveFrontOpacity,
           photoDataUrl: item.photoDataUrl,
           desaName: item.desaName,
           kecName: item.kecName,
@@ -663,6 +964,10 @@ export async function exportBulkKtaToPDF({
         if (pageCount > 0) doc.addPage([CARD_W_MM, CARD_H_MM], 'landscape');
         drawKtaBackCard(doc, 0, 0, CARD_W_MM, CARD_H_MM, item.qrDataUrl, {
           logoDataUrl,
+          backBgDataUrl,
+          watermarkLogoDataUrl,
+          backWatermarkDataUrl,
+          backOpacity: effectiveBackOpacity,
         });
         pageCount++;
       }
@@ -772,6 +1077,10 @@ export async function exportBulkKtaToPDF({
       drawKtaFrontCard(doc, cardX, cardY, CARD_W_MM, CARD_H_MM, slot.item.member, {
         appName,
         logoDataUrl,
+        frontBgDataUrl,
+        watermarkLogoDataUrl,
+        frontWatermarkDataUrl,
+        frontOpacity: effectiveFrontOpacity,
         photoDataUrl: slot.item.photoDataUrl,
         desaName: slot.item.desaName,
         kecName: slot.item.kecName,
@@ -779,6 +1088,10 @@ export async function exportBulkKtaToPDF({
     } else {
       drawKtaBackCard(doc, cardX, cardY, CARD_W_MM, CARD_H_MM, slot.item.qrDataUrl, {
         logoDataUrl,
+        backBgDataUrl,
+        watermarkLogoDataUrl,
+        backWatermarkDataUrl,
+        backOpacity: effectiveBackOpacity,
       });
     }
   });

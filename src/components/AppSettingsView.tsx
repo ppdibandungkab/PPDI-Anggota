@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import {
   Settings,
@@ -12,11 +12,18 @@ import {
   Shield,
   Eye,
   Sparkles,
+  CreditCard,
 } from 'lucide-react';
 
 export const AppSettingsView: React.FC = () => {
   const { appSettings, updateAppSettings, hasPermission } = usePPDI();
   const canEdit = hasPermission('settings-app', 'edit');
+
+  const resolveInitialOpacity = () => {
+    if (typeof appSettings?.watermarkOpacity === 'number') return appSettings.watermarkOpacity;
+    if (typeof appSettings?.watermarkOpacityFront === 'number') return appSettings.watermarkOpacityFront;
+    return 0.09;
+  };
 
   const [appName, setAppName] = useState(appSettings?.appName || 'PPDI KABUPATEN BANDUNG');
   const [appSubtitle, setAppSubtitle] = useState(
@@ -29,12 +36,32 @@ export const AppSettingsView: React.FC = () => {
   const [loginBackgroundImage, setLoginBackgroundImage] = useState(appSettings?.loginBackgroundImage || '');
   const [loginOverlayOpacity, setLoginOverlayOpacity] = useState(appSettings?.loginOverlayOpacity || '0.5');
   const [syncInterval, setSyncInterval] = useState(String(appSettings?.syncIntervalSeconds || 60));
+  const [watermarkLogoUrl, setWatermarkLogoUrl] = useState(appSettings?.watermarkLogoUrl || '');
+  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(resolveInitialOpacity);
+
+  useEffect(() => {
+    if (!appSettings) return;
+    setAppName(appSettings.appName || 'PPDI KABUPATEN BANDUNG');
+    setAppSubtitle(appSettings.appSubtitle || 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA');
+    setLogoUrl(appSettings.logoUrl || '');
+    setLoginBackgroundType(appSettings.loginBackgroundType || 'preset_emerald');
+    setLoginBackgroundImage(appSettings.loginBackgroundImage || '');
+    setLoginOverlayOpacity(appSettings.loginOverlayOpacity || '0.5');
+    setSyncInterval(String(appSettings.syncIntervalSeconds || 60));
+    setWatermarkLogoUrl(appSettings.watermarkLogoUrl || '');
+    if (typeof appSettings.watermarkOpacity === 'number') {
+      setWatermarkOpacity(appSettings.watermarkOpacity);
+    } else if (typeof appSettings.watermarkOpacityFront === 'number') {
+      setWatermarkOpacity(appSettings.watermarkOpacityFront);
+    }
+  }, [appSettings]);
 
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
+  const watermarkInputRef = useRef<HTMLInputElement>(null);
 
   // Handle Logo File Upload
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,16 +100,47 @@ export const AppSettingsView: React.FC = () => {
     }
   };
 
+  // Handle Watermark Logo File Upload
+  const handleWatermarkFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('Ukuran berkas logo watermark maksimal 2 MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setWatermarkLogoUrl(event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const effectiveWatermarkPreviewLogo =
+    watermarkLogoUrl.trim() || logoUrl.trim() || '/logo_kabupaten_bandung.svg';
+
+  const watermarkOpacityPercent = Math.round(
+    Math.min(1, Math.max(0, Number.isFinite(watermarkOpacity) ? watermarkOpacity : 0.09)) * 100
+  );
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setSavedSuccess(false);
+
+    const normalizedOpacity = Math.round(Math.min(1, Math.max(0, watermarkOpacity)) * 100) / 100;
 
     try {
       await updateAppSettings({
         appName: appName.trim().toUpperCase(),
         appSubtitle: appSubtitle.trim(),
         logoUrl: logoUrl.trim(),
+        watermarkLogoUrl: watermarkLogoUrl.trim(),
+        watermarkOpacity: normalizedOpacity,
+        watermarkOpacityFront: normalizedOpacity,
+        watermarkOpacityBack: normalizedOpacity,
         loginBackgroundType,
         loginBackgroundImage: loginBackgroundImage.trim(),
         loginOverlayOpacity,
@@ -443,13 +501,248 @@ export const AppSettingsView: React.FC = () => {
         </div>
 
         {/* ============================================================== */}
-        {/* SECTION 3: NAMA APLIKASI & SINKRONISASI */}
+        {/* SECTION 3: PDF & KTA STYLING */}
+        {/* ============================================================== */}
+        <div className="bg-white border border-neutral-200 rounded-xl p-6 shadow-xs space-y-5">
+          <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+            <div className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-[#064E3B]" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-800">
+                3. PDF &amp; KTA Styling
+              </h2>
+            </div>
+            <span className="text-[11px] font-mono text-neutral-500">
+              Berlaku Global di E-KTA &amp; Ekspor PDF
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Watermark Controls */}
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-neutral-700 uppercase">
+                    URL Logo Watermark Organisasi
+                  </label>
+                  {watermarkLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setWatermarkLogoUrl('')}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Ikuti Logo Utama</span>
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  placeholder="Kosongkan untuk otomatis mengikuti Logo Aplikasi Utama"
+                  value={watermarkLogoUrl}
+                  onChange={(e) => setWatermarkLogoUrl(e.target.value)}
+                  className="w-full p-2.5 border border-neutral-300 rounded-lg text-xs font-mono text-neutral-900 focus:ring-2 focus:ring-[#064E3B] outline-none"
+                />
+                <p className="text-[11px] text-neutral-500 mt-1">
+                  {watermarkLogoUrl.trim()
+                    ? 'Menggunakan logo watermark khusus yang diunggah/diatur di atas.'
+                    : 'Sinkron otomatis dengan Logo Aplikasi pada Bagian 1.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="file"
+                  ref={watermarkInputRef}
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                  onChange={handleWatermarkFileChange}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => watermarkInputRef.current?.click()}
+                  className="px-3.5 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border border-neutral-300 rounded-lg text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5 text-neutral-600" />
+                  <span>Unggah Logo Watermark</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWatermarkLogoUrl('/logo_kabupaten_bandung.svg')}
+                  className="px-3 py-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded-lg text-[11px] text-neutral-700 cursor-pointer font-medium"
+                >
+                  Preset Lambang Kab. Bandung
+                </button>
+              </div>
+
+              {/* Global Watermark Opacity Slider (0 - 100%) */}
+              <div className="p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-neutral-700 uppercase tracking-wide">
+                    Global Watermark Opacity (0–100%)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setWatermarkOpacity(0.09)}
+                    className="text-[11px] text-emerald-700 hover:text-emerald-900 font-semibold cursor-pointer flex items-center gap-1 shrink-0"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Default (9%)</span>
+                  </button>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <label htmlFor="global-watermark-opacity" className="font-semibold text-neutral-700">
+                      Transparansi Watermark (Depan &amp; Belakang)
+                    </label>
+                    <span className="font-mono font-bold text-emerald-900 tabular-nums bg-emerald-100/70 px-2 py-0.5 rounded border border-emerald-200">
+                      {watermarkOpacityPercent}%
+                    </span>
+                  </div>
+                  <input
+                    id="global-watermark-opacity"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={watermarkOpacityPercent}
+                    onChange={(e) => setWatermarkOpacity(Number(e.target.value) / 100)}
+                    className="w-full accent-[#064E3B] cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-400 font-mono mt-1">
+                    <span>0% (Nonaktif)</span>
+                    <span>9% (Standar)</span>
+                    <span>50%</span>
+                    <span>100% (Penuh)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Card Watermark Preview */}
+            <div className="flex flex-col space-y-2.5">
+              <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5" />
+                <span>Simulasi Watermark pada Kartu E-KTA &amp; PDF</span>
+              </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-3 flex-1">
+                {/* Mini Front Card Preview */}
+                <div
+                  className="rounded-xl p-3.5 relative overflow-hidden text-white flex flex-col justify-between aspect-[85.6/54] border border-amber-400/50 shadow-sm"
+                  style={{
+                    background: 'linear-gradient(135deg, #064e3b 0%, #065f46 50%, #042f2e 100%)',
+                  }}
+                >
+                  <div
+                    className="absolute inset-0 opacity-10 pointer-events-none"
+                    style={{
+                      backgroundImage: 'radial-gradient(circle, #fde047 1px, transparent 1px)',
+                      backgroundSize: '14px 14px',
+                    }}
+                  />
+                  <div
+                    className="absolute -top-10 -right-10 w-36 h-36 rounded-full blur-xl pointer-events-none"
+                    style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)' }}
+                  />
+                  {effectiveWatermarkPreviewLogo && watermarkOpacityPercent > 0 && (
+                    <div
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-28 h-28 pointer-events-none select-none flex items-center justify-center"
+                      style={{ opacity: watermarkOpacityPercent / 100 }}
+                    >
+                      <img
+                        src={effectiveWatermarkPreviewLogo}
+                        alt="Watermark Depan"
+                        className="w-full h-full object-contain filter grayscale brightness-200"
+                      />
+                    </div>
+                  )}
+                  <div className="relative z-10 flex items-center justify-between border-b border-amber-400/30 pb-1.5">
+                    <span className="text-[9px] font-extrabold text-amber-300 uppercase tracking-wider truncate">
+                      {appName || 'PPDI KAB. BANDUNG'}
+                    </span>
+                    <span className="text-[8px] font-mono text-emerald-200 shrink-0 tabular-nums">
+                      Depan · {watermarkOpacityPercent}%
+                    </span>
+                  </div>
+                  <div className="relative z-10 flex items-center gap-2.5 my-auto py-1">
+                    <div className="w-9 h-12 rounded-md bg-emerald-950/80 border border-amber-300/80 shrink-0" />
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <div className="h-2.5 w-3/4 rounded bg-amber-300/80" />
+                      <div className="h-2 w-1/2 rounded bg-white/50" />
+                      <div className="h-4 w-full rounded bg-emerald-950/90 border border-amber-400/70 mt-1" />
+                    </div>
+                  </div>
+                  <div className="relative z-10 text-[7.5px] text-emerald-200 border-t border-amber-400/30 pt-1 flex justify-between">
+                    <span>STATUS: AKTIF</span>
+                    <span>E-KTA DIGITAL</span>
+                  </div>
+                </div>
+
+                {/* Mini Back Card Preview */}
+                <div
+                  className="rounded-xl p-3.5 relative overflow-hidden text-white flex flex-col justify-between aspect-[85.6/54] border border-amber-400/50 shadow-sm"
+                  style={{
+                    background: 'linear-gradient(315deg, #022c22 0%, #064e3b 50%, #065f46 100%)',
+                  }}
+                >
+                  <div
+                    className="absolute inset-0 opacity-10 pointer-events-none"
+                    style={{
+                      backgroundImage: 'radial-gradient(circle, #fde047 1px, transparent 1px)',
+                      backgroundSize: '12px 12px',
+                    }}
+                  />
+                  <div
+                    className="absolute -bottom-10 -left-10 w-36 h-36 rounded-full blur-xl pointer-events-none"
+                    style={{ backgroundColor: 'rgba(5, 150, 105, 0.22)' }}
+                  />
+                  {effectiveWatermarkPreviewLogo && watermarkOpacityPercent > 0 && (
+                    <div
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-28 h-28 pointer-events-none select-none flex items-center justify-center"
+                      style={{ opacity: watermarkOpacityPercent / 100 }}
+                    >
+                      <img
+                        src={effectiveWatermarkPreviewLogo}
+                        alt="Watermark Belakang"
+                        className="w-full h-full object-contain filter grayscale brightness-200"
+                      />
+                    </div>
+                  )}
+                  <div className="relative z-10 flex items-center justify-between border-b border-amber-400/30 pb-1.5">
+                    <span className="text-[9px] font-extrabold text-amber-300 uppercase tracking-wider">
+                      KETENTUAN KARTU
+                    </span>
+                    <span className="text-[8px] font-mono text-emerald-200 shrink-0 tabular-nums">
+                      Belakang · {watermarkOpacityPercent}%
+                    </span>
+                  </div>
+                  <div className="relative z-10 flex items-center justify-between gap-3 my-auto py-1">
+                    <div className="space-y-1.5 flex-1">
+                      <div className="h-1.5 w-full rounded bg-emerald-100/50" />
+                      <div className="h-1.5 w-11/12 rounded bg-emerald-100/40" />
+                      <div className="h-1.5 w-4/5 rounded bg-emerald-100/40" />
+                    </div>
+                    <div className="w-11 h-11 rounded-md bg-white border border-amber-400 shrink-0" />
+                  </div>
+                  <div className="relative z-10 text-[7.5px] text-amber-300 border-t border-amber-400/30 pt-1 flex justify-between">
+                    <span>PPDI KAB. BANDUNG</span>
+                    <span>[TTD &amp; CAP]</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* SECTION 4: NAMA APLIKASI & SINKRONISASI */}
         {/* ============================================================== */}
         <div className="bg-white border border-neutral-200 rounded-xl p-6 shadow-xs space-y-4">
           <div className="flex items-center gap-2 border-b border-neutral-100 pb-3">
             <Settings className="w-5 h-5 text-[#064E3B]" />
             <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-800">
-              3. Identitas Aplikasi & Parameter Sinkronisasi
+              4. Identitas Aplikasi &amp; Parameter Sinkronisasi
             </h2>
           </div>
 
