@@ -243,3 +243,34 @@ export function handleImageError(
     target.src = fallback;
   }
 }
+
+/**
+ * Validates that a selected File is strictly a PDF (.pdf) based on filename extension and MIME type.
+ */
+export function isValidPdfFile(file?: File | null): boolean {
+  if (!file) return false;
+  const nameOk = file.name.toLowerCase().endsWith('.pdf');
+  const mime = (file.type || '').toLowerCase();
+  const mimeOk = !mime || mime === 'application/pdf' || mime === 'application/x-pdf';
+  return nameOk && mimeOk;
+}
+
+/**
+ * Validates that a base64 Data URL has an application/pdf MIME type and genuine %PDF- header.
+ */
+export function isPdfDataUrl(dataUrl?: string | null): boolean {
+  if (!dataUrl || typeof dataUrl !== 'string') return false;
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return false;
+  const mime = match[1].toLowerCase();
+  if (mime !== 'application/pdf' && mime !== 'application/x-pdf') {
+    return false;
+  }
+  try {
+    const sampleB64 = match[2].slice(0, 88);
+    const decoded = atob(sampleB64);
+    return decoded.includes('%PDF-');
+  } catch {
+    return false;
+  }
+}

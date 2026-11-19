@@ -261,7 +261,7 @@ export const SqlSchemaView: React.FC = () => {
                 <span>anggota</span>
                 <span className="text-[10px] text-amber-600 font-sans">Entitas Induk</span>
               </div>
-              <div className="text-neutral-800 font-semibold">🔑 id_anggota (PK)</div>
+              <div className="text-neutral-800 font-semibold">🔑 id_anggota (PK, INT(11) AI)</div>
               <div className="text-amber-800">⚡ nik (16 digit UNIQUE)</div>
               <div className="text-emerald-700 font-semibold">⚡ no_kta (UNIQUE)</div>
               <div className="text-neutral-600">kode_kecamatan, nomor_urut</div>
@@ -277,7 +277,7 @@ export const SqlSchemaView: React.FC = () => {
                 <span>riwayat_jabatan</span>
                 <span className="text-[10px] text-neutral-400 font-sans">Transaksional</span>
               </div>
-              <div className="text-neutral-800 font-semibold">🔑 id_riwayat (PK)</div>
+              <div className="text-neutral-800 font-semibold">🔑 id_riwayat (PK, INT(11) AI)</div>
               <div className="text-emerald-700">🔗 id_anggota (FK)</div>
               <div className="text-emerald-700">🔗 id_desa (FK)</div>
               <div className="text-emerald-700">🔗 id_jabatan (FK)</div>
@@ -291,7 +291,7 @@ export const SqlSchemaView: React.FC = () => {
                 <span>keanggotaan_ppdi</span>
                 <span className="text-[10px] text-neutral-400 font-sans">KTA</span>
               </div>
-              <div className="text-neutral-800 font-semibold">🔑 id_ppdi (PK)</div>
+              <div className="text-neutral-800 font-semibold">🔑 id_ppdi (PK, INT(11) AI)</div>
               <div className="text-emerald-700">🔗 id_anggota (FK)</div>
               <div className="text-amber-800">⚡ no_kta (UNIQUE)</div>
               <div className="text-neutral-600">jabatan_pengurus</div>

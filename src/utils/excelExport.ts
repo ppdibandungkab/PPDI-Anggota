@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import * as XLSX from 'xlsx';
 import { AnggotaFullDetail } from '../types/ppdi';
 
 /**
@@ -252,4 +253,47 @@ export function exportAnggotaToCSV(members: AnggotaFullDetail[], customFilename?
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+/**
+ * Utility to export member list to Excel (.xlsx) using SheetJS (xlsx)
+ */
+export function exportAnggotaToSheetJS(members: AnggotaFullDetail[], customFilename?: string) {
+  const data = members.map((m, idx) => ({
+    No: idx + 1,
+    NIK: String(m.anggota.nik),
+    'NIAP / NIPD': m.anggota.nipd || '-',
+    'Nama Lengkap': m.anggota.nama_lengkap,
+    'Gelar Depan': m.anggota.gelar_depan || '',
+    'Gelar Belakang': m.anggota.gelar_belakang || '',
+    'Tempat Lahir': m.anggota.tempat_lahir,
+    'Tanggal Lahir': m.anggota.tanggal_lahir,
+    'Usia (Thn)': m.usia,
+    'Jenis Kelamin': m.anggota.jenis_kelamin === 'L' ? 'Laki-Laki' : 'Perempuan',
+    Agama: m.anggota.agama || 'Islam',
+    'Pendidikan Terakhir': m.anggota.pendidikan_terakhir || 'SMA/SMK',
+    'No HP / WhatsApp': m.anggota.no_hp_wa,
+    Email: m.anggota.email || '-',
+    Kecamatan: m.kecamatan?.nama_kecamatan || '-',
+    Desa: m.desa?.nama_desa || '-',
+    'Jabatan Perangkat Desa': m.jabatanRef?.nama_jabatan || '-',
+    'Kategori SOTK': m.jabatanRef?.kategori_jabatan || '-',
+    'No. SK Pengangkatan': m.jabatanTerkini?.no_sk_pengangkatan || '-',
+    'Tgl SK Pengangkatan': m.jabatanTerkini?.tgl_sk_pengangkatan || '-',
+    'TMT Jabatan': m.jabatanTerkini?.tmt_jabatan || '-',
+    'Status Keaktifan': m.jabatanTerkini?.status_aktif || '-',
+    'Nomor KTA PPDI': m.keanggotaan?.no_kta || '-',
+    'Status E-KTA': m.keanggotaan?.status_kta || '-',
+    'Jabatan Pengurus PPDI': m.keanggotaan?.jabatan_pengurus || '-',
+    'Status Masa Pensiun': m.statusPensiun,
+    'Total Iuran Lunas (Rp)': m.totalIuranLunas || 0,
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Data Anggota PPDI');
+
+  const dateTag = new Date().toISOString().slice(0, 10);
+  const filename = customFilename || `DATA_ANGGOTA_SHEETJS_${dateTag}.xlsx`;
+  XLSX.writeFile(workbook, filename);
 }

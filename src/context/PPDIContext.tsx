@@ -37,6 +37,13 @@ import {
 } from '../utils/authHelpers';
 import { decodeKtaToken } from '../utils/qrCrypto';
 import { checkUserPermission, sanitizeRolePermissions, PermissionAction } from '../utils/permissions';
+import {
+  BrowserNotificationPermissionState,
+  getBrowserNotificationPermission,
+  requestBrowserNotificationPermission,
+  sendNewRegistrationBrowserNotification,
+  sendTestBrowserNotification,
+} from '../utils/browserNotifications';
 
 interface PPDIContextType {
   // Role & Global Permissions
@@ -61,10 +68,18 @@ interface PPDIContextType {
   // Pendaftaran (Formulir Induk) & Approval Workflow
   pendaftaranList: PendaftaranPerangkatDesa[];
   visiblePendaftaran: PendaftaranPerangkatDesa[];
+  pendingPendaftaranCount: number;
   submitPendaftaran: (data: any) => Promise<{ success: boolean; message: string; id_pendaftaran?: number }>;
   approvePendaftaran: (id: number, noKtaCustom?: string) => Promise<{ success: boolean; message: string; id_anggota?: number; no_kta?: string }>;
   rejectPendaftaran: (id: number, catatan: string) => Promise<{ success: boolean; message: string }>;
   deletePendaftaran: (id: number) => Promise<{ success: boolean; message: string }>;
+
+  // Browser Notifications (Web Notifications API)
+  browserNotifPermission: BrowserNotificationPermissionState;
+  browserNotifEnabled: boolean;
+  setBrowserNotifEnabled: (enabled: boolean) => void;
+  requestBrowserNotifications: () => Promise<BrowserNotificationPermissionState>;
+  testBrowserNotification: () => boolean;
   
   // User Management (CRUD)
   createUser: (data: Partial<UserAccount> & { password?: string }) => Promise<{ success: boolean; message: string }>;
@@ -102,14 +117,14 @@ interface PPDIContextType {
     jabatanPengurus?: string
   ) => Promise<{ success: boolean; newId?: string; noKta: string }>;
   batchImportAnggota: (items: any[]) => Promise<{ success: boolean; insertedCount: number; skippedCount: number; skipped: any[]; message: string }>;
-  updateAnggota: (id: string, updated: Partial<Anggota>, jabatanPengurus?: string) => Promise<void>;
-  updateKeanggotaanJabatan: (idAnggota: string, jabatanPengurus: string) => Promise<void>;
-  deleteAnggota: (id: string) => Promise<{ success: boolean; message: string }>;
+  updateAnggota: (id: string | number, updated: Partial<Anggota>, jabatanPengurus?: string) => Promise<void>;
+  updateKeanggotaanJabatan: (idAnggota: string | number, jabatanPengurus: string) => Promise<void>;
+  deleteAnggota: (id: string | number) => Promise<{ success: boolean; message: string }>;
   addRiwayatJabatan: (data: Omit<RiwayatJabatan, 'id_riwayat'>) => Promise<void>;
-  updateRiwayatJabatan: (idRiwayat: string, updated: Partial<RiwayatJabatan>) => Promise<void>;
-  deleteRiwayatJabatan: (idRiwayat: string) => Promise<void>;
-  updateRiwayatStatus: (idRiwayat: string, newStatus: StatusAktifJabatan) => Promise<void>;
-  updateKTAStatus: (idAnggota: string, newStatus: StatusKTA) => Promise<void>;
+  updateRiwayatJabatan: (idRiwayat: string | number, updated: Partial<RiwayatJabatan>) => Promise<void>;
+  deleteRiwayatJabatan: (idRiwayat: string | number) => Promise<void>;
+  updateRiwayatStatus: (idRiwayat: string | number, newStatus: StatusAktifJabatan) => Promise<void>;
+  updateKTAStatus: (idAnggota: string | number, newStatus: StatusKTA) => Promise<void>;
   addIuran: (data: Omit<IuranAnggota, 'id_iuran'>) => Promise<void>;
   verifyIuran: (idIuran: string, newStatus: StatusVerifikasiIuran) => Promise<void>;
   switchUser: (userId: number) => void;
@@ -207,6 +222,53 @@ function persistUserSessionSnapshot(user?: Partial<UserAccount> | null): void {
     };
     localStorage.setItem(STORAGE_KEYS.USER_SESSION, JSON.stringify(snapshot));
   } catch (_) {}
+}
+
+function filterPendaftaranForUser(
+  list: PendaftaranPerangkatDesa[],
+  user?: UserAccount | null
+): PendaftaranPerangkatDesa[] {
+  if (!user) return list;
+  const role = user.role;
+
+  if (role === 'Superadmin_Kabupaten' || role === 'Admin_Kabupaten') {
+    return list;
+  }
+
+  if (role === 'Admin_Kecamatan') {
+    const userKecClean = (user.id_kecamatan || '').replace(/\./g, '').trim();
+    if (!userKecClean) return list;
+    return list.filter((p) => {
+      const itemKecClean = (p.id_kecamatan || '').replace(/\./g, '').trim();
+      const itemDesaClean = (p.id_desa || '').replace(/\./g, '').trim();
+      return itemKecClean === userKecClean || (itemDesaClean.length >= 6 && itemDesaClean.startsWith(userKecClean));
+    });
+  }
+
+  if (role === 'Admin_Desa') {
+    const userDesaClean = (user.id_desa || '').replace(/\./g, '').trim();
+    const userKecClean = (user.id_kecamatan || '').replace(/\./g, '').trim();
+    return list.filter((p) => {
+      const itemDesaClean = (p.id_desa || '').replace(/\./g, '').trim();
+      if (userDesaClean && itemDesaClean === userDesaClean) return true;
+      if (!userDesaClean && userKecClean) {
+        const itemKecClean = (p.id_kecamatan || '').replace(/\./g, '').trim();
+        return itemKecClean === userKecClean || itemDesaClean.startsWith(userKecClean);
+      }
+      return false;
+    });
+  }
+
+  if (role === 'Anggota') {
+    const userNik = user.id_anggota || user.username;
+    return list.filter((p) => {
+      if (userNik && p.nik === userNik) return true;
+      if (user.email && p.email && p.email.toLowerCase() === user.email.toLowerCase()) return true;
+      return false;
+    });
+  }
+
+  return list;
 }
 
 const INITIAL_ACTIVITY_LOGS: ActivityLogEntry[] = [
@@ -412,6 +474,35 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return localStorage.getItem(STORAGE_KEYS.AUTH) === 'true';
   });
 
+  // Web Notifications API state & preferences
+  const [browserNotifPermission, setBrowserNotifPermission] = useState<BrowserNotificationPermissionState>(() =>
+    getBrowserNotificationPermission()
+  );
+  const [browserNotifEnabled, setBrowserNotifEnabledState] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('ppdi_browser_notif_enabled');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const setBrowserNotifEnabled = useCallback((enabled: boolean) => {
+    setBrowserNotifEnabledState(enabled);
+    try {
+      localStorage.setItem('ppdi_browser_notif_enabled', String(enabled));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const syncPerm = () => setBrowserNotifPermission(getBrowserNotificationPermission());
+    window.addEventListener('focus', syncPerm);
+    document.addEventListener('visibilitychange', syncPerm);
+    return () => {
+      window.removeEventListener('focus', syncPerm);
+      document.removeEventListener('visibilitychange', syncPerm);
+    };
+  }, []);
+
   const [dbStatus, setDbStatus] = useState<DbStatusInfo | null>(() => {
     try {
       const savedCfg = localStorage.getItem('ppdi_saved_db_config');
@@ -535,6 +626,78 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isChangePasswordOpenRef.current = isChangePasswordModalOpen;
   }, [isChangePasswordModalOpen]);
 
+  // Refs for non-disruptive Web Notifications registration detection
+  const knownPendingPendaftaranIdsRef = useRef<Set<number> | null>(null);
+  const knownPendingUserIdRef = useRef<number | null>(null);
+  const isAuthenticatedRef = useRef<boolean>(isAuthenticated);
+  const browserNotifEnabledRef = useRef<boolean>(browserNotifEnabled);
+  const appSettingsRef = useRef<AppSettings>(appSettings);
+  const desaListRef = useRef<RefDesa[]>(desaList);
+  const kecamatanListRef = useRef<RefKecamatan[]>(kecamatanList);
+  const currentUserRef = useRef<UserAccount | null>(null);
+
+  useEffect(() => { isAuthenticatedRef.current = isAuthenticated; }, [isAuthenticated]);
+  useEffect(() => { browserNotifEnabledRef.current = browserNotifEnabled; }, [browserNotifEnabled]);
+  useEffect(() => { appSettingsRef.current = appSettings; }, [appSettings]);
+  useEffect(() => { desaListRef.current = desaList; }, [desaList]);
+  useEffect(() => { kecamatanListRef.current = kecamatanList; }, [kecamatanList]);
+
+  const detectAndNotifyNewRegistrations = useCallback((allPend: PendaftaranPerangkatDesa[]) => {
+    const user = currentUserRef.current;
+    if (!isAuthenticatedRef.current || !user || user.role === 'Anggota') {
+      return;
+    }
+    const canViewPendaftaran = checkUserPermission(
+      user.role,
+      'pendaftaran',
+      'view',
+      appSettingsRef.current.rolePermissions
+    );
+    if (!canViewPendaftaran) return;
+
+    const scopedPending = filterPendaftaranForUser(allPend, user).filter(
+      (p) => p.status_approval === 'Menunggu'
+    );
+
+    if (knownPendingUserIdRef.current !== user.id_user || knownPendingPendaftaranIdsRef.current === null) {
+      knownPendingUserIdRef.current = user.id_user;
+      knownPendingPendaftaranIdsRef.current = new Set(
+        scopedPending.map((p) => Number(p.id_pendaftaran))
+      );
+      return;
+    }
+
+    const knownSet = knownPendingPendaftaranIdsRef.current;
+    const newlyAdded = scopedPending.filter((p) => !knownSet.has(Number(p.id_pendaftaran)));
+    scopedPending.forEach((p) => knownSet.add(Number(p.id_pendaftaran)));
+
+    if (
+      newlyAdded.length > 0 &&
+      browserNotifEnabledRef.current &&
+      getBrowserNotificationPermission() === 'granted'
+    ) {
+      const desaNameMap = new Map<string, string>();
+      desaListRef.current.forEach((d) => {
+        desaNameMap.set(d.id_desa, d.nama_desa);
+        desaNameMap.set(d.id_desa.replace(/\./g, ''), d.nama_desa);
+      });
+      const kecamatanNameMap = new Map<string, string>();
+      kecamatanListRef.current.forEach((k) => {
+        kecamatanNameMap.set(k.id_kecamatan, k.nama_kecamatan);
+        kecamatanNameMap.set(k.id_kecamatan.replace(/\./g, ''), k.nama_kecamatan);
+      });
+
+      sendNewRegistrationBrowserNotification({
+        newRegistrations: newlyAdded,
+        appName: appSettingsRef.current.appName,
+        logoUrl: appSettingsRef.current.logoUrl,
+        desaNameMap,
+        kecamatanNameMap,
+        onClick: () => setActiveTab('pendaftaran'),
+      });
+    }
+  }, []);
+
   // Fetch full live data from remote MySQL database (supports silent partial background mode)
   const refreshDataFromMySQL = useCallback(async (options?: { silent?: boolean }) => {
     const isSilent = Boolean(options?.silent);
@@ -653,6 +816,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...p,
           nama_lengkap: (p.nama_lengkap || '').toUpperCase(),
         }));
+        detectAndNotifyNewRegistrations(mappedPend);
         updateIfChanged('pendaftaran', mappedPend, setPendaftaranList);
       }
 
@@ -1070,6 +1234,17 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return userList.find((u) => u.id_user === currentUserId) || userList[0] || INITIAL_USERS[0];
   }, [userList, currentUserId]);
 
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  // Reset notification baseline when active user changes so account switching never triggers stale alerts
+  useEffect(() => {
+    if (knownPendingUserIdRef.current !== null && currentUser?.id_user !== knownPendingUserIdRef.current) {
+      knownPendingPendaftaranIdsRef.current = null;
+    }
+  }, [currentUser?.id_user]);
+
   // Global centralized permission evaluation hook
   const hasPermission = useCallback(
     (moduleId: string, action: PermissionAction = 'view'): boolean => {
@@ -1077,6 +1252,63 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     [currentUser?.role, appSettings.rolePermissions]
   );
+
+  // Lightweight 15-second registration watcher for real-time Web Notifications
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser || currentUser.role === 'Anggota') {
+      return;
+    }
+    if (!hasPermission('pendaftaran', 'view')) {
+      return;
+    }
+
+    const pollPendaftaranWatcher = async () => {
+      try {
+        const res = await safeFetchJson<any>('/api/pendaftaran');
+        if (res.ok && res.data?.success && Array.isArray(res.data.pendaftaran)) {
+          const mappedPend: PendaftaranPerangkatDesa[] = res.data.pendaftaran.map((p: any) => ({
+            ...p,
+            nama_lengkap: (p.nama_lengkap || '').toUpperCase(),
+          }));
+          // Trigger browser notification directly without disrupting active form inputs
+          detectAndNotifyNewRegistrations(mappedPend);
+
+          if (!isUserActivelyEditingForm() && !isChangePasswordOpenRef.current) {
+            const nextSig = JSON.stringify(mappedPend);
+            if (lastSignaturesRef.current.pendaftaran !== nextSig) {
+              lastSignaturesRef.current.pendaftaran = nextSig;
+              setPendaftaranList(mappedPend);
+            }
+          }
+        }
+      } catch {
+        // Ignore silent watcher errors
+      }
+    };
+
+    const watcherId = setInterval(pollPendaftaranWatcher, 15000);
+    return () => clearInterval(watcherId);
+  }, [isAuthenticated, currentUser?.id_user, currentUser?.role, hasPermission, detectAndNotifyNewRegistrations]);
+
+  const requestBrowserNotifications = useCallback(async (): Promise<BrowserNotificationPermissionState> => {
+    const result = await requestBrowserNotificationPermission();
+    setBrowserNotifPermission(result);
+    if (result === 'granted') {
+      setBrowserNotifEnabled(true);
+    }
+    return result;
+  }, [setBrowserNotifEnabled]);
+
+  const testBrowserNotification = useCallback((): boolean => {
+    const currentPerm = getBrowserNotificationPermission();
+    setBrowserNotifPermission(currentPerm);
+    if (currentPerm !== 'granted') return false;
+    return sendTestBrowserNotification(
+      appSettings.appName,
+      appSettings.logoUrl,
+      () => setActiveTab('pendaftaran')
+    );
+  }, [appSettings.appName, appSettings.logoUrl]);
 
   // Sync auth context headers and persist session snapshot (only when matched / loaded from server)
   useEffect(() => {
@@ -1265,54 +1497,12 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Filtered pendaftaran based on user role & territory
   const visiblePendaftaran = useMemo(() => {
-    if (!currentUser) return pendaftaranList;
-    const role = currentUser.role;
-
-    // 1. Superadmin_Kabupaten & Admin_Kabupaten: Akses seluruh pendaftaran se-Kabupaten Bandung
-    if (role === 'Superadmin_Kabupaten' || role === 'Admin_Kabupaten') {
-      return pendaftaranList;
-    }
-
-    // 2. Admin_Kecamatan: Terkunci pada wilayah Kecamatan penugasan
-    if (role === 'Admin_Kecamatan') {
-      const userKecClean = (currentUser.id_kecamatan || '').replace(/\./g, '').trim();
-      if (!userKecClean) return pendaftaranList;
-
-      return pendaftaranList.filter((p) => {
-        const itemKecClean = (p.id_kecamatan || '').replace(/\./g, '').trim();
-        const itemDesaClean = (p.id_desa || '').replace(/\./g, '').trim();
-        return itemKecClean === userKecClean || (itemDesaClean.length >= 6 && itemDesaClean.startsWith(userKecClean));
-      });
-    }
-
-    // 3. Admin_Desa: Terkunci pada wilayah Desa penugasan
-    if (role === 'Admin_Desa') {
-      const userDesaClean = (currentUser.id_desa || '').replace(/\./g, '').trim();
-      const userKecClean = (currentUser.id_kecamatan || '').replace(/\./g, '').trim();
-
-      return pendaftaranList.filter((p) => {
-        const itemDesaClean = (p.id_desa || '').replace(/\./g, '').trim();
-        if (userDesaClean && itemDesaClean === userDesaClean) return true;
-        if (!userDesaClean && userKecClean) {
-          const itemKecClean = (p.id_kecamatan || '').replace(/\./g, '').trim();
-          return itemKecClean === userKecClean || itemDesaClean.startsWith(userKecClean);
-        }
-        return false;
-      });
-    }
-
-    // 4. Anggota: Hanya melihat pengajuan mandirinya (berdasarkan NIK / id_anggota / email)
-    if (role === 'Anggota') {
-      const userNik = currentUser.id_anggota || currentUser.username;
-      return pendaftaranList.filter((p) => {
-        if (userNik && p.nik === userNik) return true;
-        if (currentUser.email && p.email && p.email.toLowerCase() === currentUser.email.toLowerCase()) return true;
-        return false;
-      });
-    }
-
-    return pendaftaranList;
+    return filterPendaftaranForUser(pendaftaranList, currentUser);
   }, [pendaftaranList, currentUser]);
+
+  const pendingPendaftaranCount = useMemo(() => {
+    return visiblePendaftaran.filter((p) => p.status_approval === 'Menunggu').length;
+  }, [visiblePendaftaran]);
 
   // Actions fully integrated with MySQL
   const addAnggotaWithJobAndKta = async (
@@ -1334,7 +1524,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    const tempId = `ang-${Date.now().toString().slice(-6)}`;
+    const tempId = String(Math.floor(100000 + (Date.now() % 900000)));
     const nowIso = new Date().toISOString();
 
     const cleanDesaId = String(riwayatData.id_desa || '').replace(/\./g, '');
@@ -1458,19 +1648,19 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateAnggota = async (id: string, updated: Partial<Anggota>, jabatanPengurus?: string) => {
+  const updateAnggota = async (id: string | number, updated: Partial<Anggota>, jabatanPengurus?: string) => {
     const formattedUpdated: Partial<Anggota> = { ...updated };
     if (updated.nama_lengkap) {
       formattedUpdated.nama_lengkap = updated.nama_lengkap.trim().toUpperCase();
     }
     setAnggotaList((prev) =>
-      prev.map((item) => (item.id_anggota === id ? { ...item, ...formattedUpdated, updated_at: new Date().toISOString() } : item))
+      prev.map((item) => (String(item.id_anggota) === String(id) ? { ...item, ...formattedUpdated, updated_at: new Date().toISOString() } : item))
     );
 
     if (jabatanPengurus) {
       setKeanggotaanList((prev) =>
         prev.map((k) =>
-          k.id_anggota === id ? { ...k, jabatan_pengurus: jabatanPengurus } : k
+          String(k.id_anggota) === String(id) ? { ...k, jabatan_pengurus: jabatanPengurus } : k
         )
       );
     }
@@ -1478,9 +1668,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addActivityLog({
       aksi: 'EDIT',
       modul: 'Data Induk Anggota',
-      target_id: id,
-      target_nama: formattedUpdated.nama_lengkap || id,
-      deskripsi: `Memperbarui profil/data anggota "${formattedUpdated.nama_lengkap || id}".`,
+      target_id: String(id),
+      target_nama: String(formattedUpdated.nama_lengkap || id),
+      deskripsi: `Memperbarui profil/data anggota "${String(formattedUpdated.nama_lengkap || id)}".`,
     });
 
     try {
@@ -1504,9 +1694,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateKeanggotaanJabatan = async (idAnggota: string, jabatanPengurus: string) => {
+  const updateKeanggotaanJabatan = async (idAnggota: string | number, jabatanPengurus: string) => {
     // Check if member is Kepala Desa
-    const activeRw = riwayatList.find(r => r.id_anggota === idAnggota && r.status_aktif === 'Aktif');
+    const activeRw = riwayatList.find(r => String(r.id_anggota) === String(idAnggota) && r.status_aktif === 'Aktif');
     const matchedJab = jabatanList.find(j => Number(j.id_jabatan) === Number(activeRw?.id_jabatan));
     const isKades = matchedJab?.kategori_jabatan === 'Kepala Desa' ||
       matchedJab?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
@@ -1519,7 +1709,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setKeanggotaanList((prev) =>
       prev.map((k) =>
-        k.id_anggota === idAnggota ? { ...k, jabatan_pengurus: sanitized } : k
+        String(k.id_anggota) === String(idAnggota) ? { ...k, jabatan_pengurus: sanitized } : k
       )
     );
     try {
@@ -1534,26 +1724,26 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const deleteAnggota = async (id: string) => {
-    const target = anggotaList.find((item) => item.id_anggota === id);
+  const deleteAnggota = async (id: string | number) => {
+    const target = anggotaList.find((item) => String(item.id_anggota) === String(id));
     const targetNama = target ? target.nama_lengkap.toUpperCase() : 'Perangkat Desa';
     const targetNik = target?.nik;
 
-    setAnggotaList((prev) => prev.filter((item) => item.id_anggota !== id && (!targetNik || item.nik !== targetNik)));
-    setRiwayatList((prev) => prev.filter((item) => item.id_anggota !== id));
-    setKeanggotaanList((prev) => prev.filter((item) => item.id_anggota !== id));
-    setIuranList((prev) => prev.filter((item) => item.id_anggota !== id));
+    setAnggotaList((prev) => prev.filter((item) => String(item.id_anggota) !== String(id) && (!targetNik || item.nik !== targetNik)));
+    setRiwayatList((prev) => prev.filter((item) => String(item.id_anggota) !== String(id)));
+    setKeanggotaanList((prev) => prev.filter((item) => String(item.id_anggota) !== String(id)));
+    setIuranList((prev) => prev.filter((item) => String(item.id_anggota) !== String(id)));
 
     addActivityLog({
       aksi: 'HAPUS',
       modul: 'Data Induk Anggota',
-      target_id: id,
+      target_id: String(id),
       target_nama: targetNama,
       deskripsi: `Menghapus data anggota "${targetNama}" (NIK: ${targetNik || '-'}).`,
     });
 
     try {
-      const res = await safeFetchJson(`/api/anggota/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await safeFetchJson(`/api/anggota/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
       const json = res.data;
       await refreshDataFromMySQL();
       return {
@@ -1588,9 +1778,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateRiwayatJabatan = async (idRiwayat: string, updated: Partial<RiwayatJabatan>) => {
+  const updateRiwayatJabatan = async (idRiwayat: string | number, updated: Partial<RiwayatJabatan>) => {
     setRiwayatList((prev) =>
-      prev.map((r) => (r.id_riwayat === idRiwayat ? { ...r, ...updated } : r))
+      prev.map((r) => (String(r.id_riwayat) === String(idRiwayat) ? { ...r, ...updated } : r))
     );
 
     try {
@@ -1605,8 +1795,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const deleteRiwayatJabatan = async (idRiwayat: string) => {
-    setRiwayatList((prev) => prev.filter((r) => r.id_riwayat !== idRiwayat));
+  const deleteRiwayatJabatan = async (idRiwayat: string | number) => {
+    setRiwayatList((prev) => prev.filter((r) => String(r.id_riwayat) !== String(idRiwayat)));
     try {
       await safeFetchJson(`/api/riwayat/${idRiwayat}`, { method: 'DELETE' });
       await refreshDataFromMySQL();
@@ -1615,9 +1805,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateRiwayatStatus = async (idRiwayat: string, newStatus: StatusAktifJabatan) => {
+  const updateRiwayatStatus = async (idRiwayat: string | number, newStatus: StatusAktifJabatan) => {
     setRiwayatList((prev) =>
-      prev.map((r) => (r.id_riwayat === idRiwayat ? { ...r, status_aktif: newStatus } : r))
+      prev.map((r) => (String(r.id_riwayat) === String(idRiwayat) ? { ...r, status_aktif: newStatus } : r))
     );
 
     try {
@@ -1632,15 +1822,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateKTAStatus = async (idAnggota: string, newStatus: StatusKTA) => {
+  const updateKTAStatus = async (idAnggota: string | number, newStatus: StatusKTA) => {
     setKeanggotaanList((prev) =>
-      prev.map((k) => (k.id_anggota === idAnggota ? { ...k, status_kta: newStatus } : k))
+      prev.map((k) => (String(k.id_anggota) === String(idAnggota) ? { ...k, status_kta: newStatus } : k))
     );
 
     addActivityLog({
       aksi: 'STATUS_KTA',
       modul: 'Status E-KTA',
-      target_id: idAnggota,
+      target_id: String(idAnggota),
       deskripsi: `Memperbarui status E-KTA anggota ID ${idAnggota} menjadi "${newStatus}".`,
     });
 
@@ -2057,6 +2247,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     setIsAuthenticated(false);
+    knownPendingPendaftaranIdsRef.current = null;
+    knownPendingUserIdRef.current = null;
     localStorage.removeItem(STORAGE_KEYS.AUTH);
     localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
     localStorage.removeItem(STORAGE_KEYS.USER_SESSION);
@@ -2135,10 +2327,16 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       visibleMembers,
       pendaftaranList,
       visiblePendaftaran,
+      pendingPendaftaranCount,
       submitPendaftaran,
       approvePendaftaran,
       rejectPendaftaran,
       deletePendaftaran,
+      browserNotifPermission,
+      browserNotifEnabled,
+      setBrowserNotifEnabled,
+      requestBrowserNotifications,
+      testBrowserNotification,
       createUser,
       updateUser,
       deleteUser,
@@ -2207,6 +2405,12 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       visibleMembers,
       pendaftaranList,
       visiblePendaftaran,
+      pendingPendaftaranCount,
+      browserNotifPermission,
+      browserNotifEnabled,
+      setBrowserNotifEnabled,
+      requestBrowserNotifications,
+      testBrowserNotification,
       isChangePasswordModalOpen,
       mustChangeDefaultPassword,
       openChangePasswordModal,

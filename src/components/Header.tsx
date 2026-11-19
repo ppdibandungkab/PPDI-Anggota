@@ -20,6 +20,9 @@ import {
   UserCheck,
   Activity,
   MessageSquare,
+  Bell,
+  BellOff,
+  BellRing,
 } from 'lucide-react';
 
 export const Header: React.FC<{
@@ -52,10 +55,21 @@ export const Header: React.FC<{
     visibleMembers,
     openChangePasswordModal,
     hasPermission,
+    browserNotifPermission,
+    browserNotifEnabled,
+    setBrowserNotifEnabled,
+    requestBrowserNotifications,
+    testBrowserNotification,
+    pendingPendaftaranCount,
   } = usePPDI();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifFeedback, setNotifFeedback] = useState<string | null>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const canMonitorRegistrations = currentUser?.role !== 'Anggota' && hasPermission('pendaftaran', 'view');
 
   // Global Member Search & Autocomplete State
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,20 +81,24 @@ export const Header: React.FC<{
   const desktopInputRef = useRef<HTMLInputElement>(null);
   const mobileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close profile dropdown on outside click / Escape
+  // Close profile and notification dropdowns on outside click / Escape
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
         setIsProfileOpen(false);
       }
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setIsNotifOpen(false);
+      }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsProfileOpen(false);
+        setIsNotifOpen(false);
       }
     };
 
-    if (isProfileOpen) {
+    if (isProfileOpen || isNotifOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('keydown', handleKeyDown);
     }
@@ -88,7 +106,7 @@ export const Header: React.FC<{
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isProfileOpen]);
+  }, [isProfileOpen, isNotifOpen]);
 
   // Close autocomplete dropdown on outside click
   useEffect(() => {
@@ -563,6 +581,176 @@ export const Header: React.FC<{
                 <span className="hidden xl:inline">{isSyncing ? 'Sinkron...' : 'Sync DB'}</span>
               </button>
             </div>
+
+            {/* Browser Notifications Bell Trigger & Popover (Admins) */}
+            {canMonitorRegistrations && (
+              <div className="relative" ref={notifRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNotifFeedback(null);
+                    setIsNotifOpen((prev) => !prev);
+                  }}
+                  title={
+                    browserNotifPermission === 'granted' && browserNotifEnabled
+                      ? `Notifikasi Browser Aktif (${pendingPendaftaranCount} pendaftar menunggu)`
+                      : 'Pengaturan Notifikasi Browser Pendaftaran Baru'
+                  }
+                  aria-expanded={isNotifOpen}
+                  aria-haspopup="true"
+                  className={`relative p-2 rounded-full border transition-all cursor-pointer select-none ${
+                    isNotifOpen
+                      ? 'bg-white border-[#064E3B] text-[#064E3B] shadow-sm ring-2 ring-[#064E3B]/10'
+                      : 'bg-white/80 hover:bg-white text-[#111113]/75 border-[#111113]/15 hover:border-[#111113]/30 shadow-xs'
+                  }`}
+                >
+                  {browserNotifPermission === 'granted' && browserNotifEnabled ? (
+                    <BellRing className="w-4 h-4 text-[#064E3B]" />
+                  ) : browserNotifPermission === 'denied' || !browserNotifEnabled ? (
+                    <BellOff className="w-4 h-4 text-neutral-400" />
+                  ) : (
+                    <Bell className="w-4 h-4 text-amber-600" />
+                  )}
+
+                  {pendingPendaftaranCount > 0 ? (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold font-mono flex items-center justify-center ring-2 ring-white">
+                      {pendingPendaftaranCount > 99 ? '99+' : pendingPendaftaranCount}
+                    </span>
+                  ) : (
+                    <span
+                      className={`absolute top-1 right-1 w-2 h-2 rounded-full ring-2 ring-white ${
+                        browserNotifPermission === 'granted' && browserNotifEnabled
+                          ? 'bg-emerald-500'
+                          : browserNotifPermission === 'default'
+                          ? 'bg-amber-400'
+                          : 'bg-neutral-400'
+                      }`}
+                    />
+                  )}
+                </button>
+
+                {isNotifOpen && (
+                  <div
+                    className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-[#111113]/10 z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150"
+                    role="dialog"
+                    aria-label="Pengaturan Notifikasi Browser Pendaftaran Baru"
+                  >
+                    <div className="px-4 py-3 bg-[#F8F7F4] border-b border-[#111113]/10 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <BellRing className="w-4 h-4 text-[#064E3B]" />
+                        <div>
+                          <div className="text-xs font-bold text-[#111113]">Notifikasi Pendaftaran</div>
+                          <div className="text-[10px] text-[#111113]/60">Pemberitahuan langsung di perangkat</div>
+                        </div>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                          pendingPendaftaranCount > 0
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                            : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                        }`}
+                      >
+                        {pendingPendaftaranCount} Menunggu
+                      </span>
+                    </div>
+
+                    <div className="p-3.5 space-y-3 text-xs">
+                      {browserNotifPermission === 'unsupported' ? (
+                        <div className="p-2.5 rounded-md bg-neutral-100 text-neutral-700 text-[11px] leading-relaxed">
+                          Browser atau lingkungan preview saat ini tidak mendukung Web Notifications API.
+                        </div>
+                      ) : browserNotifPermission === 'denied' ? (
+                        <div className="p-2.5 rounded-md bg-red-50 border border-red-200 text-red-900 text-[11px] leading-relaxed">
+                          Izin notifikasi diblokir oleh browser. Klik ikon gembok/pengaturan situs di bilah alamat browser lalu ubah <b>Notifikasi</b> menjadi <b>Izinkan</b>.
+                        </div>
+                      ) : browserNotifPermission === 'default' ? (
+                        <div className="space-y-2.5">
+                          <p className="text-[11px] text-neutral-600 leading-relaxed">
+                            Aktifkan notifikasi browser agar Anda langsung menerima peringatan perangkat saat ada perangkat desa baru mendaftar.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const res = await requestBrowserNotifications();
+                              if (res === 'granted') {
+                                setNotifFeedback('Notifikasi browser berhasil diaktifkan.');
+                                testBrowserNotification();
+                              } else if (res === 'denied') {
+                                setNotifFeedback('Izin notifikasi ditolak di browser.');
+                              }
+                            }}
+                            className="w-full py-2 px-3 rounded-md bg-[#064E3B] hover:bg-[#053e2f] text-white font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            <BellRing className="w-3.5 h-3.5" />
+                            <span>Aktifkan Notifikasi Browser</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-2 p-2.5 rounded-md bg-emerald-50/70 border border-emerald-200">
+                            <div>
+                              <div className="font-semibold text-emerald-950 text-[11px]">
+                                {browserNotifEnabled ? 'Status: Aktif Memantau' : 'Status: Dijeda Sementara'}
+                              </div>
+                              <div className="text-[10px] text-emerald-800/80">
+                                {browserNotifEnabled
+                                  ? 'Otomatis memberi tahu saat ada pendaftaran masuk'
+                                  : 'Aktifkan kembali untuk menerima pop-up perangkat'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setBrowserNotifEnabled(!browserNotifEnabled)}
+                              className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-colors shrink-0 ${
+                                browserNotifEnabled
+                                  ? 'bg-emerald-700 text-white hover:bg-emerald-800'
+                                  : 'bg-neutral-200 text-neutral-800 hover:bg-neutral-300'
+                              }`}
+                            >
+                              {browserNotifEnabled ? 'Aktif' : 'Nonaktif'}
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ok = testBrowserNotification();
+                              setNotifFeedback(
+                                ok
+                                  ? 'Notifikasi uji coba dikirim ke perangkat Anda.'
+                                  : 'Gagal mengirim notifikasi uji coba.'
+                              );
+                            }}
+                            className="w-full py-1.5 px-3 rounded-md border border-neutral-300 hover:bg-neutral-50 text-neutral-800 font-semibold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            <Bell className="w-3.5 h-3.5 text-[#064E3B]" />
+                            <span>Kirim Notifikasi Uji Coba</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {notifFeedback && (
+                        <div className="text-[11px] text-[#064E3B] bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 font-medium">
+                          {notifFeedback}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('pendaftaran');
+                          setIsNotifOpen(false);
+                        }}
+                        className="w-full py-2 px-3 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white font-semibold text-xs flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <span>Buka Registrasi & Approval</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* User Profile Capsule Trigger */}
             <div className="relative" ref={profileRef}>

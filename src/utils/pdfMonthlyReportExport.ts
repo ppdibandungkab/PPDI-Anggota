@@ -152,7 +152,7 @@ export function exportMonthlyReportToPDF(params: MonthlyReportExportParams): str
   y += 20;
 
   // Compute Metrics Scoped to Members
-  const memberIdSet = new Set(members.map((m) => m.anggota.id_anggota));
+  const memberIdSet = new Set<string | number>(members.map((m) => m.anggota.id_anggota));
   const totalAnggota = members.length;
   const jabatanAktifCount = members.filter((m) => m.jabatanTerkini?.status_aktif === 'Aktif').length;
   const ktaAktifCount = members.filter((m) => m.keanggotaan?.status_kta === 'Aktif').length;

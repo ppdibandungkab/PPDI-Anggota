@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { StatusAktifJabatan } from '../types/ppdi';
 import { formatDateIndo, safeFetchJson } from '../utils/ppdiHelpers';
+import { isValidPdfFile, isPdfDataUrl } from '../utils/fileHelpers';
 import {
   AlertCircle,
   CheckCircle,
@@ -59,7 +60,7 @@ export const QuickSkVerifyModal: React.FC<QuickSkVerifyModalProps> = ({
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const memberMap = useMemo(() => {
-    const map = new Map<string, (typeof visibleMembers)[number]>();
+    const map = new Map<string | number, (typeof visibleMembers)[number]>();
     visibleMembers.forEach((m) => map.set(m.anggota.id_anggota, m));
     return map;
   }, [visibleMembers]);
@@ -122,12 +123,27 @@ export const QuickSkVerifyModal: React.FC<QuickSkVerifyModalProps> = ({
   const canApproveReg = hasPermission('pendaftaran', 'edit');
 
   const handleUploadRowSk = async (
-    idRiwayat: string,
+    idRiwayat: string | number,
     nik: string,
     nama: string,
     file: File
   ) => {
     setFeedback(null);
+    if (!isValidPdfFile(file)) {
+      setFeedback({
+        type: 'error',
+        text: 'Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk dokumen SK.',
+      });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setFeedback({
+        type: 'error',
+        text: 'Ukuran berkas SK maksimal 10 MB.',
+      });
+      return;
+    }
+
     setBusyId(idRiwayat);
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -136,6 +152,10 @@ export const QuickSkVerifyModal: React.FC<QuickSkVerifyModalProps> = ({
         reader.onerror = () => reject(new Error('Gagal membaca berkas SK.'));
         reader.readAsDataURL(file);
       });
+
+      if (!isPdfDataUrl(dataUrl)) {
+        throw new Error('File yang dipilih bukan dokumen PDF (.pdf) yang valid.');
+      }
 
       let savedUrl = dataUrl;
       try {
@@ -151,9 +171,16 @@ export const QuickSkVerifyModal: React.FC<QuickSkVerifyModalProps> = ({
         });
         if (res.ok && res.data?.success && res.data.url) {
           savedUrl = res.data.url;
+        } else if (res.status >= 400 && res.status < 500) {
+          throw new Error(
+            res.data?.message || 'Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk dokumen SK.'
+          );
         }
-      } catch {
-        // fallback ke data URL
+      } catch (uploadErr: any) {
+        if (uploadErr?.message?.includes('PDF')) {
+          throw uploadErr;
+        }
+        // fallback ke data URL hanya saat koneksi upload terputus
       }
 
       await updateRiwayatJabatan(idRiwayat, { file_sk: savedUrl });
@@ -171,12 +198,12 @@ export const QuickSkVerifyModal: React.FC<QuickSkVerifyModalProps> = ({
   };
 
   const handleStatusChange = async (
-    idRiwayat: string,
+    idRiwayat: string | number,
     nama: string,
     nextStatus: StatusAktifJabatan
   ) => {
     setFeedback(null);
-    setBusyId(idRiwayat);
+    setBusyId(String(idRiwayat));
     try {
       await updateRiwayatStatus(idRiwayat, nextStatus);
       const msg = `Status SK jabatan ${nama} diperbarui menjadi ${nextStatus}.`;
@@ -442,7 +469,7 @@ export const QuickSkVerifyModal: React.FC<QuickSkVerifyModalProps> = ({
                           <span>{hasUploaded ? 'Ganti File' : 'Upload SK'}</span>
                           <input
                             type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.webp"
+                            accept="application/pdf,.pdf"
                             disabled={isBusy}
                             className="hidden"
                             onChange={(e) => {

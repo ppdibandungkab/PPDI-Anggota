@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { X, CheckCircle, AlertCircle, Image as ImageIcon, FileText, Loader2, Calendar } from 'lucide-react';
 import { SignatureCanvas } from './SignatureCanvas';
+import { isValidPdfFile, isPdfDataUrl } from '../utils/fileHelpers';
 
 interface PublicRegistrationFormProps {
   isOpen: boolean;
@@ -197,6 +198,22 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       return;
     }
 
+    if (field === 'fileSk' && !isValidPdfFile(file)) {
+      const msg = 'Berkas SK wajib berformat PDF (.pdf)! File gambar atau format lain tidak diperbolehkan.';
+      setFormError(msg);
+      setFileName('');
+      setFormData((prev) => ({ ...prev, fileSk: '' }));
+      setUploadState({
+        status: 'error',
+        progress: 0,
+        fileName: file.name,
+        fileSizeLabel: formatFileSize(file.size),
+        errorMessage: msg,
+      });
+      e.target.value = '';
+      return;
+    }
+
     if (file.size > 2 * 1024 * 1024) {
       const msg = `Ukuran file ${field === 'foto' ? 'Foto Resmi' : 'Berkas SK'} maksimal 2 MB!`;
       setFormError(msg);
@@ -252,6 +269,22 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       const base64Data = reader.result as string;
       if (!base64Data) return;
 
+      if (field === 'fileSk' && !isPdfDataUrl(base64Data)) {
+        const msg = 'File SK yang dipilih bukan dokumen PDF (.pdf) yang valid.';
+        setFormError(msg);
+        setFileName('');
+        setFormData((prev) => ({ ...prev, fileSk: '' }));
+        setUploadState({
+          status: 'error',
+          progress: 0,
+          fileName: file.name,
+          fileSizeLabel: sizeLabel,
+          errorMessage: msg,
+        });
+        e.target.value = '';
+        return;
+      }
+
       setUploadState({
         status: 'uploading',
         progress: 45,
@@ -289,6 +322,20 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
               });
               return;
             }
+          } else if (xhr.status >= 400 && xhr.status < 500) {
+            const parsed = JSON.parse(xhr.responseText || '{}');
+            const errMsg = parsed?.message || 'Berkas SK wajib berformat PDF (.pdf).';
+            setFormError(errMsg);
+            setFileName('');
+            setFormData((prev) => ({ ...prev, [field]: '' }));
+            setUploadState({
+              status: 'error',
+              progress: 0,
+              fileName: file.name,
+              fileSizeLabel: sizeLabel,
+              errorMessage: errMsg,
+            });
+            return;
           }
         } catch {
           // fallback below
@@ -953,12 +1000,12 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-neutral-700 uppercase flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-emerald-700" />
-                  <span>Upload Berkas SK (PDF/Gambar) <span className="text-red-500">*</span></span>
+                  <span>Upload Berkas SK (Hanya PDF) <span className="text-red-500">*</span></span>
                 </label>
                 <div className="flex items-center gap-3">
                   <input 
                     type="file" 
-                    accept="image/*,.pdf"
+                    accept="application/pdf,.pdf"
                     onChange={e => handleFileChange(e, 'fileSk')}
                     required
                     className="w-full text-xs text-neutral-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"

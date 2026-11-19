@@ -37,6 +37,9 @@ import {
   ZoomIn,
   FileCheck,
   PenTool,
+  Bell,
+  BellOff,
+  BellRing,
 } from 'lucide-react';
 import { PendaftaranPerangkatDesa } from '../types/ppdi';
 import {
@@ -58,6 +61,11 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     approvePendaftaran,
     rejectPendaftaran,
     deletePendaftaran,
+    browserNotifPermission,
+    browserNotifEnabled,
+    setBrowserNotifEnabled,
+    requestBrowserNotifications,
+    testBrowserNotification,
     refreshDataFromMySQL,
     kecamatanList,
     desaList,
@@ -794,6 +802,104 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
           </span>
         </div>
       </div>
+
+      {/* Browser Push Notification Opt-In / Status Bar (Admin only) */}
+      {userRole !== 'Anggota' && browserNotifPermission !== 'unsupported' && (
+        <div className="bg-white border border-neutral-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                browserNotifPermission === 'granted' && browserNotifEnabled
+                  ? 'bg-emerald-100 text-[#064E3B]'
+                  : browserNotifPermission === 'denied'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {browserNotifPermission === 'granted' && browserNotifEnabled ? (
+                <BellRing className="w-4 h-4" />
+              ) : browserNotifPermission === 'denied' || !browserNotifEnabled ? (
+                <BellOff className="w-4 h-4" />
+              ) : (
+                <Bell className="w-4 h-4" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold text-neutral-900">
+                Notifikasi Langsung Perangkat (Web Notifications API)
+              </div>
+              <div className="text-[11px] text-neutral-600 truncate">
+                {browserNotifPermission === 'granted'
+                  ? browserNotifEnabled
+                    ? 'Aktif: Anda akan menerima pemberitahuan pop-up perangkat saat ada pengajuan pendaftaran baru.'
+                    : 'Dijeda: Pemberitahuan perangkat dimatikan sementara untuk sesi browser ini.'
+                  : browserNotifPermission === 'denied'
+                  ? 'Diblokir browser: Izinkan Notifikasi melalui pengaturan ikon gembok di bilah alamat browser.'
+                  : 'Aktifkan agar admin langsung mendapat notifikasi saat pendaftar baru mengajukan formulir.'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {browserNotifPermission === 'default' && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const res = await requestBrowserNotifications();
+                  if (res === 'granted') {
+                    testBrowserNotification();
+                    setActionMessage({
+                      type: 'success',
+                      text: 'Notifikasi browser berhasil diaktifkan! Perangkat Anda kini siap menerima pemberitahuan pendaftaran baru.',
+                    });
+                  } else if (res === 'denied') {
+                    setActionMessage({
+                      type: 'error',
+                      text: 'Izin notifikasi ditolak oleh browser. Aktifkan izin Notifikasi di pengaturan situs browser Anda.',
+                    });
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-[#064E3B] hover:bg-[#053d2e] text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+              >
+                <BellRing className="w-3.5 h-3.5" />
+                <span>Aktifkan Notifikasi Browser</span>
+              </button>
+            )}
+
+            {browserNotifPermission === 'granted' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setBrowserNotifEnabled(!browserNotifEnabled)}
+                  className={`px-3 py-1.5 rounded-lg font-semibold text-xs border cursor-pointer transition-colors ${
+                    browserNotifEnabled
+                      ? 'bg-emerald-50 text-[#064E3B] border-emerald-300 hover:bg-emerald-100'
+                      : 'bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200'
+                  }`}
+                >
+                  {browserNotifEnabled ? 'Jeda Notifikasi' : 'Aktifkan Kembali'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ok = testBrowserNotification();
+                    setActionMessage({
+                      type: ok ? 'success' : 'error',
+                      text: ok
+                        ? 'Notifikasi uji coba berhasil dikirim ke perangkat Anda!'
+                        : 'Tidak dapat menampilkan notifikasi uji coba. Periksa izin notifikasi OS/browser.',
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-neutral-50 text-neutral-800 border border-neutral-300 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Bell className="w-3.5 h-3.5 text-[#064E3B]" />
+                  <span>Uji Notifikasi</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Notification Banner */}
       {actionMessage && (

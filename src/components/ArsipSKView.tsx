@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { RiwayatJabatan, AnggotaFullDetail } from '../types/ppdi';
 import { formatDateIndo, safeFetchJson } from '../utils/ppdiHelpers';
+import { isValidPdfFile, isPdfDataUrl } from '../utils/fileHelpers';
 import {
   FileText,
   Search,
@@ -351,7 +352,11 @@ export const ArsipSKView: React.FC = () => {
       return;
     }
     if (!uploadFileData || !uploadFileName) {
-      setUploadError('Silakan pilih berkas PDF / scan dokumen SK terlebih dahulu.');
+      setUploadError('Silakan pilih berkas SK berformat PDF (.pdf) terlebih dahulu.');
+      return;
+    }
+    if (!uploadFileName.toLowerCase().endsWith('.pdf') || !isPdfDataUrl(uploadFileData)) {
+      setUploadError('Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk dokumen SK.');
       return;
     }
 
@@ -374,6 +379,10 @@ export const ArsipSKView: React.FC = () => {
       const json = res.data;
       if (res.ok && json?.success && json.url) {
         targetFileUrl = json.url;
+      } else if (res.status >= 400 && res.status < 500) {
+        setUploadError(json?.message || 'Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk dokumen SK.');
+        setIsUploading(false);
+        return;
       } else {
         // Fallback offline jika server tidak terjangkau
         targetFileUrl = uploadFileData;
@@ -540,7 +549,7 @@ export const ArsipSKView: React.FC = () => {
                           Belum ada berkas SK yang sudah diunggah
                         </div>
                         <p className="text-[11px] text-neutral-400">
-                          Halaman e-Arsip hanya menampilkan SK yang dokumen PDF/scan-nya sudah benar-benar diunggah. Gunakan tombol <strong>Upload SK Baru</strong> atau unggah SK pada formulir data anggota.
+                          Halaman e-Arsip hanya menampilkan SK yang dokumen PDF-nya sudah benar-benar diunggah. Gunakan tombol <strong>Upload SK Baru</strong> atau unggah SK pada formulir data anggota.
                         </p>
                       </div>
                     ) : (
@@ -1074,20 +1083,42 @@ export const ArsipSKView: React.FC = () => {
 
               <div>
                 <label className="block text-neutral-700 font-medium mb-1">
-                  Pilih File PDF / Scan Dokumen <span className="text-red-500">*</span>
+                  Pilih File SK (Hanya PDF .pdf) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                  accept="application/pdf,.pdf"
                   required
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) {
-                      setUploadFileName(f.name);
+                      if (!isValidPdfFile(f)) {
+                        setUploadError('Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk dokumen SK.');
+                        setUploadFileName('');
+                        setUploadFileData('');
+                        e.target.value = '';
+                        return;
+                      }
+                      if (f.size > 10 * 1024 * 1024) {
+                        setUploadError('Ukuran berkas SK maksimal 10 MB.');
+                        setUploadFileName('');
+                        setUploadFileData('');
+                        e.target.value = '';
+                        return;
+                      }
                       if (uploadError) setUploadError('');
                       const reader = new FileReader();
                       reader.onload = () => {
-                        setUploadFileData(reader.result as string);
+                        const result = reader.result as string;
+                        if (!isPdfDataUrl(result)) {
+                          setUploadError('File yang dipilih bukan dokumen PDF (.pdf) yang valid.');
+                          setUploadFileName('');
+                          setUploadFileData('');
+                          e.target.value = '';
+                          return;
+                        }
+                        setUploadFileName(f.name);
+                        setUploadFileData(result);
                       };
                       reader.readAsDataURL(f);
                     } else {

@@ -141,6 +141,136 @@ function getDbConfig(override) {
 }
 var activeDbConfig = getDbConfig();
 var pool = null;
+var anggotaIntSchemaEnsured = false;
+
+function isValidInt32Id(val) {
+  if (val === null || val === undefined) return null;
+  const str = String(val).trim();
+  if (!/^\d{1,10}$/.test(str)) return null;
+  const num = Number(str);
+  if (!Number.isSafeInteger(num) || num <= 0 || num > 2147483647) return null;
+  return num;
+}
+
+async function ensureAnggotaIntSchema(conn) {
+  if (anggotaIntSchemaEnsured) return;
+  try {
+    const [colRows] = await conn.query(
+      `SELECT TABLE_NAME, DATA_TYPE, COLUMN_TYPE, EXTRA
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND COLUMN_NAME = 'id_anggota'
+         AND TABLE_NAME IN ('anggota', 'riwayat_jabatan', 'keanggotaan_ppdi', 'iuran_anggota', 'users', 'whatsapp_logs')`
+    );
+    if (!colRows || colRows.length === 0) {
+      anggotaIntSchemaEnsured = true;
+      return;
+    }
+    const anggotaCol = colRows.find((r) => r.TABLE_NAME === "anggota");
+    const needsAnggotaAlter = Boolean(anggotaCol) && (String(anggotaCol.DATA_TYPE).toLowerCase() !== "int" || !String(anggotaCol.EXTRA || "").toLowerCase().includes("auto_increment"));
+    const childTablesNeedingAlter = colRows.filter((r) => r.TABLE_NAME !== "anggota" && String(r.DATA_TYPE).toLowerCase() !== "int").map((r) => String(r.TABLE_NAME));
+    if (!needsAnggotaAlter && childTablesNeedingAlter.length === 0) {
+      anggotaIntSchemaEnsured = true;
+      return;
+    }
+    await conn.query("SET FOREIGN_KEY_CHECKS = 0");
+    try {
+      const [fkRows] = await conn.query(
+        `SELECT TABLE_NAME, CONSTRAINT_NAME
+         FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND REFERENCED_TABLE_NAME = 'anggota'
+           AND REFERENCED_COLUMN_NAME = 'id_anggota'`
+      );
+      const seenFk = /* @__PURE__ */ new Set();
+      for (const fk of fkRows) {
+        const key = `${fk.TABLE_NAME}.${fk.CONSTRAINT_NAME}`;
+        if (seenFk.has(key)) continue;
+        seenFk.add(key);
+        try {
+          await conn.query(`ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    if (needsAnggotaAlter) {
+      const [angRows] = await conn.query(`SELECT id_anggota FROM anggota ORDER BY created_at ASC, id_anggota ASC`);
+      const usedInts = /* @__PURE__ */ new Set();
+      const idMap = /* @__PURE__ */ new Map();
+      for (const r of angRows) {
+        const oldId = String(r.id_anggota);
+        const parsed = isValidInt32Id(oldId);
+        if (parsed !== null && !usedInts.has(parsed)) {
+          usedInts.add(parsed);
+          idMap.set(oldId, parsed);
+        }
+      }
+      let nextSeq = 1;
+      for (const r of angRows) {
+        const oldId = String(r.id_anggota);
+        if (!idMap.has(oldId)) {
+          while (usedInts.has(nextSeq)) nextSeq++;
+          usedInts.add(nextSeq);
+          idMap.set(oldId, nextSeq);
+          nextSeq++;
+        }
+      }
+      const childTablesAll = ["riwayat_jabatan", "keanggotaan_ppdi", "iuran_anggota", "users", "whatsapp_logs"];
+      const existingChildTables = new Set(colRows.map((r) => String(r.TABLE_NAME)));
+      for (const [oldId, newId] of idMap.entries()) {
+        if (oldId === String(newId)) continue;
+        await conn.query(`UPDATE anggota SET id_anggota = ? WHERE id_anggota = ?`, [String(newId), oldId]);
+        for (const tbl of childTablesAll) {
+          if (existingChildTables.has(tbl)) {
+            try {
+              await conn.query(`UPDATE \`${tbl}\` SET id_anggota = ? WHERE id_anggota = ?`, [String(newId), oldId]);
+            } catch (_) {}
+          }
+        }
+      }
+      for (const tbl of ["users", "whatsapp_logs"]) {
+        if (existingChildTables.has(tbl)) {
+          try {
+            await conn.query(`UPDATE \`${tbl}\` SET id_anggota = NULL WHERE id_anggota IS NOT NULL AND id_anggota NOT REGEXP '^[0-9]{1,10}$'`);
+          } catch (_) {}
+        }
+      }
+      for (const tbl of ["riwayat_jabatan", "keanggotaan_ppdi", "iuran_anggota"]) {
+        if (existingChildTables.has(tbl)) {
+          try {
+            await conn.query(`DELETE FROM \`${tbl}\` WHERE id_anggota IS NULL OR id_anggota NOT REGEXP '^[0-9]{1,10}$'`);
+          } catch (_) {}
+        }
+      }
+      await conn.query(`ALTER TABLE \`anggota\` MODIFY COLUMN \`id_anggota\` INT(11) NOT NULL AUTO_INCREMENT`);
+      const maxId = usedInts.size > 0 ? Math.max(...Array.from(usedInts)) : 0;
+      await conn.query(`ALTER TABLE \`anggota\` AUTO_INCREMENT = ?`, [maxId + 1]);
+    }
+    for (const tbl of ["riwayat_jabatan", "keanggotaan_ppdi", "iuran_anggota"]) {
+      if (childTablesNeedingAlter.includes(tbl)) {
+        try {
+          await conn.query(`DELETE FROM \`${tbl}\` WHERE id_anggota IS NULL OR id_anggota NOT REGEXP '^[0-9]{1,10}$'`);
+          await conn.query(`ALTER TABLE \`${tbl}\` MODIFY COLUMN \`id_anggota\` INT(11) NOT NULL`);
+        } catch (_) {}
+      }
+    }
+    for (const tbl of ["users", "whatsapp_logs"]) {
+      if (childTablesNeedingAlter.includes(tbl)) {
+        try {
+          await conn.query(`UPDATE \`${tbl}\` SET id_anggota = NULL WHERE id_anggota IS NOT NULL AND id_anggota NOT REGEXP '^[0-9]{1,10}$'`);
+          await conn.query(`ALTER TABLE \`${tbl}\` MODIFY COLUMN \`id_anggota\` INT(11) NULL`);
+        } catch (_) {}
+      }
+    }
+    await conn.query("SET FOREIGN_KEY_CHECKS = 1");
+    anggotaIntSchemaEnsured = true;
+  } catch (err) {
+    try {
+      await conn.query("SET FOREIGN_KEY_CHECKS = 1");
+    } catch (_) {}
+    console.warn("[Schema Migration] Gagal migrasi id_anggota ke INT(11):", err);
+  }
+}
+
 function createOrGetPool(overrideConfig, forceRecreate = false) {
   if (pool && !forceRecreate && !overrideConfig) {
     return pool;
@@ -151,6 +281,9 @@ function createOrGetPool(overrideConfig, forceRecreate = false) {
     } catch (_) {
     }
     pool = null;
+  }
+  if (forceRecreate || overrideConfig) {
+    anggotaIntSchemaEnsured = false;
   }
   activeDbConfig = overrideConfig ? getDbConfig(overrideConfig) : getDbConfig();
   pool = mysql.createPool({
@@ -316,7 +449,20 @@ app.post("/api/upload", async (req, res) => {
       mimeType = matches[1];
       base64Clean = matches[2];
     }
-    let ext = path.extname(fileName || "").toLowerCase();
+    if (folderType === "sk") {
+      const lowerName = String(fileName || "").trim().toLowerCase();
+      const lowerMime = mimeType.toLowerCase();
+      const nameInvalid = lowerName && !lowerName.endsWith(".pdf");
+      const mimeInvalid = (lowerMime && lowerMime !== "application/pdf" && lowerMime !== "application/x-pdf") || (!lowerMime && String(fileData).startsWith("data:"));
+      const headerSlice = Buffer.from(base64Clean.slice(0, 128), "base64").subarray(0, 64).toString("ascii");
+      if (nameInvalid || mimeInvalid || !headerSlice.includes("%PDF-")) {
+        return res.status(400).json({
+          success: false,
+          message: "Hanya file berformat PDF (.pdf) yang diperbolehkan untuk berkas SK."
+        });
+      }
+    }
+    let ext = folderType === "sk" ? ".pdf" : path.extname(fileName || "").toLowerCase();
     if (!ext) {
       if (mimeType.includes("pdf")) ext = ".pdf";
       else if (mimeType.includes("png")) ext = ".png";
@@ -697,7 +843,7 @@ app.post("/api/db/init-tables", requirePermission("settings-db", "edit"), async 
     `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`anggota\` (
-        \`id_anggota\` VARCHAR(36) NOT NULL,
+        \`id_anggota\` INT(11) NOT NULL AUTO_INCREMENT,
         \`nik\` VARCHAR(16) NOT NULL,
         \`nipd\` VARCHAR(30) NULL,
         \`nama_lengkap\` VARCHAR(150) NOT NULL,
@@ -758,8 +904,8 @@ app.post("/api/db/init-tables", requirePermission("settings-db", "edit"), async 
     }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`riwayat_jabatan\` (
-        \`id_riwayat\` VARCHAR(36) NOT NULL,
-        \`id_anggota\` VARCHAR(36) NOT NULL,
+        \`id_riwayat\` INT(11) NOT NULL AUTO_INCREMENT,
+        \`id_anggota\` INT(11) NOT NULL,
         \`id_desa\` VARCHAR(20) NOT NULL,
         \`id_jabatan\` INT NOT NULL,
         \`no_sk_pengangkatan\` VARCHAR(100) NOT NULL,
@@ -774,8 +920,8 @@ app.post("/api/db/init-tables", requirePermission("settings-db", "edit"), async 
     `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`keanggotaan_ppdi\` (
-        \`id_ppdi\` VARCHAR(36) NOT NULL,
-        \`id_anggota\` VARCHAR(36) NOT NULL,
+        \`id_ppdi\` INT(11) NOT NULL AUTO_INCREMENT,
+        \`id_anggota\` INT(11) NOT NULL,
         \`no_kta\` VARCHAR(50) NOT NULL,
         \`tgl_bergabung\` DATE NOT NULL,
         \`jabatan_pengurus\` VARCHAR(100) NOT NULL DEFAULT 'Anggota Biasa',
@@ -792,7 +938,7 @@ app.post("/api/db/init-tables", requirePermission("settings-db", "edit"), async 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`iuran_anggota\` (
         \`id_iuran\` VARCHAR(36) NOT NULL,
-        \`id_anggota\` VARCHAR(36) NOT NULL,
+        \`id_anggota\` INT(11) NOT NULL,
         \`tahun\` SMALLINT NOT NULL,
         \`bulan\` TINYINT NOT NULL,
         \`jumlah\` DECIMAL(12,2) NOT NULL DEFAULT 35000.00,
@@ -826,7 +972,7 @@ app.post("/api/db/init-tables", requirePermission("settings-db", "edit"), async 
         \`nama\` VARCHAR(150) NULL,
         \`password\` VARCHAR(255) NOT NULL,
         \`role\` VARCHAR(50) NOT NULL DEFAULT 'Admin_Kecamatan',
-        \`id_anggota\` VARCHAR(36) NULL,
+        \`id_anggota\` INT(11) NULL,
         \`id_kecamatan_scope\` VARCHAR(10) NULL,
         \`id_kecamatan\` VARCHAR(10) NULL,
         \`id_desa\` VARCHAR(20) NULL,
@@ -895,6 +1041,8 @@ app.post("/api/db/init-tables", requirePermission("settings-db", "edit"), async 
         UPDATE users SET password = ? WHERE username = 'superadmin' AND (password = '' OR password IS NULL)
       `, [defaultAdminPass]);
     }
+    anggotaIntSchemaEnsured = false;
+    await ensureAnggotaIntSchema(conn);
     await conn.query("SET FOREIGN_KEY_CHECKS = 1");
     conn.release();
     return res.json({
@@ -927,6 +1075,7 @@ app.get("/api/anggota", async (_req, res) => {
   try {
     if (!pool) throw new Error("Pool not ready");
     const conn = await pool.getConnection();
+    await ensureAnggotaIntSchema(conn);
     const [anggotaRows] = await conn.query(`
       SELECT 
         a.id_anggota,
@@ -1056,6 +1205,7 @@ app.post("/api/anggota", requirePermission("anggota", "add"), async (req, res) =
   try {
     if (!pool) throw new Error("Pool not ready");
     conn = await pool.getConnection();
+    await ensureAnggotaIntSchema(conn);
     const [existingNik] = await conn.query(
       "SELECT id_anggota, nama_lengkap FROM anggota WHERE nik = ? LIMIT 1",
       [anggota.nik]
@@ -1068,7 +1218,6 @@ app.post("/api/anggota", requirePermission("anggota", "add"), async (req, res) =
       });
     }
     await conn.beginTransaction();
-    const newIdAnggota = anggota.id_anggota && anggota.id_anggota.length > 10 ? String(anggota.id_anggota) : crypto.randomUUID();
     const newIdRiwayat = crypto.randomUUID();
     const newIdPpdi = crypto.randomUUID();
     const nipdValue = anggota.nipd || anggota.niap_nipd || anggota.niap || generateServerNIPD({
@@ -1079,11 +1228,10 @@ app.post("/api/anggota", requirePermission("anggota", "add"), async (req, res) =
       id_kecamatan: riwayat?.id_kecamatan,
       id_desa: riwayat?.id_desa
     });
-    await conn.query(
-      `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, foto, alamat_rumah, status_pernikahan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    const [angInsertRes] = await conn.query(
+      `INSERT INTO anggota (nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, foto, alamat_rumah, status_pernikahan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        newIdAnggota,
         anggota.nik,
         nipdValue,
         (anggota.nama_lengkap || "").trim().toUpperCase(),
@@ -1101,6 +1249,7 @@ app.post("/api/anggota", requirePermission("anggota", "add"), async (req, res) =
         anggota.status_pernikahan || "Kawin"
       ]
     );
+    const newIdAnggota = Number(angInsertRes.insertId);
     if (riwayat) {
       const validDesaId = await resolveDesaId(conn, riwayat.id_desa);
       await conn.query(
@@ -1161,6 +1310,7 @@ app.post("/api/anggota/batch-import", requirePermission("anggota", "add"), async
   try {
     if (!pool) throw new Error("Koneksi database pool belum siap");
     conn = await pool.getConnection();
+    await ensureAnggotaIntSchema(conn);
     await conn.beginTransaction();
     let insertedCount = 0;
     const skipped = [];
@@ -1186,7 +1336,6 @@ app.post("/api/anggota/batch-import", requirePermission("anggota", "add"), async
         skipped.push({ row: i + 1, nik: nikStr, nama: "-", reason: "Nama lengkap wajib diisi" });
         continue;
       }
-      const newIdAnggota = crypto.randomUUID();
       const newIdRiwayat = crypto.randomUUID();
       const newIdPpdi = crypto.randomUUID();
       const nipdVal = ang.nipd || ang.niap || ang.niap_nipd || generateServerNIPD({
@@ -1197,11 +1346,10 @@ app.post("/api/anggota/batch-import", requirePermission("anggota", "add"), async
         id_kecamatan: ang.id_kecamatan,
         id_desa: ang.id_desa || ang.desa
       });
-      await conn.query(
-        `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, foto, alamat_rumah, status_pernikahan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      const [angInsertRes] = await conn.query(
+        `INSERT INTO anggota (nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, foto, alamat_rumah, status_pernikahan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          newIdAnggota,
           nikStr,
           nipdVal,
           ang.nama_lengkap.trim().toUpperCase(),
@@ -1219,6 +1367,7 @@ app.post("/api/anggota/batch-import", requirePermission("anggota", "add"), async
           ang.status_pernikahan || "Kawin"
         ]
       );
+      const newIdAnggota = Number(angInsertRes.insertId);
       existingNikSet.add(nikStr);
       const validDesaId = await resolveDesaId(conn, rw.id_desa, rw.nama_desa);
       await conn.query(
@@ -1282,15 +1431,20 @@ app.post("/api/anggota/batch-import", requirePermission("anggota", "add"), async
 });
 app.put("/api/anggota/:id", requirePermission("anggota", "edit"), async (req, res) => {
   const { id } = req.params;
+  const numericId = isValidInt32Id(id);
   const data = req.body;
   let conn;
+  if (numericId === null) {
+    return res.status(400).json({ success: false, message: "ID anggota tidak valid (harus berupa integer)" });
+  }
   try {
     if (!pool) throw new Error("Pool not ready");
     conn = await pool.getConnection();
+    await ensureAnggotaIntSchema(conn);
     if (data.nik) {
       const [existingNik] = await conn.query(
         "SELECT id_anggota, nama_lengkap FROM anggota WHERE nik = ? AND id_anggota != ? LIMIT 1",
-        [data.nik, id]
+        [data.nik, numericId]
       );
       if (existingNik.length > 0) {
         conn.release();
@@ -1334,19 +1488,19 @@ app.put("/api/anggota/:id", requirePermission("anggota", "edit"), async (req, re
         data.alamat_rumah,
         data.status_pernikahan,
         data.foto,
-        id
+        numericId
       ]
     );
     const effectiveJabatanPengurus = data.jabatan_pengurus || data.jabatanPengurus;
     if (effectiveJabatanPengurus) {
       const [existingPpdi] = await conn.query(
         "SELECT id_ppdi FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1",
-        [id]
+        [numericId]
       );
       if (existingPpdi.length > 0) {
         await conn.query(
           "UPDATE keanggotaan_ppdi SET jabatan_pengurus = ? WHERE id_anggota = ?",
-          [effectiveJabatanPengurus, id]
+          [effectiveJabatanPengurus, numericId]
         );
       } else {
         const newIdPpdi = crypto.randomUUID();
@@ -1354,7 +1508,7 @@ app.put("/api/anggota/:id", requirePermission("anggota", "edit"), async (req, re
         await conn.query(
           `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
            VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
-          [newIdPpdi, id, defaultKta, effectiveJabatanPengurus]
+          [newIdPpdi, numericId, defaultKta, effectiveJabatanPengurus]
         );
       }
     }
@@ -1367,38 +1521,52 @@ app.put("/api/anggota/:id", requirePermission("anggota", "edit"), async (req, re
 });
 app.delete("/api/anggota/:id", requirePermission("anggota", "delete"), async (req, res) => {
   const { id } = req.params;
+  const numericParamId = isValidInt32Id(id);
   let conn;
   try {
     if (!pool) throw new Error("Koneksi database pool belum siap");
     conn = await pool.getConnection();
-    const [found] = await conn.query(
-      "SELECT id_anggota, nik, nama_lengkap FROM anggota WHERE id_anggota = ? OR nik = ? LIMIT 1",
-      [id, id]
-    );
-    const targetId = found.length > 0 ? found[0].id_anggota : id;
+    await ensureAnggotaIntSchema(conn);
+    const [found] = numericParamId !== null
+      ? await conn.query(
+          "SELECT id_anggota, nik, nama_lengkap FROM anggota WHERE id_anggota = ? OR nik = ? LIMIT 1",
+          [numericParamId, id]
+        )
+      : await conn.query(
+          "SELECT id_anggota, nik, nama_lengkap FROM anggota WHERE nik = ? LIMIT 1",
+          [id]
+        );
+    const targetId = found.length > 0 ? Number(found[0].id_anggota) : numericParamId;
     const targetNik = found.length > 0 ? found[0].nik : id;
     const targetNama = found.length > 0 ? found[0].nama_lengkap : "Perangkat Desa";
     await conn.beginTransaction();
-    try {
-      await conn.query("DELETE FROM iuran_anggota WHERE id_anggota = ? OR id_anggota = ?", [targetId, id]);
-    } catch (_) {
+    if (targetId !== null) {
+      try {
+        await conn.query("DELETE FROM iuran_anggota WHERE id_anggota = ?", [targetId]);
+      } catch (_) {
+      }
+      try {
+        await conn.query("DELETE FROM keanggotaan_ppdi WHERE id_anggota = ?", [targetId]);
+      } catch (_) {
+      }
+      try {
+        await conn.query("DELETE FROM riwayat_jabatan WHERE id_anggota = ?", [targetId]);
+      } catch (_) {
+      }
+      try {
+        await conn.query("DELETE FROM users WHERE id_anggota = ?", [targetId]);
+      } catch (_) {
+      }
     }
-    try {
-      await conn.query("DELETE FROM keanggotaan_ppdi WHERE id_anggota = ? OR id_anggota = ?", [targetId, id]);
-    } catch (_) {
-    }
-    try {
-      await conn.query("DELETE FROM riwayat_jabatan WHERE id_anggota = ? OR id_anggota = ?", [targetId, id]);
-    } catch (_) {
-    }
-    try {
-      await conn.query("DELETE FROM users WHERE id_anggota = ? OR id_anggota = ?", [targetId, id]);
-    } catch (_) {
-    }
-    const [delRes] = await conn.query(
-      "DELETE FROM anggota WHERE id_anggota = ? OR id_anggota = ? OR nik = ?",
-      [targetId, id, targetNik]
-    );
+    const [delRes] = targetId !== null
+      ? await conn.query(
+          "DELETE FROM anggota WHERE id_anggota = ? OR nik = ?",
+          [targetId, targetNik]
+        )
+      : await conn.query(
+          "DELETE FROM anggota WHERE nik = ?",
+          [targetNik]
+        );
     await conn.commit();
     conn.release();
     return res.json({
@@ -1798,6 +1966,7 @@ app.post("/api/users", requirePermission("settings-user", "add"), async (req, re
       return res.status(409).json({ success: false, message: "Username atau email sudah digunakan" });
     }
     const effectiveRoleId = id_role || mapRoleNameToId(role);
+    const safeIdAnggota = isValidInt32Id(id_anggota);
     const [insertRes] = await conn.query(
       `INSERT INTO users (username, email, nama, password, id_role, id_anggota, id_kecamatan_scope, id_kecamatan, id_desa)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1807,7 +1976,7 @@ app.post("/api/users", requirePermission("settings-user", "add"), async (req, re
         (nama || username).trim().toUpperCase(),
         password || "PPDIJaya2026",
         effectiveRoleId,
-        id_anggota || null,
+        safeIdAnggota,
         id_kecamatan_scope || id_kecamatan || null,
         id_kecamatan || null,
         id_desa || null
@@ -1831,6 +2000,7 @@ app.put("/api/users/:id", requirePermission("settings-user", "edit"), async (req
     const conn = await pool.getConnection();
     const formattedNama = nama ? nama.trim().toUpperCase() : void 0;
     const effectiveRoleId = id_role || (role ? mapRoleNameToId(role) : void 0);
+    const safeIdAnggota = isValidInt32Id(id_anggota);
     if (password) {
       await conn.query(
         `UPDATE users SET
@@ -1850,7 +2020,7 @@ app.put("/api/users/:id", requirePermission("settings-user", "edit"), async (req
           formattedNama,
           password,
           effectiveRoleId,
-          id_anggota !== void 0 ? id_anggota : null,
+          safeIdAnggota,
           id_kecamatan_scope || id_kecamatan || null,
           id_kecamatan || null,
           id_desa || null,
@@ -1874,7 +2044,7 @@ app.put("/api/users/:id", requirePermission("settings-user", "edit"), async (req
           email,
           formattedNama,
           effectiveRoleId,
-          id_anggota !== void 0 ? id_anggota : null,
+          safeIdAnggota,
           id_kecamatan_scope || id_kecamatan || null,
           id_kecamatan || null,
           id_desa || null,
@@ -2192,6 +2362,7 @@ app.put("/api/pendaftaran/:id/approve", async (req, res) => {
   try {
     if (!pool) throw new Error("Pool not ready");
     conn = await pool.getConnection();
+    await ensureAnggotaIntSchema(conn);
     const [rows] = await conn.query(
       "SELECT * FROM pendaftaran_perangkat_desa WHERE id_pendaftaran = ? LIMIT 1",
       [id]
@@ -2216,7 +2387,7 @@ app.put("/api/pendaftaran/:id/approve", async (req, res) => {
     const newIdRiwayat = crypto.randomUUID();
     const newIdPpdi = crypto.randomUUID();
     if (existingAng.length > 0) {
-      effectiveIdAnggota = existingAng[0].id_anggota;
+      effectiveIdAnggota = Number(existingAng[0].id_anggota);
       await conn.query(
         `UPDATE anggota SET
           nama_lengkap = ?,
@@ -2249,12 +2420,10 @@ app.put("/api/pendaftaran/:id/approve", async (req, res) => {
         ]
       );
     } else {
-      effectiveIdAnggota = crypto.randomUUID();
-      await conn.query(
-        `INSERT INTO anggota (id_anggota, nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      const [angInsertRes] = await conn.query(
+        `INSERT INTO anggota (nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          effectiveIdAnggota,
           p.nik,
           nipdVal,
           p.nama_lengkap.trim().toUpperCase(),
@@ -2271,6 +2440,7 @@ app.put("/api/pendaftaran/:id/approve", async (req, res) => {
           p.status_pernikahan || "Kawin"
         ]
       );
+      effectiveIdAnggota = Number(angInsertRes.insertId);
     }
     const [existingRw] = await conn.query(
       'SELECT id_riwayat FROM riwayat_jabatan WHERE id_anggota = ? AND status_aktif = "Aktif" LIMIT 1',

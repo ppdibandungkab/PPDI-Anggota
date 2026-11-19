@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS \`ref_jabatan\` (
 
 -- 4. TABEL anggota (Data Induk Perangkat Desa)
 CREATE TABLE IF NOT EXISTS \`anggota\` (
-  \`id_anggota\` VARCHAR(36) NOT NULL COMMENT 'UUID / BIGINT identifier',
+  \`id_anggota\` INT(11) NOT NULL AUTO_INCREMENT COMMENT 'Primary Key Integer Auto Increment',
   \`nik\` VARCHAR(16) NOT NULL COMMENT '16 digit NIK KTP',
   \`nipd\` VARCHAR(30) NULL COMMENT 'Nomor Induk Perangkat Desa (28 digit)',
   \`nama_lengkap\` VARCHAR(150) NOT NULL,
@@ -70,8 +70,8 @@ CREATE TABLE IF NOT EXISTS \`anggota\` (
 
 -- 5. TABEL riwayat_jabatan (Rekam Jejak Karir & SK)
 CREATE TABLE IF NOT EXISTS \`riwayat_jabatan\` (
-  \`id_riwayat\` VARCHAR(36) NOT NULL,
-  \`id_anggota\` VARCHAR(36) NOT NULL,
+  \`id_riwayat\` INT(11) NOT NULL AUTO_INCREMENT,
+  \`id_anggota\` INT(11) NOT NULL,
   \`id_desa\` VARCHAR(20) NOT NULL,
   \`id_jabatan\` INT NOT NULL,
   \`no_sk_pengangkatan\` VARCHAR(100) NOT NULL,
@@ -96,8 +96,8 @@ CREATE TABLE IF NOT EXISTS \`riwayat_jabatan\` (
 
 -- 6. TABEL keanggotaan_ppdi (KTA & Organisasi)
 CREATE TABLE IF NOT EXISTS \`keanggotaan_ppdi\` (
-  \`id_ppdi\` VARCHAR(36) NOT NULL,
-  \`id_anggota\` VARCHAR(36) NOT NULL,
+  \`id_ppdi\` INT(11) NOT NULL AUTO_INCREMENT,
+  \`id_anggota\` INT(11) NOT NULL,
   \`no_kta\` VARCHAR(50) NOT NULL COMMENT 'Format: 32.04.[KodeKec].[KodeDesa].[NoUrut]',
   \`tgl_bergabung\` DATE NOT NULL,
   \`jabatan_pengurus\` VARCHAR(100) NOT NULL DEFAULT 'Anggota Biasa',
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS \`keanggotaan_ppdi\` (
 -- 7. TABEL iuran_anggota (Keuangan Transaksional)
 CREATE TABLE IF NOT EXISTS \`iuran_anggota\` (
   \`id_iuran\` VARCHAR(36) NOT NULL,
-  \`id_anggota\` VARCHAR(36) NOT NULL,
+  \`id_anggota\` INT(11) NOT NULL,
   \`tahun\` SMALLINT NOT NULL,
   \`bulan\` TINYINT NOT NULL COMMENT '1-12',
   \`jumlah\` DECIMAL(12,2) NOT NULL DEFAULT 35000.00,
@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS \`users\` (
   \`nama\` VARCHAR(150) NULL,
   \`password\` VARCHAR(255) NOT NULL,
   \`id_role\` VARCHAR(50) NOT NULL DEFAULT 'Anggota',
-  \`id_anggota\` VARCHAR(36) NULL,
+  \`id_anggota\` INT(11) NULL,
   \`id_kecamatan_scope\` VARCHAR(20) NULL,
   \`id_kecamatan\` VARCHAR(10) NULL,
   \`id_desa\` VARCHAR(20) NULL,
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS \`whatsapp_logs\` (
   \`sender_number\` VARCHAR(30) NULL COMMENT 'Nomor pengirim gateway',
   \`target_or_sender\` VARCHAR(50) NOT NULL COMMENT 'Nomor tujuan / pengirim masuk',
   \`sender_name\` VARCHAR(150) NULL,
-  \`id_anggota\` VARCHAR(36) NULL,
+  \`id_anggota\` INT(11) NULL,
   \`category\` VARCHAR(50) NULL,
   \`status\` VARCHAR(30) NOT NULL DEFAULT 'sent',
   \`message\` TEXT NOT NULL,
@@ -468,7 +468,7 @@ return new class extends Migration {
         });
 
         Schema::create('anggota', function (Blueprint $table) {
-            $table->uuid('id_anggota')->primary();
+            $table->integer('id_anggota', true);
             $table->string('nik', 16)->unique();
             $table->string('nipd', 30)->nullable();
             $table->string('nama_lengkap', 150)->index();
@@ -488,8 +488,9 @@ return new class extends Migration {
         });
 
         Schema::create('riwayat_jabatan', function (Blueprint $table) {
-            $table->uuid('id_riwayat')->primary();
-            $table->foreignUuid('id_anggota')->constrained('anggota')->cascadeOnDelete();
+            $table->id('id_riwayat');
+            $table->integer('id_anggota');
+            $table->foreign('id_anggota')->references('id_anggota')->on('anggota')->cascadeOnDelete();
             $table->string('id_desa', 20);
             $table->unsignedBigInteger('id_jabatan');
             $table->string('no_sk_pengangkatan', 100);
@@ -505,8 +506,9 @@ return new class extends Migration {
         });
 
         Schema::create('keanggotaan_ppdi', function (Blueprint $table) {
-            $table->uuid('id_ppdi')->primary();
-            $table->foreignUuid('id_anggota')->constrained('anggota')->cascadeOnDelete();
+            $table->id('id_ppdi');
+            $table->integer('id_anggota');
+            $table->foreign('id_anggota')->references('id_anggota')->on('anggota')->cascadeOnDelete();
             $table->string('no_kta', 50)->unique();
             $table->date('tgl_bergabung');
             $table->string('jabatan_pengurus', 100)->default('Anggota Biasa');
@@ -516,7 +518,8 @@ return new class extends Migration {
 
         Schema::create('iuran_anggota', function (Blueprint $table) {
             $table->uuid('id_iuran')->primary();
-            $table->foreignUuid('id_anggota')->constrained('anggota')->cascadeOnDelete();
+            $table->integer('id_anggota');
+            $table->foreign('id_anggota')->references('id_anggota')->on('anggota')->cascadeOnDelete();
             $table->smallInteger('tahun')->index();
             $table->tinyInteger('bulan')->index();
             $table->decimal('jumlah', 12, 2)->default(35000);
@@ -550,7 +553,7 @@ return new class extends Migration {
             $table->string('sender_number', 30)->nullable();
             $table->string('target_or_sender', 50)->index();
             $table->string('sender_name', 150)->nullable();
-            $table->string('id_anggota', 36)->nullable();
+            $table->integer('id_anggota')->nullable();
             $table->string('category', 50)->nullable();
             $table->string('status', 30)->default('sent')->index();
             $table->text('message');
@@ -614,7 +617,7 @@ class CreatePpdiSchema extends Migration {
 
         // anggota
         $this->forge->addField([
-            'id_anggota' => ['type' => 'VARCHAR', 'constraint' => 36],
+            'id_anggota' => ['type' => 'INT', 'constraint' => 11, 'auto_increment' => true],
             'nik' => ['type' => 'VARCHAR', 'constraint' => 16, 'unique' => true],
             'nipd' => ['type' => 'VARCHAR', 'constraint' => 30, 'null' => true],
             'nama_lengkap' => ['type' => 'VARCHAR', 'constraint' => 150],

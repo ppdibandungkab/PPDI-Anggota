@@ -525,7 +525,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     hasPermission('arsip', 'view');
 
   const missingSkUploadCount = useMemo(() => {
-    const memberIds = new Set(visibleMembers.map((m) => m.anggota.id_anggota));
+    const memberIds = new Set<string | number>(visibleMembers.map((m) => m.anggota.id_anggota));
     return riwayatList.filter((rw) => {
       if (!memberIds.has(rw.id_anggota)) return false;
       const raw = (rw.file_sk || '').trim();

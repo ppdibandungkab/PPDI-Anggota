@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { Anggota, AnggotaFullDetail, RiwayatJabatan, StatusAktifJabatan } from '../types/ppdi';
 import { calculateAgeAndRetirement, generateNextKTA, generateNIPD, formatDateIndo, formatNIPDDisplay, safeFetchJson } from '../utils/ppdiHelpers';
+import { isValidPdfFile, isPdfDataUrl } from '../utils/fileHelpers';
 import {
   X,
   Save,
@@ -509,20 +510,33 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Handle Primary SK Upload (saves to /uploads/sk on server)
+  // Handle Primary SK Upload (saves to /uploads/sk on server, PDF only)
   const handleSkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg('Ukuran berkas SK maksimal 10 MB.');
+    if (!isValidPdfFile(file)) {
+      setErrorMsg('Berkas SK wajib berformat PDF (.pdf). File gambar atau format lain tidak diperbolehkan.');
+      e.target.value = '';
       return;
     }
 
-    setFileSkName(file.name);
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorMsg('Ukuran berkas SK maksimal 10 MB.');
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
+      if (!isPdfDataUrl(dataUrl)) {
+        setErrorMsg('File yang dipilih bukan dokumen PDF (.pdf) yang valid.');
+        e.target.value = '';
+        return;
+      }
+
+      setFileSkName(file.name);
       setFileSk(dataUrl);
       setErrorMsg('');
 
@@ -543,6 +557,10 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
         if (res.ok && json?.success && json.url) {
           setFileSk(json.url);
           setFileSkName(json.fileName);
+        } else if (res.status >= 400 && res.status < 500) {
+          setFileSk('');
+          setFileSkName('');
+          setErrorMsg(json?.message || 'Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk SK.');
         }
       } catch (err) {
         console.warn('SK disimpan di memori pratinjau:', err);
@@ -553,20 +571,33 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Handle New Riwayat SK Upload (saves to /uploads/sk on server)
+  // Handle New Riwayat SK Upload (saves to /uploads/sk on server, PDF only)
   const handleNewRwSkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg('Ukuran berkas SK maksimal 10 MB.');
+    if (!isValidPdfFile(file)) {
+      setErrorMsg('Berkas SK wajib berformat PDF (.pdf). File gambar atau format lain tidak diperbolehkan.');
+      e.target.value = '';
       return;
     }
 
-    setNewRwFileSkName(file.name);
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorMsg('Ukuran berkas SK maksimal 10 MB.');
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
+      if (!isPdfDataUrl(dataUrl)) {
+        setErrorMsg('File yang dipilih bukan dokumen PDF (.pdf) yang valid.');
+        e.target.value = '';
+        return;
+      }
+
+      setNewRwFileSkName(file.name);
       setNewRwFileSk(dataUrl);
       setErrorMsg('');
 
@@ -587,6 +618,10 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
         if (res.ok && json?.success && json.url) {
           setNewRwFileSk(json.url);
           setNewRwFileSkName(json.fileName);
+        } else if (res.status >= 400 && res.status < 500) {
+          setNewRwFileSk('');
+          setNewRwFileSkName('');
+          setErrorMsg(json?.message || 'Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk SK.');
         }
       } catch (err) {
         console.warn('SK mutasi disimpan di memori pratinjau:', err);
@@ -1548,13 +1583,13 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     {/* Upload SK file for this new track */}
                     <div className="sm:col-span-2">
                       <label className="block text-neutral-700 font-medium mb-1">
-                        Upload Berkas SK Pengangkatan (PDF / Gambar)
+                        Upload Berkas SK Pengangkatan (Hanya PDF)
                       </label>
                       <div className="flex items-center gap-3">
                         <input
                           type="file"
                           ref={newRwSkInputRef}
-                          accept=".pdf, image/*, .doc, .docx"
+                          accept="application/pdf,.pdf"
                           onChange={handleNewRwSkUpload}
                           className="hidden"
                         />
@@ -1723,14 +1758,14 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                   {/* Upload Berkas SK Pengangkatan */}
                   <div>
                     <label className="block text-neutral-700 font-medium mb-1">
-                      Upload Berkas SK Pengangkatan (PDF / Gambar)
+                      Upload Berkas SK Pengangkatan (Hanya PDF)
                     </label>
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-2">
                         <input
                           type="file"
                           ref={skInputRef}
-                          accept=".pdf, image/*, .doc, .docx"
+                          accept="application/pdf,.pdf"
                           onChange={handleSkUpload}
                           className="hidden"
                         />
@@ -1788,7 +1823,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                         </div>
                       ) : !uploadingSk && (
                         <span className="text-[10px] text-neutral-400">
-                          Format: Dokumen PDF resmi atau foto SK fisik (maks 10MB). Tersimpan di folder <code className="text-neutral-600">/uploads/sk/</code>
+                          Format: Hanya berkas PDF (.pdf) resmi (maks 10MB). Tersimpan di folder <code className="text-neutral-600">/uploads/sk/</code>
                         </span>
                       )}
                     </div>

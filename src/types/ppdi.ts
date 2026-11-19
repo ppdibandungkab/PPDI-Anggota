@@ -58,8 +58,8 @@ export interface Anggota {
 }
 
 export interface RiwayatJabatan {
-  id_riwayat: string;
-  id_anggota: string;
+  id_riwayat: string | number;
+  id_anggota: string | number;
   id_desa: string;
   id_jabatan: number;
   no_sk_pengangkatan: string;
@@ -73,8 +73,8 @@ export interface RiwayatJabatan {
 }
 
 export interface KeanggotaanPPDI {
-  id_ppdi: string;
-  id_anggota: string;
+  id_ppdi: string | number;
+  id_anggota: string | number;
   no_kta: string; // Format: 32.04.[KodeKec].[KodeDesa].[NoUrut]
   tgl_bergabung: string; // YYYY-MM-DD
   jabatan_pengurus: string; // e.g. "Anggota Biasa", "Ketua Pengurus Kecamatan", "Pengurus Daerah Kab. Bandung"

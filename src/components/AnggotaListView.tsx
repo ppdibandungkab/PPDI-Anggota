@@ -14,7 +14,7 @@ import {
   formatNIPDDisplay,
 } from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
-import { exportAnggotaToExcel, exportAnggotaToCSV } from '../utils/excelExport';
+import { exportAnggotaToExcel, exportAnggotaToCSV, exportAnggotaToSheetJS } from '../utils/excelExport';
 import {
   Search,
   Filter,
@@ -459,6 +459,19 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     }
   };
 
+  const [isExportingSheetJS, setIsExportingSheetJS] = useState(false);
+  const handleExportSheetJS = () => {
+    try {
+      setIsExportingSheetJS(true);
+      exportAnggotaToSheetJS(filteredList);
+    } catch (err: any) {
+      console.error('Error exporting SheetJS:', err);
+      alert('Gagal mendownload file SheetJS: ' + (err.message || 'Error'));
+    } finally {
+      setIsExportingSheetJS(false);
+    }
+  };
+
   // Export to CSV function
   const handleExportCSVClick = () => {
     exportAnggotaToCSV(filteredList);
@@ -510,6 +523,20 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
               )}
               <span>{isExportingExcel ? 'Mengekspor...' : 'Ekspor Excel (.xlsx)'}</span>
+            </button>
+
+            <button
+              onClick={handleExportSheetJS}
+              disabled={isExportingSheetJS}
+              title="Download Data Anggota Terfilter menggunakan SheetJS (.xlsx)"
+              className="px-3 py-1.5 text-xs font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+            >
+              {isExportingSheetJS ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-800" />
+              ) : (
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              )}
+              <span>{isExportingSheetJS ? 'Memproses...' : 'Ekspor SheetJS (.xlsx)'}</span>
             </button>
 
             <button
