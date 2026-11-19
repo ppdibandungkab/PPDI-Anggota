@@ -42,6 +42,7 @@ import {
   UserPlus,
   ShieldCheck,
   Zap,
+  CalendarDays,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -58,6 +59,7 @@ import {
 } from 'recharts';
 import { StatistikWilayahView } from './StatistikWilayahView';
 import { QuickSkVerifyModal } from './QuickSkVerifyModal';
+import { KalenderAcaraSection } from './KalenderAcaraSection';
 
 // Custom Tooltip for Recharts
 const CustomChartTooltip = ({ active, payload, label }: any) => {
@@ -586,6 +588,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
           >
             <Download className="w-3.5 h-3.5 text-amber-300" />
             <span>Unduh PDF Statistik Wilayah</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('kalender-acara-dashboard');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3 py-1.5 text-xs font-semibold text-neutral-800 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            title="Lompat ke Modul Kalender Acara & Sinkronisasi Eksternal"
+          >
+            <CalendarDays className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Kalender Acara</span>
           </button>
           <button
             type="button"
@@ -1173,6 +1187,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
           </div>
         </div>
       </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODUL KALENDER ACARA & SINKRONISASI KALENDER EKSTERNAL        */}
+      {/* ------------------------------------------------------------- */}
+      <KalenderAcaraSection onNotify={showActionToast} />
 
       {/* ------------------------------------------------------------- */}
       {/* SEKSI VISUALISASI DATA DENGAN RECHARTS                        */}

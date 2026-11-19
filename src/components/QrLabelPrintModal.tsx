@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
+import { formatNIPDDisplay } from '../utils/ppdiHelpers';
 import {
   buildMemberQrLabelData,
   exportQrLabelsToPDF,
@@ -225,6 +226,7 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
         const nama = (m.anggota.nama_lengkap || '').toLowerCase();
         const nik = (m.anggota.nik || '').toLowerCase();
         const nipd = (m.anggota.nipd || '').toLowerCase();
+        const compactQ = q.replace(/\s+/g, '');
         const kta = (m.keanggotaan?.no_kta || '').toLowerCase();
         const desa = (m.desa?.nama_desa || '').toLowerCase();
         const kec = (m.kecamatan?.nama_kecamatan || '').toLowerCase();
@@ -232,6 +234,7 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
           nama.includes(q) ||
           nik.includes(q) ||
           nipd.includes(q) ||
+          (compactQ.length > 0 && nipd.replace(/\s+/g, '').includes(compactQ)) ||
           kta.includes(q) ||
           desa.includes(q) ||
           kec.includes(q)
@@ -689,7 +692,7 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
                                 NIK: {item.member.anggota.nik || '-'}
                               </div>
                               <div className="text-[9px] font-mono text-neutral-500 truncate">
-                                NIPD: {(item.member.anggota.nipd || '').trim() || '-'}
+                                NIPD: {formatNIPDDisplay(item.member.anggota.nipd) || '-'}
                               </div>
                             </div>
                           </div>
@@ -778,7 +781,7 @@ export const QrLabelPrintModal: React.FC<QrLabelPrintModalProps> = ({
                       NIK: {item.member.anggota.nik || '-'}
                     </div>
                     <div className="text-[8px] font-mono text-neutral-600 truncate">
-                      NIPD: {(item.member.anggota.nipd || '').trim() || '-'}
+                      NIPD: {formatNIPDDisplay(item.member.anggota.nipd) || '-'}
                     </div>
                   </div>
                 </div>

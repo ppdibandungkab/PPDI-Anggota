@@ -22,6 +22,10 @@ import {
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types/ppdi';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import {
+  PRIMARY_DEFAULT_PASSWORD,
+  isDefaultPasswordRequired,
+} from '../utils/authHelpers';
 
 export const UserSettingsView: React.FC = () => {
   const { users, currentUser, switchUser, createUser, updateUser, deleteUser, kecamatanList, desaList, fullMembers, hasPermission } = usePPDI();
@@ -240,7 +244,7 @@ export const UserSettingsView: React.FC = () => {
       if (password.trim()) {
         payload.password = password.trim();
       } else if (!editingUser) {
-        payload.password = 'PPDIJaya2026';
+        payload.password = PRIMARY_DEFAULT_PASSWORD;
       }
 
       if (editingUser) {
@@ -737,7 +741,7 @@ export const UserSettingsView: React.FC = () => {
                           ) : (
                             <span className="text-neutral-400 italic text-[11px]">-</span>
                           )}
-                          {(u.password === 'PPDIJaya2026' || u.is_default_password) && (
+                          {isDefaultPasswordRequired(u) && (
                             <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                               Default Password
                             </span>
@@ -1027,7 +1031,7 @@ export const UserSettingsView: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  placeholder={editingUser ? '•••••••• (Biarkan kosong jika tidak diubah)' : 'PPDIJaya2026 (Default sistem jika kosong)'}
+                  placeholder={editingUser ? '•••••••• (Biarkan kosong jika tidak diubah)' : `${PRIMARY_DEFAULT_PASSWORD} (Default sistem jika kosong)`}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full p-2.5 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 font-mono"

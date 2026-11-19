@@ -352,6 +352,23 @@ export function generateNIPD(params: {
   return `${lahirStr}${tmtStr}${jkCode}${devCode}${jabCode}${wilayahCode}`;
 }
 
+/**
+ * Memformat tampilan NIPD 28 digit di UI View dengan pemisah spasi:
+ * 8 digit (Tgl Lahir) + 6 digit (TMT) + 1 digit (JK) + 3 digit (Kode Perangkat+Jabatan) + 10 digit (Wilayah)
+ * Contoh DB  : 1982082820240210213204152005
+ * Contoh View: 19820828 202402 1 021 3204152005
+ * Nilai di database tetap disimpan utuh 28 digit tanpa spasi.
+ */
+export function formatNIPDDisplay(nipd?: string | null): string {
+  const trimmed = (nipd || '').trim();
+  if (!trimmed) return '';
+  const digitsOnly = trimmed.replace(/\s+/g, '');
+  if (/^\d{28}$/.test(digitsOnly)) {
+    return `${digitsOnly.slice(0, 8)} ${digitsOnly.slice(8, 14)} ${digitsOnly.slice(14, 15)} ${digitsOnly.slice(15, 18)} ${digitsOnly.slice(18, 28)}`;
+  }
+  return trimmed;
+}
+
 // Storage key for user-configured API Base URL
 const API_BASE_URL_KEY = 'ppdi_custom_api_url';
 

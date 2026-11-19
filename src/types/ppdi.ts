@@ -177,6 +177,64 @@ export interface ActivityLogEntry {
   data_sesudah?: any;
 }
 
+export type RegulasiKategori =
+  | 'Undang-Undang'
+  | 'Peraturan Pemerintah'
+  | 'Permendagri'
+  | 'Peraturan Daerah'
+  | 'Peraturan Bupati'
+  | 'AD/ART PPDI'
+  | 'Surat Edaran'
+  | 'Lainnya';
+
+export interface RegulasiItem {
+  id_regulasi: string;
+  judul: string;
+  nomor_regulasi: string;
+  tahun: number;
+  kategori: RegulasiKategori;
+  tentang: string;
+  tanggal_penetapan?: string;
+  file_url: string;
+  file_name: string;
+  file_size: number;
+  is_public: boolean;
+  download_count: number;
+  uploaded_by?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export type CalendarEventCategory =
+  | 'Kegiatan PPDI'
+  | 'Rapat Rutin'
+  | 'Batas Waktu Berkas'
+  | 'Lainnya';
+
+export type CalendarEventStatus =
+  | 'Terjadwal'
+  | 'Berlangsung'
+  | 'Selesai'
+  | 'Dibatalkan';
+
+export interface CalendarEventItem {
+  id_acara: string;
+  judul: string;
+  kategori: CalendarEventCategory;
+  tanggal_mulai: string; // YYYY-MM-DD
+  waktu_mulai?: string; // HH:mm
+  tanggal_selesai?: string; // YYYY-MM-DD
+  waktu_selesai?: string; // HH:mm
+  is_all_day: boolean;
+  lokasi?: string;
+  deskripsi?: string;
+  pengingat_menit: number;
+  status: CalendarEventStatus;
+  created_by?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface Permission {
   view: boolean;
   add: boolean;
@@ -199,6 +257,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'ekta': { view: true, add: true, edit: true, delete: true },
     'pensiun': { view: true, add: true, edit: true, delete: true },
     'arsip': { view: true, add: true, edit: true, delete: true },
+    'regulasi': { view: true, add: true, edit: true, delete: true },
+    'kalender': { view: true, add: true, edit: true, delete: true },
     'iuran': { view: true, add: true, edit: true, delete: true },
     'log-aktivitas': { view: true, add: true, edit: true, delete: true },
     'settings-app': { view: true, add: true, edit: true, delete: true },
@@ -216,6 +276,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'ekta': { view: true, add: true, edit: true, delete: true },
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: true, delete: true },
+    'regulasi': { view: true, add: true, edit: true, delete: true },
+    'kalender': { view: true, add: true, edit: true, delete: true },
     'iuran': { view: true, add: true, edit: true, delete: true },
     'log-aktivitas': { view: true, add: false, edit: false, delete: false },
     'settings-user': { view: true, add: true, edit: true, delete: true },
@@ -233,6 +295,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'ekta': { view: true, add: true, edit: false, delete: false },
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: false, delete: false },
+    'regulasi': { view: true, add: false, edit: false, delete: false },
+    'kalender': { view: true, add: true, edit: true, delete: false },
     'iuran': { view: true, add: true, edit: true, delete: false },
     'log-aktivitas': { view: true, add: false, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
@@ -250,6 +314,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'ekta': { view: true, add: false, edit: false, delete: false },
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: false, delete: false },
+    'regulasi': { view: true, add: false, edit: false, delete: false },
+    'kalender': { view: true, add: false, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: false, delete: false },
     'log-aktivitas': { view: false, add: false, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
@@ -267,6 +333,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RoleConfig = {
     'ekta': { view: true, add: false, edit: false, delete: false },
     'pensiun': { view: false, add: false, edit: false, delete: false },
     'arsip': { view: false, add: false, edit: false, delete: false },
+    'regulasi': { view: true, add: false, edit: false, delete: false },
+    'kalender': { view: true, add: false, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: false, delete: false },
     'log-aktivitas': { view: false, add: false, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },

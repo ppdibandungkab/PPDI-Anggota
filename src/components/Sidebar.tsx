@@ -25,6 +25,7 @@ import {
   Menu,
   Activity,
   MessageSquare,
+  BookOpen,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -158,6 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'text-amber-700 bg-amber-50',
     },
     { id: 'arsip', label: 'e-Arsip Berkas SK', icon: FileText },
+    { id: 'regulasi', label: 'Pustaka Regulasi', icon: BookOpen },
     { id: 'iuran', label: 'Kas & Iuran Anggota', icon: Wallet },
     { id: 'log-aktivitas', label: 'Log Aktivitas Admin', icon: History },
   ].filter((item) => hasViewPermission(item.id));

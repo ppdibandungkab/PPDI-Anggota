@@ -253,6 +253,11 @@
   margin-top: 1rem;
 }
 
+@page anggota-landscape {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
 @media print {
   @page {
     size: portrait;
@@ -272,6 +277,62 @@
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    max-width: 100% !important;
+  }
+
+  /* Print-friendly view specifically for AnggotaListView data grid */
+  .anggota-print-root {
+    page: anggota-landscape;
+    width: 100% !important;
+  }
+
+  .anggota-print-table-wrapper {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  .anggota-print-table-scroll {
+    overflow: visible !important;
+  }
+
+  .anggota-print-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+    color: #111113 !important;
+  }
+
+  .anggota-print-table thead {
+    display: table-header-group !important;
+  }
+
+  .anggota-print-table th,
+  .anggota-print-table td {
+    border: 1px solid #d4d4d8 !important;
+    padding: 5px 6px !important;
+    vertical-align: top !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .anggota-print-table thead th {
+    background-color: #f4f4f5 !important;
+    color: #18181b !important;
+    font-weight: 700 !important;
+  }
+
+  .anggota-print-table tbody tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   /* Exact Standard KTP/ATM CR80 Card Size (85.6mm x 54.0mm / 8.56 cm x 5.4 cm) for physical printer output */

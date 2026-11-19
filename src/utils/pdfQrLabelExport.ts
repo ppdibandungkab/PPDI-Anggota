@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { AnggotaFullDetail, RefDesa, RefKecamatan } from '../types/ppdi';
 import { generateKtaShortUrl } from './qrCrypto';
+import { formatNIPDDisplay } from './ppdiHelpers';
 
 export type QrLabelSizePreset = 'compact' | 'medium' | 'large';
 
@@ -390,7 +391,7 @@ export function exportQrLabelsToPDF({
     const nikDisplay = `NIK: ${item.member.anggota.nik || '-'}`;
     drawSingleLine(nikDisplay, 'courier', 'normal', layout.codeFontSize, [51, 65, 85]);
 
-    const nipdValue = (item.member.anggota.nipd || '').trim() || '-';
+    const nipdValue = formatNIPDDisplay(item.member.anggota.nipd) || '-';
     const nipdDisplay = `NIPD: ${nipdValue}`;
     drawSingleLine(nipdDisplay, 'courier', 'normal', layout.codeFontSize, [51, 65, 85]);
 

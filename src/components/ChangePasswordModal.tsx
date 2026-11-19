@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { UserAccount } from '../types/ppdi';
+import {
+  PRIMARY_DEFAULT_PASSWORD,
+  isDefaultPasswordRequired,
+  isKnownDefaultPassword,
+} from '../utils/authHelpers';
 import {
   Key,
   Lock,
@@ -114,9 +119,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
   // Deteksi apakah pengguna masih menggunakan password bawaan
   const isDefaultPasswordDetected =
-    isDefaultPasswordMandatory ||
-    user?.is_default_password === true ||
-    user?.password === 'PPDIJaya#2006';
+    isDefaultPasswordMandatory || isDefaultPasswordRequired(user);
 
   // Form states
   const [oldPassword, setOldPassword] = useState('');
@@ -133,10 +136,22 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Reset form when modal opens/closes & auto-fill if default password detected
+  const wasOpenRef = useRef(false);
+  const lastUserIdRef = useRef<number | null>(null);
+
+  // Reset form ONLY when modal transitions closed->open or switches target user ID
   useEffect(() => {
-    if (isOpen) {
-      setOldPassword(isDefaultPasswordDetected ? 'PPDIJaya#2006' : '');
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      lastUserIdRef.current = null;
+      return;
+    }
+
+    const currentTargetId = user?.id_user ?? null;
+    if (!wasOpenRef.current || lastUserIdRef.current !== currentTargetId) {
+      wasOpenRef.current = true;
+      lastUserIdRef.current = currentTargetId;
+      setOldPassword(isDefaultPasswordDetected ? PRIMARY_DEFAULT_PASSWORD : '');
       setNewPassword('');
       setConfirmPassword('');
       setShowOldPassword(false);
@@ -145,7 +160,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       setErrorMsg(null);
       setSuccessMsg(null);
     }
-  }, [isOpen, user, isDefaultPasswordDetected]);
+  }, [isOpen, user?.id_user, isDefaultPasswordDetected]);
 
   if (!isOpen) return null;
 
@@ -191,7 +206,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       return;
     }
 
-    if (newPassword.trim() === 'PPDIJaya#2006') {
+    if (isKnownDefaultPassword(newPassword.trim())) {
       setErrorMsg(
         'Password baru tidak boleh menggunakan kata sandi default. Silakan buat kombinasi baru yang aman dan unik.'
       );

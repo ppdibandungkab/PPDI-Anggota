@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, StatusAktifJabatan, StatusKTA } from '../types/ppdi';
-import { formatDateIndo, formatRupiah } from '../utils/ppdiHelpers';
+import { formatDateIndo, formatRupiah, formatNIPDDisplay } from '../utils/ppdiHelpers';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import {
   X,
@@ -223,7 +223,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral-500">Nomor Induk Perangkat Desa (NIAP)</span>
-                      <span className="font-mono text-neutral-900">{member.anggota.nipd || '-'}</span>
+                      <span className="font-mono text-neutral-900">{formatNIPDDisplay(member.anggota.nipd) || '-'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral-500">Tempat, Tanggal Lahir</span>

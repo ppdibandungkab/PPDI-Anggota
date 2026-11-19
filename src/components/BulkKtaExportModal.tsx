@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { AnggotaFullDetail } from '../types/ppdi';
 import { usePPDI } from '../context/PPDIContext';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
+import { formatNIPDDisplay } from '../utils/ppdiHelpers';
 import { generateKtaShortUrl } from '../utils/qrCrypto';
 import {
   BulkKtaCardSide,
@@ -354,7 +355,7 @@ export const BulkKtaExportModal: React.FC<BulkKtaExportModalProps> = ({
                     NIPD
                   </span>
                   <span className={`font-mono font-semibold text-white ${compact ? 'text-[5px]' : 'text-[9px]'}`}>
-                    {member.anggota.nipd}
+                    {formatNIPDDisplay(member.anggota.nipd)}
                   </span>
                 </div>
               )}

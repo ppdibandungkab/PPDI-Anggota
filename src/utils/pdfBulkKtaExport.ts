@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { AnggotaFullDetail, RefDesa, RefKecamatan } from '../types/ppdi';
 import { getPhotoUrl } from './fileHelpers';
+import { formatNIPDDisplay } from './ppdiHelpers';
 import { generateKtaShortUrl } from './qrCrypto';
 
 export type BulkKtaPageFormat = 'a4' | 'cr80';
@@ -568,7 +569,7 @@ function drawKtaFrontCard(
   cursorY += nameLines.length * 3.1 * s + 1.1 * s;
 
   // NIPD & Jabatan row
-  const nipdVal = (member.anggota.nipd || '').trim();
+  const nipdVal = formatNIPDDisplay(member.anggota.nipd);
   const jabatanVal = member.jabatanRef?.nama_jabatan || 'Perangkat Desa';
 
   if (nipdVal) {

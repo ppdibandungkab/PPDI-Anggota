@@ -25,7 +25,9 @@ import { WhatsAppSettingsView } from './components/WhatsAppSettingsView';
 import { StatistikWilayahView } from './components/StatistikWilayahView';
 import { LogAktivitasView } from './components/LogAktivitasView';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { AnggotaFullDetail } from './types/ppdi';
+import { PustakaRegulasiView } from './components/PustakaRegulasiView';
+import { PublicRegulasiModal } from './components/PublicRegulasiModal';
+import { AnggotaFullDetail, RegulasiItem } from './types/ppdi';
 
 const MainAppContent: React.FC = () => {
   const {
@@ -50,6 +52,8 @@ const MainAppContent: React.FC = () => {
   const [detailMember, setDetailMember] = useState<AnggotaFullDetail | null>(null);
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
   const [verifyInitialQuery, setVerifyInitialQuery] = useState('');
+  const [isPublicRegulasiOpen, setIsPublicRegulasiOpen] = useState(false);
+  const [publicRegulasiInitialItem, setPublicRegulasiInitialItem] = useState<RegulasiItem | null>(null);
   const [selectedKtaMemberId, setSelectedKtaMemberId] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
@@ -75,6 +79,8 @@ const MainAppContent: React.FC = () => {
         if (token || params.get('verify')) {
           setIsVerifyModalOpen(true);
         }
+      } else if (pathname.includes('/regulasi') || search.includes('regulasi=')) {
+        setIsPublicRegulasiOpen(true);
       }
     }
   }, []);
@@ -113,6 +119,10 @@ const MainAppContent: React.FC = () => {
       } else if (isVerifyModalOpen) {
         e.preventDefault();
         setIsVerifyModalOpen(false);
+      } else if (isPublicRegulasiOpen) {
+        e.preventDefault();
+        setIsPublicRegulasiOpen(false);
+        setPublicRegulasiInitialItem(null);
       } else if (isDbModalOpen) {
         e.preventDefault();
         setIsDbModalOpen(false);
@@ -136,6 +146,7 @@ const MainAppContent: React.FC = () => {
     mustChangeDefaultPassword,
     closeChangePasswordModal,
     isVerifyModalOpen,
+    isPublicRegulasiOpen,
     isDbModalOpen,
     detailMember,
     isAddModalOpen,
@@ -145,7 +156,13 @@ const MainAppContent: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <>
-        <LoginForm onOpenPublicVerify={() => setIsRegistrationModalOpen(true)} />
+        <LoginForm
+          onOpenPublicVerify={() => setIsRegistrationModalOpen(true)}
+          onOpenPublicRegulasi={(initialItem) => {
+            setPublicRegulasiInitialItem(initialItem || null);
+            setIsPublicRegulasiOpen(true);
+          }}
+        />
         <PublicRegistrationForm
           isOpen={isRegistrationModalOpen}
           onClose={() => setIsRegistrationModalOpen(false)}
@@ -159,6 +176,14 @@ const MainAppContent: React.FC = () => {
           onClose={() => setIsVerifyModalOpen(false)}
           initialQuery={verifyInitialQuery}
         />
+        <PublicRegulasiModal
+          isOpen={isPublicRegulasiOpen}
+          onClose={() => {
+            setIsPublicRegulasiOpen(false);
+            setPublicRegulasiInitialItem(null);
+          }}
+          initialItem={publicRegulasiInitialItem}
+        />
       </>
     );
   }
@@ -166,7 +191,7 @@ const MainAppContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F8F7F4] text-[#111113] flex flex-col font-sans relative selection:bg-[#FDE047] selection:text-[#064E3B]">
       {/* Background dot pattern */}
-      <div className="bg-pattern fixed inset-0 pointer-events-none z-0 opacity-60" />
+      <div className="bg-pattern fixed inset-0 pointer-events-none z-0 opacity-60 no-print" />
 
       {/* Top Header */}
       <Header
@@ -179,7 +204,7 @@ const MainAppContent: React.FC = () => {
       />
 
       {/* Main Body Layout: Sidebar + Main Stage */}
-      <div className="relative z-10 flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row">
+      <div className="relative z-10 flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row print:max-w-none">
         {/* Navigation Sidebar */}
         <div className="no-print relative">
           <Sidebar
@@ -192,7 +217,7 @@ const MainAppContent: React.FC = () => {
         </div>
 
         {/* Content Viewport */}
-        <main className={`flex-1 p-3 sm:p-6 lg:p-8 min-w-0 overflow-x-hidden ${!isSidebarPinned ? 'md:pl-9' : ''}`}>
+        <main className={`flex-1 p-3 sm:p-6 lg:p-8 min-w-0 overflow-x-hidden print:p-0 print:overflow-visible ${!isSidebarPinned ? 'md:pl-9 print:pl-0' : ''}`}>
           {activeTab === 'dashboard' && <DashboardView onOpenAddModal={handleOpenAddModal} />}
           {activeTab === 'pendaftaran' && (
             <PendaftaranApprovalView onOpenPublicForm={() => setIsRegistrationModalOpen(true)} />
@@ -223,6 +248,7 @@ const MainAppContent: React.FC = () => {
             <RetirementAlertView onOpenDetailModal={handleOpenDetailModal} />
           )}
           {activeTab === 'arsip' && <ArsipSKView />}
+          {activeTab === 'regulasi' && <PustakaRegulasiView />}
           {activeTab === 'iuran' && <IuranView />}
           {activeTab === 'log-aktivitas' && <LogAktivitasView />}
           {(activeTab === 'settings' || activeTab === 'settings-app') && <AppSettingsView />}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Anggota,
   RiwayatJabatan,
@@ -30,6 +30,11 @@ import {
   INITIAL_USERS,
 } from '../data/initialData';
 import { buildFullMember, generateNextKTA, safeFetchJson, updateFaviconAndTitle } from '../utils/ppdiHelpers';
+import {
+  PRIMARY_DEFAULT_PASSWORD,
+  isKnownDefaultPassword,
+  isDefaultPasswordRequired,
+} from '../utils/authHelpers';
 import { decodeKtaToken } from '../utils/qrCrypto';
 import { checkUserPermission, sanitizeRolePermissions, PermissionAction } from '../utils/permissions';
 
@@ -109,7 +114,7 @@ interface PPDIContextType {
   verifyIuran: (idIuran: string, newStatus: StatusVerifikasiIuran) => Promise<void>;
   switchUser: (userId: number) => void;
   resetAllData: () => void;
-  refreshDataFromMySQL: () => Promise<void>;
+  refreshDataFromMySQL: (options?: { silent?: boolean }) => Promise<void>;
   isSyncing: boolean;
   
   // Authentication
@@ -125,7 +130,7 @@ interface PPDIContextType {
   setDbAlertVisible: (visible: boolean) => void;
   isDbModalOpen: boolean;
   setIsDbModalOpen: (open: boolean) => void;
-  checkDbStatus: () => Promise<DbStatusInfo>;
+  checkDbStatus: (options?: { silent?: boolean }) => Promise<DbStatusInfo>;
   testCustomDbConnection: (config: { host?: string; port?: number; user?: string; password?: string; database?: string }) => Promise<any>;
   reconnectDb: (config?: any) => Promise<any>;
   saveDbEnvConfig: (config: any) => Promise<any>;
@@ -161,7 +166,48 @@ const STORAGE_KEYS = {
   SETTINGS: 'ppdi_app_settings_v2',
   ACTIVITY_LOGS: 'ppdi_activity_logs_v1',
   MUST_CHANGE_PASS: 'ppdi_must_change_pass_v1',
+  USER_SESSION: 'ppdi_user_session_v1',
 };
+
+function isUserActivelyEditingForm(): boolean {
+  if (typeof document === 'undefined') return false;
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+function readCachedUserSession(): UserAccount | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.USER_SESSION);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.id_user) return parsed as UserAccount;
+  } catch (_) {}
+  return null;
+}
+
+function persistUserSessionSnapshot(user?: Partial<UserAccount> | null): void {
+  try {
+    if (!user || !user.id_user) return;
+    const snapshot: UserAccount = {
+      id_user: user.id_user,
+      username: user.username || '',
+      email: user.email || '',
+      nama: user.nama || '',
+      role: (user.role || 'Anggota') as UserRole,
+      id_anggota: user.id_anggota,
+      id_kecamatan: user.id_kecamatan,
+      id_kecamatan_scope: user.id_kecamatan_scope,
+      id_desa: user.id_desa,
+      created_at: user.created_at,
+      update_at: user.update_at || user.updated_at,
+      updated_at: user.updated_at || user.update_at,
+      is_default_password: isDefaultPasswordRequired(user),
+    };
+    localStorage.setItem(STORAGE_KEYS.USER_SESSION, JSON.stringify(snapshot));
+  } catch (_) {}
+}
 
 const INITIAL_ACTIVITY_LOGS: ActivityLogEntry[] = [
   {
@@ -292,10 +338,24 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [kecamatanList, setKecamatanList] = useState<RefKecamatan[]>(REF_KECAMATAN);
   const [jabatanList, setJabatanList] = useState<RefJabatan[]>(REF_JABATAN);
 
-  const [userList, setUserList] = useState<UserAccount[]>(INITIAL_USERS);
+  const [userList, setUserList] = useState<UserAccount[]>(() => {
+    const cachedUser = readCachedUserSession();
+    if (!cachedUser) return INITIAL_USERS;
+    const existsIdx = INITIAL_USERS.findIndex((u) => u.id_user === cachedUser.id_user);
+    if (existsIdx >= 0) {
+      return INITIAL_USERS.map((u, idx) => (idx === existsIdx ? { ...u, ...cachedUser } : u));
+    }
+    return [...INITIAL_USERS, cachedUser];
+  });
+  const [hasLoadedUsersFromServer, setHasLoadedUsersFromServer] = useState<boolean>(false);
+
   const [mustChangeDefaultPassword, setMustChangeDefaultPassword] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEYS.MUST_CHANGE_PASS) === 'true';
+      const cachedUser = readCachedUserSession();
+      if (cachedUser) {
+        return isDefaultPasswordRequired(cachedUser);
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -303,19 +363,20 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEYS.MUST_CHANGE_PASS) === 'true';
+      const cachedUser = readCachedUserSession();
+      if (cachedUser) {
+        return isDefaultPasswordRequired(cachedUser);
+      }
+      return false;
     } catch (_) {
       return false;
     }
   });
 
-  const openChangePasswordModal = () => setIsChangePasswordModalOpen(true);
-  const closeChangePasswordModal = () => {
-    if (mustChangeDefaultPassword) {
-      return;
-    }
-    setIsChangePasswordModalOpen(false);
-  };
+  const openChangePasswordModal = useCallback(() => setIsChangePasswordModalOpen(true), []);
+  const closeChangePasswordModal = useCallback(() => {
+    setIsChangePasswordModalOpen((prev) => (mustChangeDefaultPassword ? prev : false));
+  }, [mustChangeDefaultPassword]);
   const [pendaftaranList, setPendaftaranList] = useState<PendaftaranPerangkatDesa[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     try {
@@ -467,10 +528,26 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateFaviconAndTitle(appSettings.logoUrl, title);
   }, [appSettings.logoUrl, appSettings.appName, appSettings.appSubtitle]);
 
-  // Fetch full live data from remote MySQL database
-  // Fetch full live data from remote MySQL database
-  const refreshDataFromMySQL = async () => {
-    setIsSyncing(true);
+  // Signature refs to guarantee partial/no-op updates never trigger unnecessary React re-renders
+  const lastSignaturesRef = useRef<Record<string, string>>({});
+  const isChangePasswordOpenRef = useRef<boolean>(isChangePasswordModalOpen);
+  useEffect(() => {
+    isChangePasswordOpenRef.current = isChangePasswordModalOpen;
+  }, [isChangePasswordModalOpen]);
+
+  // Fetch full live data from remote MySQL database (supports silent partial background mode)
+  const refreshDataFromMySQL = useCallback(async (options?: { silent?: boolean }) => {
+    const isSilent = Boolean(options?.silent);
+
+    // Avoid disturbing focused forms/inputs or open password modal during background polling
+    if (isSilent && (isUserActivelyEditingForm() || isChangePasswordOpenRef.current)) {
+      return;
+    }
+
+    if (!isSilent) {
+      setIsSyncing(true);
+    }
+
     try {
       const [refRes, angRes, iurRes, uRes, pendRes, setRes] = await Promise.allSettled([
         safeFetchJson('/api/ref/all'),
@@ -481,11 +558,35 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         safeFetchJson('/api/settings'),
       ]);
 
+      // If user started typing while the network request was in-flight, defer DOM updates on silent poll
+      if (isSilent && (isUserActivelyEditingForm() || isChangePasswordOpenRef.current)) {
+        return;
+      }
+
+      const updateIfChanged = <T,>(key: string, nextVal: T, setter: React.Dispatch<React.SetStateAction<T>>) => {
+        try {
+          const nextSig = JSON.stringify(nextVal);
+          if (lastSignaturesRef.current[key] === nextSig) {
+            return;
+          }
+          lastSignaturesRef.current[key] = nextSig;
+          setter(nextVal);
+        } catch (_) {
+          setter(nextVal);
+        }
+      };
+
       // 1. Process Master Wilayah & Jabatan
       if (refRes.status === 'fulfilled' && refRes.value.ok && refRes.value.data?.success) {
-        if (Array.isArray(refRes.value.data.kecamatan)) setKecamatanList(refRes.value.data.kecamatan);
-        if (Array.isArray(refRes.value.data.desa)) setDesaList(refRes.value.data.desa);
-        if (Array.isArray(refRes.value.data.jabatan)) setJabatanList(refRes.value.data.jabatan);
+        if (Array.isArray(refRes.value.data.kecamatan)) {
+          updateIfChanged('kecamatan', refRes.value.data.kecamatan, setKecamatanList);
+        }
+        if (Array.isArray(refRes.value.data.desa)) {
+          updateIfChanged('desa', refRes.value.data.desa, setDesaList);
+        }
+        if (Array.isArray(refRes.value.data.jabatan)) {
+          updateIfChanged('jabatan', refRes.value.data.jabatan, setJabatanList);
+        }
       }
 
       // 2. Process Anggota, Riwayat, Keanggotaan
@@ -495,21 +596,21 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id_anggota: String(a.id_anggota),
           nama_lengkap: (a.nama_lengkap || '').toUpperCase(),
         }));
-        setAnggotaList(dbAnggota);
+        updateIfChanged('anggota', dbAnggota, setAnggotaList);
 
         const dbRiwayat = (angRes.value.data.riwayat || []).map((r: any) => ({
           ...r,
           id_riwayat: String(r.id_riwayat),
           id_anggota: String(r.id_anggota),
         }));
-        setRiwayatList(dbRiwayat);
+        updateIfChanged('riwayat', dbRiwayat, setRiwayatList);
 
         const dbKeanggotaan = (angRes.value.data.keanggotaan || []).map((k: any) => ({
           ...k,
           id_ppdi: String(k.id_ppdi),
           id_anggota: String(k.id_anggota),
         }));
-        setKeanggotaanList(dbKeanggotaan);
+        updateIfChanged('keanggotaan', dbKeanggotaan, setKeanggotaanList);
       }
 
       // 3. Process Iuran
@@ -520,81 +621,120 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id_anggota: String(i.id_anggota),
           jumlah: Number(i.jumlah),
         }));
-        setIuranList(dbIuran);
+        updateIfChanged('iuran', dbIuran, setIuranList);
       }
 
-      // 4. Process Users
+      // 4. Process Users (sync updated_at + is_default_password consistently)
       if (uRes.status === 'fulfilled' && uRes.value.ok && uRes.value.data?.success && Array.isArray(uRes.value.data.users)) {
-        setUserList(
-          uRes.value.data.users.map((u: any) => ({
+        const mappedUsers: UserAccount[] = uRes.value.data.users.map((u: any) => {
+          const normalizedTs = u.updated_at || u.update_at || undefined;
+          const userObj: UserAccount = {
             ...u,
             nama: (u.nama || u.username).toUpperCase(),
             id_kecamatan: u.id_kecamatan_scope || u.id_kecamatan || undefined,
             id_desa: u.id_desa || undefined,
-          }))
-        );
+            updated_at: normalizedTs,
+            update_at: normalizedTs,
+            is_default_password: isDefaultPasswordRequired({
+              ...u,
+              updated_at: normalizedTs,
+              update_at: normalizedTs,
+            }),
+          };
+          return userObj;
+        });
+        updateIfChanged('users', mappedUsers, setUserList);
+        setHasLoadedUsersFromServer(true);
       }
 
       // 5. Process Pendaftaran Perangkat Desa
       if (pendRes.status === 'fulfilled' && pendRes.value.ok && pendRes.value.data?.success && Array.isArray(pendRes.value.data.pendaftaran)) {
-        setPendaftaranList(
-          pendRes.value.data.pendaftaran.map((p: any) => ({
-            ...p,
-            nama_lengkap: (p.nama_lengkap || '').toUpperCase(),
-          }))
-        );
+        const mappedPend = pendRes.value.data.pendaftaran.map((p: any) => ({
+          ...p,
+          nama_lengkap: (p.nama_lengkap || '').toUpperCase(),
+        }));
+        updateIfChanged('pendaftaran', mappedPend, setPendaftaranList);
       }
 
-      // 6. Process Settings
+      // 6. Process Settings (only update React state if settings content truly changed)
       if (setRes.status === 'fulfilled' && setRes.value.ok && setRes.value.data?.success && setRes.value.data.settings) {
         const incoming = setRes.value.data.settings;
-        setAppSettings((prev) => {
-          const logo = incoming.logoUrl && incoming.logoUrl.includes('wikimedia.org')
-            ? '/logo_kabupaten_bandung.svg'
-            : (incoming.logoUrl || prev.logoUrl || '/logo_kabupaten_bandung.svg');
-          return {
-            ...DEFAULT_SETTINGS,
-            ...prev,
-            ...incoming,
-            logoUrl: logo,
-            rolePermissions:
-              incoming.rolePermissions && Object.keys(incoming.rolePermissions).length > 0
-                ? incoming.rolePermissions
-                : prev.rolePermissions && Object.keys(prev.rolePermissions).length > 0
-                ? prev.rolePermissions
-                : DEFAULT_ROLE_PERMISSIONS,
-            whatsappSettings: {
-              ...DEFAULT_SETTINGS.whatsappSettings!,
-              ...(prev.whatsappSettings || {}),
-              ...(incoming.whatsappSettings || {}),
-            },
-          };
-        });
+        const incomingSig = JSON.stringify(incoming);
+        if (lastSignaturesRef.current.settings !== incomingSig) {
+          lastSignaturesRef.current.settings = incomingSig;
+          setAppSettings((prev) => {
+            const logo = incoming.logoUrl && incoming.logoUrl.includes('wikimedia.org')
+              ? '/logo_kabupaten_bandung.svg'
+              : (incoming.logoUrl || prev.logoUrl || '/logo_kabupaten_bandung.svg');
+            const nextSettings: AppSettings = {
+              ...DEFAULT_SETTINGS,
+              ...prev,
+              ...incoming,
+              logoUrl: logo,
+              rolePermissions:
+                incoming.rolePermissions && Object.keys(incoming.rolePermissions).length > 0
+                  ? incoming.rolePermissions
+                  : prev.rolePermissions && Object.keys(prev.rolePermissions).length > 0
+                  ? prev.rolePermissions
+                  : DEFAULT_ROLE_PERMISSIONS,
+              whatsappSettings: {
+                ...DEFAULT_SETTINGS.whatsappSettings!,
+                ...(prev.whatsappSettings || {}),
+                ...(incoming.whatsappSettings || {}),
+              },
+            };
+            return JSON.stringify(prev) === JSON.stringify(nextSettings) ? prev : nextSettings;
+          });
+        }
       }
     } catch (err) {
-      console.warn('Gagal memuat langsung dari MySQL, menggunakan cache lokal:', err);
+      if (!isSilent) {
+        console.warn('Gagal memuat langsung dari MySQL, menggunakan cache lokal:', err);
+      }
     } finally {
-      setIsSyncing(false);
+      if (!isSilent) {
+        setIsSyncing(false);
+      }
     }
-  };
+  }, []);
 
-  // Cek status koneksi MySQL dan diagnosis hosting
-  const checkDbStatus = async (): Promise<DbStatusInfo> => {
-    setIsCheckingDb(true);
+  // Cek status koneksi MySQL dan diagnosis hosting (supports silent background mode)
+  const checkDbStatus = useCallback(async (options?: { silent?: boolean }): Promise<DbStatusInfo> => {
+    const isSilent = Boolean(options?.silent);
+    if (!isSilent) {
+      setIsCheckingDb(true);
+    }
     try {
       const fetchRes = await safeFetchJson<DbStatusInfo>('/api/db/status');
       if (fetchRes.ok && fetchRes.data && fetchRes.data.success) {
-        setDbStatus(fetchRes.data);
-        addDbLogEntry({
-          type: 'CHECK',
-          success: true,
-          host: fetchRes.data.host || 'localhost',
-          port: fetchRes.data.port || 3306,
-          database: fetchRes.data.database,
-          latencyMs: fetchRes.data.latencyMs,
-          message: `KONEKSI BERHASIL: Tersambung ke ${fetchRes.data.host}:${fetchRes.data.port || 3306} (${fetchRes.data.latencyMs} ms · ${fetchRes.data.tablesCount || 0} tabel SQL)`,
+        const nextStatus = fetchRes.data;
+        setDbStatus((prev) => {
+          if (
+            isSilent &&
+            prev &&
+            prev.success === nextStatus.success &&
+            prev.status === nextStatus.status &&
+            prev.host === nextStatus.host &&
+            prev.port === nextStatus.port &&
+            prev.database === nextStatus.database &&
+            prev.tablesCount === nextStatus.tablesCount
+          ) {
+            return prev;
+          }
+          return nextStatus;
         });
-        return fetchRes.data;
+        if (!isSilent) {
+          addDbLogEntry({
+            type: 'CHECK',
+            success: true,
+            host: nextStatus.host || 'localhost',
+            port: nextStatus.port || 3306,
+            database: nextStatus.database,
+            latencyMs: nextStatus.latencyMs,
+            message: `KONEKSI BERHASIL: Tersambung ke ${nextStatus.host}:${nextStatus.port || 3306} (${nextStatus.latencyMs} ms · ${nextStatus.tablesCount || 0} tabel SQL)`,
+          });
+        }
+        return nextStatus;
       }
 
       // If server returned error or HTML fallback
@@ -698,10 +838,12 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       return fallback;
     } finally {
-      setIsCheckingDb(false);
+      if (!isSilent) {
+        setIsCheckingDb(false);
+      }
       setInitialDbCheckDone(true);
     }
-  };
+  }, []);
 
   const testCustomDbConnection = async (config: { host?: string; port?: number; user?: string; password?: string; database?: string }) => {
     try {
@@ -893,7 +1035,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('[PPDI] MySQL Berhasil Terkoneksi:', statusRes.database, statusRes.serverVersion);
           setDbAlertVisible(false);
           setIsDbModalOpen(false);
-          refreshDataFromMySQL();
+          await refreshDataFromMySQL({ silent: true });
         } else {
           console.warn('[PPDI] MySQL Belum Terkoneksi di Hosting:', statusRes?.error || statusRes?.status);
           setDbAlertVisible(true);
@@ -904,17 +1046,25 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     runStartupCheck();
 
-    // Auto-sync periodic check setiap 60 detik
-    const intervalId = setInterval(() => {
-      checkDbStatus();
-      refreshDataFromMySQL();
-    }, 60000);
-
     return () => {
       isMounted = false;
+    };
+  }, [checkDbStatus, refreshDataFromMySQL]);
+
+  // Isolated non-disruptive background polling respecting appSettings.syncIntervalSeconds
+  useEffect(() => {
+    const intervalSeconds = Math.max(10, Number(appSettings.syncIntervalSeconds) || 60);
+    const intervalMs = intervalSeconds * 1000;
+
+    const intervalId = setInterval(() => {
+      checkDbStatus({ silent: true });
+      refreshDataFromMySQL({ silent: true });
+    }, intervalMs);
+
+    return () => {
       clearInterval(intervalId);
     };
-  }, []);
+  }, [appSettings.syncIntervalSeconds, checkDbStatus, refreshDataFromMySQL]);
 
   const currentUser = useMemo(() => {
     return userList.find((u) => u.id_user === currentUserId) || userList[0] || INITIAL_USERS[0];
@@ -928,36 +1078,78 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [currentUser?.role, appSettings.rolePermissions]
   );
 
-  // Adjust filter when switching user role and sync auth headers context
+  // Sync auth context headers and persist session snapshot (only when matched / loaded from server)
   useEffect(() => {
-    if (currentUser) {
-      try {
-        localStorage.setItem('ppdi_current_user_id', String(currentUser.id_user));
-        localStorage.setItem('ppdi_current_user_role', currentUser.role);
-      } catch (_) {}
-    }
-    if (currentUser.role === 'Admin_Kecamatan' && currentUser.id_kecamatan) {
+    if (!currentUser) return;
+    if (currentUser.id_user !== currentUserId && !hasLoadedUsersFromServer) return;
+    try {
+      localStorage.setItem('ppdi_current_user_id', String(currentUser.id_user));
+      localStorage.setItem('ppdi_current_user_role', currentUser.role);
+      if (isAuthenticated && (hasLoadedUsersFromServer || initialDbCheckDone)) {
+        persistUserSessionSnapshot(currentUser);
+      }
+    } catch (_) {}
+  }, [
+    currentUser?.id_user,
+    currentUserId,
+    currentUser?.role,
+    currentUser?.updated_at,
+    currentUser?.update_at,
+    currentUser?.is_default_password,
+    isAuthenticated,
+    hasLoadedUsersFromServer,
+    initialDbCheckDone,
+  ]);
+
+  // Adjust kecamatan filter ONLY when active user identity or role changes (never on background sync)
+  useEffect(() => {
+    if (currentUser?.role === 'Admin_Kecamatan' && currentUser.id_kecamatan) {
       setSelectedKecamatanFilter(currentUser.id_kecamatan);
-    } else if (currentUser.role === 'Superadmin_Kabupaten') {
+    } else if (currentUser?.role === 'Superadmin_Kabupaten') {
       setSelectedKecamatanFilter('all');
     }
-  }, [currentUser]);
+  }, [currentUser?.id_user, currentUser?.role, currentUser?.id_kecamatan]);
 
-  // Otomatis deteksi jika pengguna yang telah login masih menggunakan password default
+  // Validasi konsisten status penggantian password dengan data terbaru DB saat inisialisasi / refresh
   useEffect(() => {
-    if (isAuthenticated && currentUser) {
-      const isDefault =
-        currentUser.password === 'PPDIJaya#2006' ||
-        currentUser.is_default_password === true;
-      if (isDefault) {
-        setMustChangeDefaultPassword(true);
-        setIsChangePasswordModalOpen(true);
-        try {
-          localStorage.setItem(STORAGE_KEYS.MUST_CHANGE_PASS, 'true');
-        } catch (_) {}
+    if (!isAuthenticated || !currentUser) return;
+    // Saat DB online atau target user belum ditemukan di daftar lokal, tunggu verifikasi /api/users selesai
+    const awaitingLiveUsers =
+      !hasLoadedUsersFromServer &&
+      (!initialDbCheckDone || dbStatus?.success === true || currentUser.id_user !== currentUserId);
+    if (awaitingLiveUsers) return;
+
+    const needsPasswordChange = isDefaultPasswordRequired(currentUser);
+
+    if (needsPasswordChange) {
+      setMustChangeDefaultPassword(true);
+      setIsChangePasswordModalOpen(true);
+      try {
+        localStorage.setItem(STORAGE_KEYS.MUST_CHANGE_PASS, 'true');
+      } catch (_) {}
+    } else {
+      setMustChangeDefaultPassword(false);
+      try {
+        localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
+      } catch (_) {}
+      // Tutup modal wajib jika sebelumnya terbuka karena kondisi default password sementara saat startup
+      if (mustChangeDefaultPassword) {
+        setIsChangePasswordModalOpen(false);
       }
     }
-  }, [isAuthenticated, currentUser?.id_user, currentUser?.password, currentUser?.is_default_password]);
+  }, [
+    isAuthenticated,
+    hasLoadedUsersFromServer,
+    initialDbCheckDone,
+    dbStatus?.success,
+    currentUserId,
+    currentUser?.id_user,
+    currentUser?.password,
+    currentUser?.updated_at,
+    currentUser?.update_at,
+    currentUser?.is_default_password,
+    mustChangeDefaultPassword,
+  ]);
 
   // Audit Log Aktivitas Admin State & Persistence
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => {
@@ -1586,24 +1778,30 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(json?.message || res.error || 'Gagal mengubah password');
     }
     const targetUserId = params.userId || currentUser.id_user;
-    const nowFormatted = json?.update_at || new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const nowFormatted = json?.updated_at || json?.update_at || new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const nextIsDefault = isKnownDefaultPassword(params.newPassword);
 
-    setUserList((prev) =>
-      prev.map((u) =>
+    setUserList((prev) => {
+      const updated = prev.map((u) =>
         u.id_user === targetUserId
           ? {
               ...u,
               password: params.newPassword,
               update_at: nowFormatted,
               updated_at: nowFormatted,
-              is_default_password: params.newPassword === 'PPDIJaya2026',
+              is_default_password: nextIsDefault,
             }
           : u
-      )
-    );
+      );
+      const targetObj = updated.find((u) => u.id_user === targetUserId);
+      if (targetUserId === currentUser.id_user && targetObj) {
+        persistUserSessionSnapshot(targetObj);
+      }
+      return updated;
+    });
 
     // Apabila pengguna yang sedang login telah mengganti password, maka otomatis popup Changepasswordmodal tidak aktif
-    if (targetUserId === currentUser.id_user) {
+    if (targetUserId === currentUser.id_user && !nextIsDefault) {
       setMustChangeDefaultPassword(false);
       setIsChangePasswordModalOpen(false);
       try {
@@ -1616,10 +1814,10 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       modul: 'Manajemen Pengguna',
       target_id: `USR-${targetUserId}`,
       target_nama: params.username || currentUser.username,
-      deskripsi: `Memperbarui kata sandi akun pengguna (update_at: ${nowFormatted}). Status password default dinonaktifkan.`,
+      deskripsi: `Memperbarui kata sandi akun pengguna (updated_at: ${nowFormatted}). Status password default dinonaktifkan.`,
     });
 
-    await refreshDataFromMySQL();
+    await refreshDataFromMySQL({ silent: true });
     return json;
   };
 
@@ -1741,17 +1939,36 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 1. Sukses terautentikasi dari server backend
       if (res.ok && data?.success && data.user) {
+        const effectiveTs = data.user.updated_at || data.user.update_at || null;
+        const loggedUser: UserAccount = {
+          ...data.user,
+          nama: (data.user.nama || data.user.username || '').toUpperCase(),
+          update_at: effectiveTs,
+          updated_at: effectiveTs,
+          is_default_password: isDefaultPasswordRequired({
+            password: cleanPass,
+            updated_at: effectiveTs,
+            update_at: effectiveTs,
+            is_default_password: data.user?.is_default_password ?? data.is_default_password,
+          }),
+        };
+
+        setUserList((prev) => {
+          const idx = prev.findIndex((u) => u.id_user === loggedUser.id_user);
+          if (idx >= 0) {
+            return prev.map((u) => (u.id_user === loggedUser.id_user ? { ...u, ...loggedUser } : u));
+          }
+          return [...prev, loggedUser];
+        });
+        persistUserSessionSnapshot(loggedUser);
+        setHasLoadedUsersFromServer(true);
+
         setIsAuthenticated(true);
         localStorage.setItem(STORAGE_KEYS.AUTH, 'true');
-        setCurrentUserId(data.user.id_user);
+        setCurrentUserId(loggedUser.id_user);
         setActiveTab('dashboard');
 
-        // Validasi Password default (PPDIJaya2026): otomatis membuka popup ChangePasswordModal
-        const isDefault =
-          cleanPass === 'PPDIJaya2026' ||
-          data.user?.password === 'PPDIJaya2026' ||
-          data.user?.is_default_password === true ||
-          data.is_default_password === true;
+        const isDefault = Boolean(loggedUser.is_default_password);
 
         if (isDefault) {
           setMustChangeDefaultPassword(true);
@@ -1767,7 +1984,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch (_) {}
         }
 
-        await refreshDataFromMySQL();
+        await refreshDataFromMySQL({ silent: true });
         return { success: true };
       }
 
@@ -1799,14 +2016,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (matched) {
         // Validasi password ketat di mode offline
         const storedPass = matched.password || 'admin';
-        const isPassValid = cleanPass === storedPass || (cleanPass === 'PPDIJaya2026');
+        const isPassValid = cleanPass === storedPass || cleanPass === PRIMARY_DEFAULT_PASSWORD;
         if (isPassValid) {
           setIsAuthenticated(true);
           localStorage.setItem(STORAGE_KEYS.AUTH, 'true');
           setCurrentUserId(matched.id_user);
           setActiveTab('dashboard');
+          persistUserSessionSnapshot({ ...matched, password: cleanPass });
 
-          const isDefault = cleanPass === 'PPDIJaya2026' || matched.password === 'PPDIJaya2026' || matched.is_default_password === true;
+          const isDefault = isDefaultPasswordRequired({ ...matched, password: cleanPass });
           if (isDefault) {
             setMustChangeDefaultPassword(true);
             setIsChangePasswordModalOpen(true);
@@ -1841,6 +2059,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(false);
     localStorage.removeItem(STORAGE_KEYS.AUTH);
     localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
+    localStorage.removeItem(STORAGE_KEYS.USER_SESSION);
     setMustChangeDefaultPassword(false);
     setIsChangePasswordModalOpen(false);
     setActiveTab('dashboard');
@@ -1896,83 +2115,121 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
+  const contextValue = useMemo(
+    () => ({
+      hasPermission,
+      anggotaList,
+      riwayatList,
+      keanggotaanList,
+      iuranList,
+      desaList,
+      kecamatanList,
+      jabatanList,
+      users: userList,
+      currentUser,
+      activeTab,
+      setActiveTab,
+      selectedKecamatanFilter,
+      setSelectedKecamatanFilter,
+      fullMembers,
+      visibleMembers,
+      pendaftaranList,
+      visiblePendaftaran,
+      submitPendaftaran,
+      approvePendaftaran,
+      rejectPendaftaran,
+      deletePendaftaran,
+      createUser,
+      updateUser,
+      deleteUser,
+      changePassword,
+      isChangePasswordModalOpen,
+      setIsChangePasswordModalOpen,
+      mustChangeDefaultPassword,
+      setMustChangeDefaultPassword,
+      openChangePasswordModal,
+      closeChangePasswordModal,
+      appSettings,
+      updateAppSettings,
+      addAnggotaWithJobAndKta,
+      batchImportAnggota,
+      updateAnggota,
+      updateKeanggotaanJabatan,
+      deleteAnggota,
+      addRiwayatJabatan,
+      updateRiwayatJabatan,
+      deleteRiwayatJabatan,
+      updateRiwayatStatus,
+      updateKTAStatus,
+      addIuran,
+      verifyIuran,
+      switchUser,
+      resetAllData,
+      refreshDataFromMySQL,
+      isSyncing,
+      findMemberByKtaOrNik,
+      isAuthenticated,
+      login,
+      logout,
+      dbStatus,
+      isCheckingDb,
+      initialDbCheckDone,
+      dbAlertVisible,
+      setDbAlertVisible,
+      isDbModalOpen,
+      setIsDbModalOpen,
+      checkDbStatus,
+      testCustomDbConnection,
+      reconnectDb,
+      saveDbEnvConfig,
+      initDbTables,
+      dbLogs,
+      addDbLogEntry,
+      clearDbLogs,
+      activityLogs,
+      addActivityLog,
+      clearActivityLogs,
+    }),
+    [
+      hasPermission,
+      anggotaList,
+      riwayatList,
+      keanggotaanList,
+      iuranList,
+      desaList,
+      kecamatanList,
+      jabatanList,
+      userList,
+      currentUser,
+      activeTab,
+      selectedKecamatanFilter,
+      fullMembers,
+      visibleMembers,
+      pendaftaranList,
+      visiblePendaftaran,
+      isChangePasswordModalOpen,
+      mustChangeDefaultPassword,
+      openChangePasswordModal,
+      closeChangePasswordModal,
+      appSettings,
+      refreshDataFromMySQL,
+      isSyncing,
+      isAuthenticated,
+      dbStatus,
+      isCheckingDb,
+      initialDbCheckDone,
+      dbAlertVisible,
+      isDbModalOpen,
+      checkDbStatus,
+      dbLogs,
+      activityLogs,
+      addActivityLog,
+      clearActivityLogs,
+    ]
+  );
+
   return (
-    <PPDIContext.Provider
-      value={{
-        hasPermission,
-        anggotaList,
-        riwayatList,
-        keanggotaanList,
-        iuranList,
-        desaList,
-        kecamatanList,
-        jabatanList,
-        users: userList,
-        currentUser,
-        activeTab,
-        setActiveTab,
-        selectedKecamatanFilter,
-        setSelectedKecamatanFilter,
-        fullMembers,
-        visibleMembers,
-        pendaftaranList,
-        visiblePendaftaran,
-        submitPendaftaran,
-        approvePendaftaran,
-        rejectPendaftaran,
-        deletePendaftaran,
-        createUser,
-        updateUser,
-        deleteUser,
-        changePassword,
-        isChangePasswordModalOpen,
-        setIsChangePasswordModalOpen,
-        mustChangeDefaultPassword,
-        setMustChangeDefaultPassword,
-        openChangePasswordModal,
-        closeChangePasswordModal,
-        appSettings,
-        updateAppSettings,
-        addAnggotaWithJobAndKta,
-        batchImportAnggota,
-        updateAnggota,
-        updateKeanggotaanJabatan,
-        deleteAnggota,
-        addRiwayatJabatan,
-        updateRiwayatJabatan,
-        deleteRiwayatJabatan,
-        updateRiwayatStatus,
-        updateKTAStatus,
-        addIuran,
-        verifyIuran,
-        switchUser,
-        resetAllData,
-        refreshDataFromMySQL,
-        isSyncing,
-        findMemberByKtaOrNik,
-        isAuthenticated,
-        login,
-        logout,
-        dbStatus,
-        isCheckingDb,
-        initialDbCheckDone,
-        dbAlertVisible,
-        setDbAlertVisible,
-        isDbModalOpen,
-        setIsDbModalOpen,
-        checkDbStatus,
-        testCustomDbConnection,
-        reconnectDb,
-        saveDbEnvConfig,
-        initDbTables,
-        dbLogs,
-        addDbLogEntry,
-        clearDbLogs,
-        activityLogs,
-        addActivityLog,
-        clearActivityLogs,
-      }}
-    >
+    <PPDIContext.Provider value={contextValue}>
       {children}
     </PPDIContext.Provider>
   );

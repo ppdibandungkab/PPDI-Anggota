@@ -136,6 +136,7 @@ export const Header: React.FC<{
       const nik = (m.anggota.nik || '').toLowerCase();
       const nipd = (m.anggota.nipd || '').toLowerCase();
       const kta = (m.keanggotaan?.no_kta || '').toLowerCase();
+      const compactQ = q.replace(/\s+/g, '');
 
       let score = -1;
       if (nik === q || nama === q) {
@@ -148,7 +149,11 @@ export const Header: React.FC<{
         score = 65;
       } else if (nik.includes(q)) {
         score = 60;
-      } else if (nipd.includes(q) || kta.includes(q)) {
+      } else if (
+        nipd.includes(q) ||
+        (compactQ.length > 0 && nipd.replace(/\s+/g, '').includes(compactQ)) ||
+        kta.includes(q)
+      ) {
         score = 40;
       }
 

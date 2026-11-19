@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import { toPng } from 'html-to-image';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
-import { formatDateIndo } from '../utils/ppdiHelpers';
+import { formatDateIndo, formatNIPDDisplay } from '../utils/ppdiHelpers';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import { generateKtaShortUrl } from '../utils/qrCrypto';
 import {
@@ -381,10 +381,11 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                         </div>
                       </div>
                       <div>
-                        <div className="text-[8px] sm:text-xs font-extrabold tracking-wider text-amber-300 uppercase leading-none">
+                        
+                        <div className="text-[10px] sm:text-xs font-extrabold tracking-wider text-amber-300 uppercase leading-none truncate">
                           {appSettings?.appName || 'PERSATUAN PERANGKAT DESA INDONESIA'}
                         </div>
-                        <div className="text-[7px] sm:text-[8px] tracking-widest text-emerald-100 font-semibold uppercase mt-0.5">
+                        <div className="text-[8px] sm:text-[8px] tracking-widest text-emerald-100 font-semibold uppercase mt-0.5 truncate">
                           PENGURUS DAERAH KAB. BANDUNG
                         </div>
                       </div>
@@ -396,14 +397,14 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   </div>
 
                   {/* Card Body: Photo & Credentials */}
-                  <div className="relative z-10 grid grid-cols-12 gap-3 items-center py-1.5">
+                  <div className="relative z-10 grid grid-cols-12 gap-3.5 items-center py-2">
                     {/* Photo slot */}
                     <div className="col-span-4 flex flex-col items-center justify-center">
-                      <div className="w-20 sm:w-22 aspect-[3/4] rounded-xl overflow-hidden border-2 border-amber-300 shadow-lg bg-neutral-900 flex items-center justify-center p-0.5">
+                      <div className="w-28 sm:w-32 aspect-[3/4] rounded-xl overflow-hidden border-2 border-amber-300 shadow-lg bg-neutral-900 flex items-center justify-center p-0.5">
                         <img
                           src={getPhotoUrl(currentMember.anggota.foto, currentMember.anggota.jenis_kelamin)}
                           alt={currentMember.anggota.nama_lengkap}
-                          className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
+                          className="w-full h-full object-cover object-top rounded-lg"
                           onError={(e) => handleImageError(e, currentMember.anggota.jenis_kelamin)}
                           referrerPolicy="no-referrer"
                         />
@@ -416,7 +417,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                         <div className="text-[8px] text-emerald-200 uppercase tracking-widest font-semibold">
                           Nama Perangkat Desa
                         </div>
-                        <div className="text-xs sm:text-sm font-extrabold text-amber-300 tracking-tight leading-snug uppercase truncate">
+                        <div className="font-extrabold text-amber-300 leading-tight uppercase truncate text-xs">
                           {fullNameWithTitles}
                         </div>
                       </div>
@@ -425,13 +426,14 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                         {currentMember.anggota.nipd && (
                           <div>
                             <span className="text-emerald-200 text-[8px] uppercase tracking-wider block">NIPD</span>
-                            <span className="font-mono font-semibold text-white">{currentMember.anggota.nipd}</span>
+                            <span className="font-mono font-medium text-white">{formatNIPDDisplay(currentMember.anggota.nipd)}</span>
                           </div>
                         )}
-                        <div>
-                          <span className="text-emerald-200 text-[8px] uppercase tracking-wider block">Jabatan SOTK</span>
-                          <span className="font-semibold text-white">{currentMember.jabatanRef?.nama_jabatan || 'Perangkat Desa'}</span>
-                        </div>
+                      </div>
+
+                      <div className="text-[10px]">
+                        <span className="text-emerald-200 text-[8px] uppercase tracking-wider block">Jabatan SOTK</span>
+                        <span className="font-mono font-medium text-white">{currentMember.jabatanRef?.nama_jabatan || 'Perangkat Desa'}</span>
                       </div>
 
                       <div className="text-[10px]">
@@ -544,7 +546,7 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   {/* Body Row: Terms list (col-7) & QR Validation (col-5) */}
                   <div className="relative z-10 grid grid-cols-12 gap-3 items-center py-1.5">
                     {/* Terms & Regulations */}
-                    <div className="col-span-7 sm:col-span-8 text-[8px] sm:text-[9px] text-emerald-100 space-y-1.5 leading-snug">
+                    <div className="col-span-7 sm:col-span-8 text-[8px] sm:text-[10px] text-emerald-100 space-y-1.5 leading-snug">
                       <div className="flex items-start gap-1">
                         <span className="text-amber-300 font-bold shrink-0">1.</span>
                         <p>Kartu ini merupakan tanda pengenal resmi anggota Persatuan Perangkat Desa Indonesia (PPDI) Kab. Bandung.</p>
@@ -562,7 +564,6 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                         <span className="truncate">Jl. Parungserab No. 54, Parungserab, Soreang, Kab. Bandung 40911</span>
                       </div>
                     </div>
-                    
 
                     {/* QR Code Container & Security Seal */}
                     <div className="col-span-5 sm:col-span-4 flex flex-col items-center justify-center">
@@ -577,6 +578,9 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                           <div className="w-20 h-20 bg-neutral-200 animate-pulse rounded-lg"></div>
                         )}
                       </div>
+                      <span className="font-bold text-amber-200 mt-1 text-[7px] tracking-wider">
+                        SCAN VERIFIKASI KTA
+                      </span>
                     </div>
                   </div>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail } from '../types/ppdi';
-import { formatDateIndo } from '../utils/ppdiHelpers';
+import { formatDateIndo, formatNIPDDisplay } from '../utils/ppdiHelpers';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import { decodeKtaToken } from '../utils/qrCrypto';
 import {
@@ -232,7 +232,7 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
                       {result.anggota.nipd && (
                         <>
                           <span>·</span>
-                          <span>NIPD: {result.anggota.nipd}</span>
+                          <span>NIPD: {formatNIPDDisplay(result.anggota.nipd)}</span>
                         </>
                       )}
                       <span>·</span>

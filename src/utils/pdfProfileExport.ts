@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import { AnggotaFullDetail } from '../types/ppdi';
-import { formatDateIndo, formatRupiah } from './ppdiHelpers';
+import { formatDateIndo, formatRupiah, formatNIPDDisplay } from './ppdiHelpers';
 
 /**
  * Generates and downloads a formal PDF Member Profile Document using jsPDF
@@ -89,7 +89,7 @@ export function exportMemberProfileToPDF(member: AnggotaFullDetail): void {
 
   y = drawRow('Nama Lengkap (Sesuai KTP)', fullName, y);
   y = drawRow('Nomor Induk Kependudukan (NIK)', member.anggota.nik || '-', y);
-  y = drawRow('Nomor Induk Perangkat Desa (NIAP)', member.anggota.nipd || '-', y);
+  y = drawRow('Nomor Induk Perangkat Desa (NIAP)', formatNIPDDisplay(member.anggota.nipd) || '-', y);
   y = drawRow(
     'Tempat, Tanggal Lahir',
     `${member.anggota.tempat_lahir || '-'}, ${formatDateIndo(member.anggota.tanggal_lahir)}`,

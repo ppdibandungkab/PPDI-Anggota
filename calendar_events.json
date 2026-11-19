@@ -1,0 +1,53 @@
+[
+  {
+    "id_acara": "evt_seed_rapat_rutin",
+    "judul": "Rapat Koordinasi Rutin Pengurus PPDI Kab. Bandung",
+    "kategori": "Rapat Rutin",
+    "tanggal_mulai": "2026-11-22",
+    "waktu_mulai": "09:00",
+    "tanggal_selesai": "2026-11-22",
+    "waktu_selesai": "12:00",
+    "is_all_day": false,
+    "lokasi": "Sekretariat PPDI Kabupaten Bandung, Soreang",
+    "deskripsi": "Evaluasi pendataan anggota, progres E-KTA digital, dan sinkronisasi data purna tugas kecamatan.",
+    "pengingat_menit": 1440,
+    "status": "Terjadwal",
+    "created_by": "SUPERADMIN KABUPATEN",
+    "created_at": "2026-11-19T09:42:22.277Z",
+    "updated_at": "2026-11-19T09:42:22.277Z"
+  },
+  {
+    "id_acara": "evt_seed_batas_berkas",
+    "judul": "Batas Akhir Pengumpulan Berkas SK Pengangkatan & Pemutakhiran NIPD",
+    "kategori": "Batas Waktu Berkas",
+    "tanggal_mulai": "2026-11-30",
+    "waktu_mulai": "16:00",
+    "tanggal_selesai": "2026-11-30",
+    "waktu_selesai": "16:00",
+    "is_all_day": true,
+    "lokasi": "Portal e-Arsip SK PPDI Kab. Bandung",
+    "deskripsi": "Pengurus Desa & Kecamatan diharapkan mengunggah pindai PDF SK terbaru serta kelengkapan foto anggota.",
+    "pengingat_menit": 2880,
+    "status": "Terjadwal",
+    "created_by": "SUPERADMIN KABUPATEN",
+    "created_at": "2026-11-19T09:42:22.277Z",
+    "updated_at": "2026-11-19T09:42:22.277Z"
+  },
+  {
+    "id_acara": "evt_seed_kegiatan_ppdi",
+    "judul": "Sosialisasi Regulasi Desa & Penyerahan KTA Digital Wilayah",
+    "kategori": "Kegiatan PPDI",
+    "tanggal_mulai": "2026-12-05",
+    "waktu_mulai": "08:30",
+    "tanggal_selesai": "2026-12-05",
+    "waktu_selesai": "13:30",
+    "is_all_day": false,
+    "lokasi": "Gedung KORPRI Kabupaten Bandung",
+    "deskripsi": "Bimbingan teknis regulasi pemerintahan desa terbaru dan verifikasi kolektif KTA perangkat desa.",
+    "pengingat_menit": 1440,
+    "status": "Terjadwal",
+    "created_by": "SUPERADMIN KABUPATEN",
+    "created_at": "2026-11-19T09:42:22.277Z",
+    "updated_at": "2026-11-19T09:42:22.277Z"
+  }
+]

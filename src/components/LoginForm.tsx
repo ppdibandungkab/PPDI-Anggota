@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePPDI } from '../context/PPDIContext';
-import { updateFaviconAndTitle } from '../utils/ppdiHelpers';
+import { RegulasiItem } from '../types/ppdi';
+import { updateFaviconAndTitle, safeFetchJson } from '../utils/ppdiHelpers';
 import {
   AlertCircle,
   Eye,
@@ -19,14 +20,21 @@ import {
   ChevronDown,
   ChevronRight,
   MapPin,
+  BookOpen,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { DbConnectionModal } from './DbConnectionModal';
 
 interface LoginFormProps {
   onOpenPublicVerify: () => void;
+  onOpenPublicRegulasi?: (initialItem?: RegulasiItem | null) => void;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({
+  onOpenPublicVerify,
+  onOpenPublicRegulasi,
+}) => {
   const {
     login,
     setActiveTab,
@@ -59,6 +67,26 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoginPopupOpen, setIsLoginPopupOpen] = useState(false);
   const [expandedKecId, setExpandedKecId] = useState<string | null>(null);
+  const [publicRegulasiList, setPublicRegulasiList] = useState<RegulasiItem[]>([]);
+  const [loadingRegulasi, setLoadingRegulasi] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoadingRegulasi(true);
+    safeFetchJson('/api/regulasi?publicOnly=true')
+      .then((res) => {
+        if (active && res.ok && res.data?.success && Array.isArray(res.data.items)) {
+          setPublicRegulasiList(res.data.items);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoadingRegulasi(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Normalize wilayah IDs (strips dots/spaces) for reliable matching across dotted & undotted formats
   const cleanWilayahId = (id?: string | null) => (id ? String(id).replace(/\./g, '').trim() : '');
@@ -453,6 +481,22 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
               <span>Login Admin</span>
             </button>
 
+            {onOpenPublicRegulasi && (
+              <button
+                type="button"
+                onClick={() => onOpenPublicRegulasi(null)}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-lg font-mono uppercase tracking-wider text-emerald-100 bg-emerald-950/75 hover:bg-emerald-900 border border-emerald-400/40 transition-all cursor-pointer shadow-md font-bold text-xs"
+              >
+                <BookOpen className="w-4 h-4 text-amber-300" />
+                <span>Pustaka Regulasi</span>
+                {publicRegulasiList.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-amber-400 text-neutral-950 text-[10px] font-bold tabular-nums">
+                    {publicRegulasiList.length}
+                  </span>
+                )}
+              </button>
+            )}
+
             {!dbStatus?.success && (
               <button
                 type="button"
@@ -664,8 +708,111 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOpenPublicVerify }) => {
           </div>
         </div>
 
-        {/* Right Column / Empty spacer on desktop */}
-        <div className="hidden lg:block"></div>
+        {/* Right Column: Pustaka Regulasi Terbaru (Publik) */}
+        <div className="w-full self-start">
+          <div className="bg-black/35 backdrop-blur-md rounded-xl border border-white/15 p-4 text-white shadow-xl">
+            <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2 min-w-0">
+                <BookOpen className="w-4 h-4 text-amber-300 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-300 font-bold truncate">
+                    Pustaka Regulasi Publik
+                  </h3>
+                  <p className="text-[10px] text-white/60 truncate">
+                    Peraturan perundang-undangan desa terbaru (PDF)
+                  </p>
+                </div>
+              </div>
+              {onOpenPublicRegulasi && (
+                <button
+                  type="button"
+                  onClick={() => onOpenPublicRegulasi(null)}
+                  className="text-[11px] font-mono text-amber-300 hover:text-amber-200 underline underline-offset-2 cursor-pointer shrink-0"
+                >
+                  Semua ({publicRegulasiList.length})
+                </button>
+              )}
+            </div>
+
+            <div className="mt-3 space-y-2.5 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
+              {loadingRegulasi ? (
+                <div className="py-6 text-center text-xs text-white/60">
+                  Memuat daftar regulasi...
+                </div>
+              ) : publicRegulasiList.length === 0 ? (
+                <div className="py-6 px-3 text-center rounded-lg bg-white/5 border border-white/10 space-y-1.5">
+                  <FileText className="w-7 h-7 text-emerald-300/60 mx-auto" />
+                  <div className="text-xs font-semibold text-white/90">
+                    Belum Ada Dokumen Regulasi Publik
+                  </div>
+                  <p className="text-[11px] text-white/60 leading-relaxed">
+                    Dokumen aturan perundang-undangan PDF yang diterbitkan admin akan muncul di sini untuk diunduh anggota dan publik.
+                  </p>
+                </div>
+              ) : (
+                publicRegulasiList.slice(0, 5).map((reg) => (
+                  <div
+                    key={reg.id_regulasi}
+                    className="p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors space-y-2"
+                  >
+                    <div className="text-[10px] font-mono text-emerald-300 flex flex-wrap items-center gap-x-1.5">
+                      <span className="font-semibold text-amber-300">{reg.kategori}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{reg.nomor_regulasi}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="tabular-nums">{reg.tahun}</span>
+                    </div>
+                    <div className="text-xs font-semibold text-white leading-snug line-clamp-2">
+                      {reg.judul}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-[10px] font-mono text-white/50 tabular-nums">
+                        {reg.download_count || 0} unduhan
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {onOpenPublicRegulasi && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenPublicRegulasi(reg)}
+                            className="px-2.5 py-1 text-[10px] font-semibold bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-200 border border-emerald-400/30 rounded cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>Baca</span>
+                          </button>
+                        )}
+                        <a
+                          href={reg.file_url}
+                          download={reg.file_name || `${reg.nomor_regulasi}.pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            safeFetchJson(`/api/regulasi/${encodeURIComponent(reg.id_regulasi)}/download`, {
+                              method: 'POST',
+                            }).catch(() => {});
+                          }}
+                          className="px-2.5 py-1 text-[10px] font-semibold bg-amber-400 hover:bg-amber-300 text-neutral-950 rounded cursor-pointer inline-flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>PDF</span>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {onOpenPublicRegulasi && publicRegulasiList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => onOpenPublicRegulasi(null)}
+                className="mt-3 w-full py-2 text-xs font-mono font-semibold text-emerald-100 bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-400/30 rounded-lg transition-colors cursor-pointer"
+              >
+                Buka Seluruh Pustaka Regulasi ({publicRegulasiList.length})
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Login Popup Modal */}

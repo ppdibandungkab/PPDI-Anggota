@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { Anggota, AnggotaFullDetail, RiwayatJabatan, StatusAktifJabatan } from '../types/ppdi';
-import { calculateAgeAndRetirement, generateNextKTA, generateNIPD, formatDateIndo, safeFetchJson } from '../utils/ppdiHelpers';
+import { calculateAgeAndRetirement, generateNextKTA, generateNIPD, formatDateIndo, formatNIPDDisplay, safeFetchJson } from '../utils/ppdiHelpers';
 import {
   X,
   Save,
@@ -294,9 +294,21 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const [uploadingNewRwSk, setUploadingNewRwSk] = useState(false);
   const newRwSkInputRef = useRef<HTMLInputElement>(null);
 
-  // Lock kecamatan for Admin_Kecamatan
+  const lockedScopeSessionKeyRef = useRef<string>('');
+  const loadedModalSessionKeyRef = useRef<string>('');
+
+  // Lock kecamatan for Admin_Kecamatan ONLY once per modal open session / user scope
   useEffect(() => {
-    if (currentUser.role === 'Admin_Kecamatan' && currentUser.id_kecamatan) {
+    if (!isOpen) {
+      lockedScopeSessionKeyRef.current = '';
+      return;
+    }
+    if (currentUser.role === 'Admin_Kecamatan' && currentUser.id_kecamatan && desaList.length > 0) {
+      const scopeKey = `${currentUser.id_user}:${currentUser.role}:${currentUser.id_kecamatan}`;
+      if (lockedScopeSessionKeyRef.current === scopeKey) {
+        return;
+      }
+      lockedScopeSessionKeyRef.current = scopeKey;
       setSelectedKec(currentUser.id_kecamatan);
       setNewRwKec(currentUser.id_kecamatan);
       const firstDesa = desaList.find((d) => d.id_kecamatan === currentUser.id_kecamatan);
@@ -305,10 +317,21 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
         setNewRwDesa(firstDesa.id_desa);
       }
     }
-  }, [currentUser, desaList]);
+  }, [isOpen, currentUser?.id_user, currentUser?.role, currentUser?.id_kecamatan, desaList]);
 
-  // Load existing data if editing
+  // Load existing data ONLY when modal opens or switches edited member
   useEffect(() => {
+    if (!isOpen) {
+      loadedModalSessionKeyRef.current = '';
+      return;
+    }
+
+    const sessionKey = editMember ? `edit:${editMember.anggota.id_anggota}` : 'new';
+    if (loadedModalSessionKeyRef.current === sessionKey) {
+      return;
+    }
+    loadedModalSessionKeyRef.current = sessionKey;
+
     if (editMember) {
       const a = editMember.anggota;
       setNik(a.nik);
@@ -385,7 +408,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
     setNikCheckStatus('idle');
     setShowAddRiwayatForm(false);
     setActiveFormTab('biodata');
-  }, [editMember, isOpen]);
+  }, [editMember?.anggota?.id_anggota, isOpen]);
 
   // Available desa filtered by kecamatan (robust against dotted or clean codes)
   const availableDesa = useMemo(() => {
@@ -657,7 +680,9 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
     }
 
     const effectiveNoSk = noSk.trim() || `141.1/Kep.${Math.floor(Math.random() * 80 + 10)}-Desa/${new Date().getFullYear()}`;
-    const effectiveNiap = niap.trim() || projectedNiap;
+    const rawNiapInput = niap.trim() || projectedNiap;
+    const compactNiapDigits = rawNiapInput.replace(/\s+/g, '');
+    const effectiveNiap = /^\d{28}$/.test(compactNiapDigits) ? compactNiapDigits : rawNiapInput;
 
     try {
       setIsSubmitting(true);
@@ -1890,8 +1915,14 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     placeholder={projectedNiap}
                     className="w-full px-3 py-2 border border-neutral-300 rounded-lg font-mono focus:outline-hidden focus:ring-1 focus:ring-emerald-700 text-xs"
                   />
+                  <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50/70 border border-emerald-200/80 px-2.5 py-1.5 text-[11px] font-mono">
+                    <span className="text-neutral-600">Tampilan UI View:</span>
+                    <strong className="text-emerald-900 tracking-wide">
+                      {formatNIPDDisplay(niap.trim() || projectedNiap) || '-'}
+                    </strong>
+                  </div>
                   <span className="text-[10px] text-neutral-500 font-mono mt-1 block">
-                    * Kosongkan untuk otomatis dibentuk 28 digit (8 digit Lahir + 6 digit TMT + 1 digit JK + 2 digit Perangkat + 1 digit Jabatan + 10 digit Wilayah).
+                    * Disimpan di database sebagai 28 digit utuh tanpa spasi (8 Lahir + 6 TMT + 1 JK + 3 Perangkat/Jabatan + 10 Wilayah).
                   </span>
                 </div>
               </div>
@@ -2065,7 +2096,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
             <div className="font-bold text-[#064E3B] border-b pb-1">1. DATA PRIBADI & KEPENDUDUKAN</div>
             <div className="grid grid-cols-2 gap-2 text-neutral-800">
               <div>NIK: <strong className="font-mono">{nik}</strong></div>
-              <div>NIAP: <strong>{niap || '-'}</strong></div>
+              <div>NIPD: <strong>{formatNIPDDisplay(niap.trim() || projectedNiap) || '-'}</strong></div>
               <div className="col-span-2">Nama Lengkap: <strong>{gelarDepan ? gelarDepan + ' ' : ''}{namaLengkap}{gelarBelakang ? ', ' + gelarBelakang : ''}</strong></div>
               <div>TTL: {tempatLahir}, {formatDateIndo(tanggalLahir)}</div>
               <div>Jenis Kelamin: {jenisKelamin === 'L' ? 'Laki-laki' : 'Perempuan'}</div>

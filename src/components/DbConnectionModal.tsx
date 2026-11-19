@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { getApiBaseUrl, setApiBaseUrl } from '../utils/ppdiHelpers';
 import {
@@ -67,13 +67,20 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
   const [isSavingCfg, setIsSavingCfg] = useState(false);
   const [cfgSaveMsg, setCfgSaveMsg] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Update form fields when dbStatus updates if user hasn't modified them
+  const isDirtyCfgRef = useRef(false);
+
+  // Update form fields when dbStatus updates ONLY if user hasn't modified them
   useEffect(() => {
+    if (!isOpen) {
+      isDirtyCfgRef.current = false;
+      return;
+    }
+    if (isDirtyCfgRef.current) return;
     if (dbStatus?.host) setCfgHost(dbStatus.host);
     if (dbStatus?.port) setCfgPort(String(dbStatus.port));
     if (dbStatus?.database) setCfgDatabase(dbStatus.database);
     if (dbStatus?.user) setCfgUser(dbStatus.user);
-  }, [dbStatus?.host, dbStatus?.port, dbStatus?.database, dbStatus?.user]);
+  }, [isOpen, dbStatus?.host, dbStatus?.port, dbStatus?.database, dbStatus?.user]);
 
   // Accordion state in guide tab
   const [openGuideIndex, setOpenGuideIndex] = useState<number | null>(0);
@@ -96,6 +103,7 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
 
   // Preset handlers
   const handlePresetLocalhost = () => {
+    isDirtyCfgRef.current = true;
     setCfgHost('localhost');
     setCfgPort('3306');
     setCfgDatabase('db_ppdi');
@@ -108,6 +116,7 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
   };
 
   const handlePresetClear = () => {
+    isDirtyCfgRef.current = true;
     setCfgHost('');
     setCfgPort('3306');
     setCfgDatabase('');
@@ -167,8 +176,10 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
     setIsSavingCfg(false);
     setCfgHost('localhost');
     if (res.success) {
+      isDirtyCfgRef.current = false;
       setCfgSaveMsg({ success: true, message: 'DB_HOST berhasil diubah ke "localhost" dan file .env diperbarui di server!' });
     } else if (res.savedLocally) {
+      isDirtyCfgRef.current = false;
       setCfgSaveMsg({
         success: true,
         message: 'DB_HOST diubah ke "localhost" dan disimpan di memori browser! (Backend belum terhubung ke file .env)',
@@ -191,8 +202,10 @@ export const DbConnectionModal: React.FC<DbConnectionModalProps> = ({ isOpen, on
     });
     setIsSavingCfg(false);
     if (res.success) {
+      isDirtyCfgRef.current = false;
       setCfgSaveMsg({ success: true, message: 'Konfigurasi berhasil disimpan ke file .env dan koneksi dimuat ulang!' });
     } else if (res.savedLocally) {
+      isDirtyCfgRef.current = false;
       setCfgSaveMsg({
         success: true,
         message: `Konfigurasi (${cfgHost}) berhasil disimpan di memori browser (Local Storage)! ${res.error ? 'Pesan server: ' + res.error : ''}`,
@@ -931,7 +944,13 @@ DB_NAME="db_ppdi"
 
           {/* TAB 5: UBAH KONFIGURASI (.ENV) - UNLOCKED & ALWAYS ACCESSIBLE */}
           {activeTab === 'config' && (
-            <form onSubmit={handleSaveConfig} className="space-y-4">
+            <form
+              onSubmit={handleSaveConfig}
+              onChange={() => {
+                isDirtyCfgRef.current = true;
+              }}
+              className="space-y-4"
+            >
               <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-purple-950 text-xs flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Settings className="w-4 h-4 text-purple-700 shrink-0" />
@@ -1061,6 +1080,7 @@ DB_NAME="db_ppdi"
                 <button
                   type="button"
                   onClick={() => {
+                    isDirtyCfgRef.current = true;
                     setCfgHost('localhost');
                   }}
                   className="px-3 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-semibold rounded-lg cursor-pointer"

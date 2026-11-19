@@ -60,7 +60,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-role, user-role');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -114,11 +114,13 @@ const UPLOADS_ROOT = path.resolve(process.cwd(), 'public', 'uploads');
 const FOTO_DIR = path.join(UPLOADS_ROOT, 'foto');
 const SK_DIR = path.join(UPLOADS_ROOT, 'sk');
 const TTD_DIR = path.join(UPLOADS_ROOT, 'ttd');
+const REGULASI_DIR = path.join(UPLOADS_ROOT, 'regulasi');
 
 try {
   fs.mkdirSync(FOTO_DIR, { recursive: true });
   fs.mkdirSync(SK_DIR, { recursive: true });
   fs.mkdirSync(TTD_DIR, { recursive: true });
+  fs.mkdirSync(REGULASI_DIR, { recursive: true });
 } catch (e) {
   console.error('Failed to create upload directories:', e);
 }
@@ -147,6 +149,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'ekta': { view: true, add: true, edit: true, delete: true },
     'pensiun': { view: true, add: true, edit: true, delete: true },
     'arsip': { view: true, add: true, edit: true, delete: true },
+    'regulasi': { view: true, add: true, edit: true, delete: true },
+    'kalender': { view: true, add: true, edit: true, delete: true },
     'iuran': { view: true, add: true, edit: true, delete: true },
     'settings-app': { view: true, add: true, edit: true, delete: true },
     'settings-user': { view: true, add: true, edit: true, delete: true },
@@ -163,6 +167,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'ekta': { view: true, add: true, edit: true, delete: true },
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: true, delete: true },
+    'regulasi': { view: true, add: true, edit: true, delete: true },
+    'kalender': { view: true, add: true, edit: true, delete: true },
     'iuran': { view: true, add: true, edit: true, delete: true },
     'settings-user': { view: true, add: true, edit: true, delete: true },
     'settings-app': { view: false, add: false, edit: false, delete: false },
@@ -179,6 +185,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'ekta': { view: true, add: true, edit: false, delete: false },
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: false, delete: false },
+    'regulasi': { view: true, add: false, edit: false, delete: false },
+    'kalender': { view: true, add: true, edit: true, delete: false },
     'iuran': { view: true, add: true, edit: true, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
     'settings-app': { view: false, add: false, edit: false, delete: false },
@@ -195,6 +203,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'ekta': { view: true, add: false, edit: false, delete: false },
     'pensiun': { view: true, add: false, edit: false, delete: false },
     'arsip': { view: true, add: true, edit: false, delete: false },
+    'regulasi': { view: true, add: false, edit: false, delete: false },
+    'kalender': { view: true, add: false, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
     'settings-app': { view: false, add: false, edit: false, delete: false },
@@ -211,6 +221,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
     'ekta': { view: true, add: false, edit: false, delete: false },
     'pensiun': { view: false, add: false, edit: false, delete: false },
     'arsip': { view: false, add: false, edit: false, delete: false },
+    'regulasi': { view: true, add: false, edit: false, delete: false },
+    'kalender': { view: true, add: false, edit: false, delete: false },
     'iuran': { view: true, add: true, edit: false, delete: false },
     'settings-user': { view: false, add: false, edit: false, delete: false },
     'settings-app': { view: false, add: false, edit: false, delete: false },
@@ -290,13 +302,21 @@ function requirePermission(moduleId: string, action: 'view' | 'add' | 'edit' | '
 
 // Helper to save base64 upload data URL to disk and return /uploads/<folder>/<fileName>
 function saveBase64UploadToDisk(
-  type: 'foto' | 'sk' | 'ttd',
+  type: 'foto' | 'sk' | 'ttd' | 'regulasi',
   fileData: string,
   fileName?: string,
   nik?: string
 ): { url: string; fileName: string; sizeBytes: number; mimeType: string } {
-  const folderType = type === 'sk' ? 'sk' : type === 'ttd' ? 'ttd' : 'foto';
-  const targetFolder = folderType === 'sk' ? SK_DIR : folderType === 'ttd' ? TTD_DIR : FOTO_DIR;
+  const folderType =
+    type === 'sk' ? 'sk' : type === 'ttd' ? 'ttd' : type === 'regulasi' ? 'regulasi' : 'foto';
+  const targetFolder =
+    folderType === 'sk'
+      ? SK_DIR
+      : folderType === 'ttd'
+      ? TTD_DIR
+      : folderType === 'regulasi'
+      ? REGULASI_DIR
+      : FOTO_DIR;
 
   let mimeType = '';
   let base64Clean = fileData;
@@ -312,7 +332,7 @@ function saveBase64UploadToDisk(
     else if (mimeType.includes('png')) ext = '.png';
     else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
     else if (mimeType.includes('webp')) ext = '.webp';
-    else ext = folderType === 'sk' ? '.pdf' : folderType === 'ttd' ? '.png' : '.jpg';
+    else ext = folderType === 'sk' || folderType === 'regulasi' ? '.pdf' : folderType === 'ttd' ? '.png' : '.jpg';
   }
 
   const cleanBase = (fileName || `${folderType}_doc`)
@@ -346,7 +366,8 @@ app.post('/api/upload', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Data file base64 tidak ditemukan' });
     }
 
-    const folderType = type === 'sk' ? 'sk' : type === 'ttd' ? 'ttd' : 'foto';
+    const folderType =
+      type === 'sk' ? 'sk' : type === 'ttd' ? 'ttd' : type === 'regulasi' ? 'regulasi' : 'foto';
     const saved = saveBase64UploadToDisk(folderType, fileData, fileName, nik);
 
     return res.json({
@@ -367,7 +388,7 @@ app.post('/api/upload', async (req, res) => {
 // List files in upload directories
 app.get('/api/uploads/list', (_req, res) => {
   try {
-    const listFiles = (dir: string, type: 'foto' | 'sk' | 'ttd') => {
+    const listFiles = (dir: string, type: 'foto' | 'sk' | 'ttd' | 'regulasi') => {
       if (!fs.existsSync(dir)) return [];
       const files = fs.readdirSync(dir);
       return files
@@ -388,6 +409,7 @@ app.get('/api/uploads/list', (_req, res) => {
     const fotoFiles = listFiles(FOTO_DIR, 'foto');
     const skFiles = listFiles(SK_DIR, 'sk');
     const ttdFiles = listFiles(TTD_DIR, 'ttd');
+    const regulasiFiles = listFiles(REGULASI_DIR, 'regulasi');
 
     return res.json({
       success: true,
@@ -395,6 +417,7 @@ app.get('/api/uploads/list', (_req, res) => {
         fotoDir: FOTO_DIR,
         skDir: SK_DIR,
         ttdDir: TTD_DIR,
+        regulasiDir: REGULASI_DIR,
       },
       foto: {
         count: fotoFiles.length,
@@ -408,6 +431,10 @@ app.get('/api/uploads/list', (_req, res) => {
         count: ttdFiles.length,
         files: ttdFiles,
       },
+      regulasi: {
+        count: regulasiFiles.length,
+        files: regulasiFiles,
+      },
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -418,10 +445,11 @@ app.get('/api/uploads/list', (_req, res) => {
 app.delete('/api/uploads/:folder/:fileName', (req, res) => {
   try {
     const { folder, fileName } = req.params;
-    if (folder !== 'foto' && folder !== 'sk' && folder !== 'ttd') {
+    if (folder !== 'foto' && folder !== 'sk' && folder !== 'ttd' && folder !== 'regulasi') {
       return res.status(400).json({ success: false, message: 'Folder tidak valid' });
     }
-    const targetDir = folder === 'sk' ? SK_DIR : folder === 'ttd' ? TTD_DIR : FOTO_DIR;
+    const targetDir =
+      folder === 'sk' ? SK_DIR : folder === 'ttd' ? TTD_DIR : folder === 'regulasi' ? REGULASI_DIR : FOTO_DIR;
     const safeFileName = path.basename(fileName);
     const filePath = path.join(targetDir, safeFileName);
 
@@ -1044,9 +1072,11 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
       `, [defaultAdminPass]);
     }
 
-    // 10, 11 & 12. Tabel WhatsApp Sender, Log Pengirim WhatsApp, dan App Settings
+    // 10, 11, 12, 13 & 14. WhatsApp, App Settings, Pustaka Regulasi, dan Kalender Acara
     await ensureWhatsAppTables(conn);
     await ensureAppSettingsTable(conn);
+    await ensureRegulasiTable(conn);
+    await ensureKalenderTable(conn);
 
     await conn.query('SET FOREIGN_KEY_CHECKS = 1');
     conn.release();
@@ -2032,7 +2062,18 @@ app.post('/api/auth/login', async (req, res) => {
           });
         }
 
-        const isDefaultPassword = cleanReqPass === 'PPDIJaya#2006' || storedPass === 'PPDIJaya#2006';
+        const effectiveUpdatedAt = dbUser.updated_at || dbUser.update_at || null;
+        const cleanPass = String(storedPass || '').trim();
+        const isDefaultList = ['PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026'];
+        const hasValidUpdatedTs = Boolean(
+          effectiveUpdatedAt &&
+            String(effectiveUpdatedAt).trim() !== '' &&
+            String(effectiveUpdatedAt).trim() !== 'null' &&
+            !String(effectiveUpdatedAt).startsWith('0000-00-00')
+        );
+        const isPasswordAlreadyChanged =
+          Boolean(cleanPass) && !isDefaultList.includes(cleanPass) && hasValidUpdatedTs;
+        const isDefaultPassword = !isPasswordAlreadyChanged;
 
         return res.json({
           success: true,
@@ -2049,7 +2090,8 @@ app.post('/api/auth/login', async (req, res) => {
             id_kecamatan: dbUser.id_kecamatan_scope || dbUser.id_kecamatan || undefined,
             id_desa: dbUser.id_desa || undefined,
             created_at: dbUser.created_at,
-            update_at: dbUser.update_at || dbUser.updated_at || null,
+            update_at: effectiveUpdatedAt,
+            updated_at: effectiveUpdatedAt,
             is_default_password: isDefaultPassword,
           },
         });
@@ -2121,21 +2163,24 @@ app.post('/api/auth/login', async (req, res) => {
   const matchedDefault = defaultAccounts[clean];
   if (matchedDefault) {
     const cleanPass = String(password).trim();
-    const isDefault = cleanPass === 'PPDIJaya#2006';
-    const isPassValid = cleanPass === matchedDefault.pass || isDefault;
+    const isDefaultList = ['PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026'];
+    const isPassValid = cleanPass === matchedDefault.pass || cleanPass === 'PPDIJaya#2006';
     if (!isPassValid) {
       return res.status(401).json({
         success: false,
         message: 'Password yang Anda masukkan salah. Silakan periksa kembali password akun Anda.',
       });
     }
+    const isDefault = isDefaultList.includes(cleanPass);
+    const localUpdatedAt = isDefault ? null : new Date().toISOString();
     return res.json({
       success: true,
       source: 'local_auth',
       is_default_password: isDefault,
       user: {
         ...matchedDefault.user,
-        update_at: null,
+        update_at: localUpdatedAt,
+        updated_at: localUpdatedAt,
         is_default_password: isDefault,
       },
     });
@@ -2167,25 +2212,62 @@ app.get('/api/users', async (_req, res) => {
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
-    const [rows]: [any[], any] = await conn.query(`
-      SELECT 
-        u.id_user,
-        u.username,
-        u.email,
-        COALESCE(u.nama, u.username) as nama,
-        COALESCE(r.nama_role, u.id_role) as role,
-        u.id_role,
-        u.id_anggota,
-        u.id_kecamatan_scope,
-        u.id_kecamatan,
-        u.id_desa,
-        u.created_at,
-        u.update_at,
-        (u.password = 'PPDIJaya#2026') as is_default_password
-      FROM users u
-      LEFT JOIN roles r ON (CAST(u.id_role AS CHAR) = CAST(r.id_role AS CHAR) OR u.id_role = r.nama_role)
-      ORDER BY u.id_user ASC
-    `);
+    let rows: any[] = [];
+    try {
+      const [result]: [any[], any] = await conn.query(`
+        SELECT 
+          u.id_user,
+          u.username,
+          u.email,
+          COALESCE(u.nama, u.username) as nama,
+          COALESCE(r.nama_role, u.id_role) as role,
+          u.id_role,
+          u.id_anggota,
+          u.id_kecamatan_scope,
+          u.id_kecamatan,
+          u.id_desa,
+          u.created_at,
+          COALESCE(u.updated_at, u.update_at) as updated_at,
+          COALESCE(u.update_at, u.updated_at) as update_at,
+          CASE
+            WHEN TRIM(COALESCE(u.password, '')) NOT IN ('PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026', '')
+              AND COALESCE(u.updated_at, u.update_at) IS NOT NULL
+            THEN 0
+            ELSE 1
+          END as is_default_password
+        FROM users u
+        LEFT JOIN roles r ON (CAST(u.id_role AS CHAR) = CAST(r.id_role AS CHAR) OR u.id_role = r.nama_role)
+        ORDER BY u.id_user ASC
+      `);
+      rows = result;
+    } catch (_colErr) {
+      const [resultFallback]: [any[], any] = await conn.query(`
+        SELECT 
+          u.id_user,
+          u.username,
+          u.email,
+          COALESCE(u.nama, u.username) as nama,
+          COALESCE(r.nama_role, u.id_role) as role,
+          u.id_role,
+          u.id_anggota,
+          u.id_kecamatan_scope,
+          u.id_kecamatan,
+          u.id_desa,
+          u.created_at,
+          u.update_at as updated_at,
+          u.update_at,
+          CASE
+            WHEN TRIM(COALESCE(u.password, '')) NOT IN ('PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026', '')
+              AND u.update_at IS NOT NULL
+            THEN 0
+            ELSE 1
+          END as is_default_password
+        FROM users u
+        LEFT JOIN roles r ON (CAST(u.id_role AS CHAR) = CAST(r.id_role AS CHAR) OR u.id_role = r.nama_role)
+        ORDER BY u.id_user ASC
+      `);
+      rows = resultFallback;
+    }
     conn.release();
     return res.json({ success: true, users: rows });
   } catch (err: any) {
@@ -2214,22 +2296,68 @@ app.post('/api/users', requirePermission('settings-user', 'add'), async (req, re
     }
 
     const effectiveRoleId = id_role || mapRoleNameToId(role);
+    const assignedPass = (password && String(password).trim()) || 'PPDIJaya#2006';
+    const isUsingDefaultPass = ['PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026'].includes(assignedPass);
+    const passUpdatedValue = isUsingDefaultPass ? null : new Date();
 
-    const [insertRes]: [any, any] = await conn.query(
-      `INSERT INTO users (username, email, nama, password, id_role, id_anggota, id_kecamatan_scope, id_kecamatan, id_desa)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        username.trim(),
-        email.trim(),
-        (nama || username).trim().toUpperCase(),
-        password || 'PPDIJaya2026',
-        effectiveRoleId,
-        id_anggota || null,
-        id_kecamatan_scope || id_kecamatan || null,
-        id_kecamatan || null,
-        id_desa || null,
-      ]
-    );
+    let insertRes: any;
+    try {
+      const [resInsert]: [any, any] = await conn.query(
+        `INSERT INTO users (username, email, nama, password, id_role, id_anggota, id_kecamatan_scope, id_kecamatan, id_desa, update_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          username.trim(),
+          email.trim(),
+          (nama || username).trim().toUpperCase(),
+          assignedPass,
+          effectiveRoleId,
+          id_anggota || null,
+          id_kecamatan_scope || id_kecamatan || null,
+          id_kecamatan || null,
+          id_desa || null,
+          passUpdatedValue,
+          passUpdatedValue,
+        ]
+      );
+      insertRes = resInsert;
+    } catch (_colErr) {
+      try {
+        const [resInsertUpdateAtOnly]: [any, any] = await conn.query(
+          `INSERT INTO users (username, email, nama, password, id_role, id_anggota, id_kecamatan_scope, id_kecamatan, id_desa, update_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            username.trim(),
+            email.trim(),
+            (nama || username).trim().toUpperCase(),
+            assignedPass,
+            effectiveRoleId,
+            id_anggota || null,
+            id_kecamatan_scope || id_kecamatan || null,
+            id_kecamatan || null,
+            id_desa || null,
+            passUpdatedValue,
+          ]
+        );
+        insertRes = resInsertUpdateAtOnly;
+      } catch (_colErr2) {
+        const [resInsertFallback]: [any, any] = await conn.query(
+          `INSERT INTO users (username, email, nama, password, id_role, id_anggota, id_kecamatan_scope, id_kecamatan, id_desa)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            username.trim(),
+            email.trim(),
+            (nama || username).trim().toUpperCase(),
+            assignedPass,
+            effectiveRoleId,
+            id_anggota || null,
+            id_kecamatan_scope || id_kecamatan || null,
+            id_kecamatan || null,
+            id_desa || null,
+          ]
+        );
+        insertRes = resInsertFallback;
+      }
+    }
 
     conn.release();
     return res.json({
@@ -2253,32 +2381,97 @@ app.put('/api/users/:id', requirePermission('settings-user', 'edit'), async (req
     const formattedNama = nama ? nama.trim().toUpperCase() : undefined;
     const effectiveRoleId = id_role || (role ? mapRoleNameToId(role) : undefined);
 
-    if (password) {
-      await conn.query(
-        `UPDATE users SET
-          username = COALESCE(?, username),
-          email = COALESCE(?, email),
-          nama = COALESCE(?, nama),
-          password = ?,
-          id_role = COALESCE(?, id_role),
-          id_anggota = ?,
-          id_kecamatan_scope = ?,
-          id_kecamatan = ?,
-          id_desa = ?
-        WHERE id_user = ?`,
-        [
-          username,
-          email,
-          formattedNama,
-          password,
-          effectiveRoleId,
-          id_anggota !== undefined ? id_anggota : null,
-          id_kecamatan_scope || id_kecamatan || null,
-          id_kecamatan || null,
-          id_desa || null,
-          id,
-        ]
-      );
+    if (password && String(password).trim()) {
+      const cleanPass = String(password).trim();
+      const isResetToDefault = ['PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026'].includes(cleanPass);
+      const nextUpdatedTs = isResetToDefault ? null : new Date();
+      try {
+        await conn.query(
+          `UPDATE users SET
+            username = COALESCE(?, username),
+            email = COALESCE(?, email),
+            nama = COALESCE(?, nama),
+            password = ?,
+            id_role = COALESCE(?, id_role),
+            id_anggota = ?,
+            id_kecamatan_scope = ?,
+            id_kecamatan = ?,
+            id_desa = ?,
+            update_at = ?,
+            updated_at = ?
+          WHERE id_user = ?`,
+          [
+            username,
+            email,
+            formattedNama,
+            cleanPass,
+            effectiveRoleId,
+            id_anggota !== undefined ? id_anggota : null,
+            id_kecamatan_scope || id_kecamatan || null,
+            id_kecamatan || null,
+            id_desa || null,
+            nextUpdatedTs,
+            nextUpdatedTs,
+            id,
+          ]
+        );
+      } catch (_colErr) {
+        try {
+          await conn.query(
+            `UPDATE users SET
+              username = COALESCE(?, username),
+              email = COALESCE(?, email),
+              nama = COALESCE(?, nama),
+              password = ?,
+              id_role = COALESCE(?, id_role),
+              id_anggota = ?,
+              id_kecamatan_scope = ?,
+              id_kecamatan = ?,
+              id_desa = ?,
+              update_at = ?
+            WHERE id_user = ?`,
+            [
+              username,
+              email,
+              formattedNama,
+              cleanPass,
+              effectiveRoleId,
+              id_anggota !== undefined ? id_anggota : null,
+              id_kecamatan_scope || id_kecamatan || null,
+              id_kecamatan || null,
+              id_desa || null,
+              nextUpdatedTs,
+              id,
+            ]
+          );
+        } catch (_colErr2) {
+          await conn.query(
+            `UPDATE users SET
+              username = COALESCE(?, username),
+              email = COALESCE(?, email),
+              nama = COALESCE(?, nama),
+              password = ?,
+              id_role = COALESCE(?, id_role),
+              id_anggota = ?,
+              id_kecamatan_scope = ?,
+              id_kecamatan = ?,
+              id_desa = ?
+            WHERE id_user = ?`,
+            [
+              username,
+              email,
+              formattedNama,
+              cleanPass,
+              effectiveRoleId,
+              id_anggota !== undefined ? id_anggota : null,
+              id_kecamatan_scope || id_kecamatan || null,
+              id_kecamatan || null,
+              id_desa || null,
+              id,
+            ]
+          );
+        }
+      }
     } else {
       await conn.query(
         `UPDATE users SET
@@ -2353,7 +2546,7 @@ app.post('/api/users/change-password', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Password baru tidak boleh sama dengan password lama' });
   }
 
-  if (cleanNewPass === 'PPDIJaya2026') {
+  if (['PPDIJaya#2006', 'PPDIJaya2026', 'PPDIJaya#2026'].includes(cleanNewPass)) {
     return res.status(400).json({
       success: false,
       message: 'Password baru tidak boleh menggunakan password default. Silakan buat kata sandi baru yang aman dan unik.',
@@ -2467,8 +2660,9 @@ app.post('/api/users/change-password', async (req, res) => {
 
       return res.json({
         success: true,
-        message: 'Password akun berhasil diperbarui! Tanggal update_at telah tercatat di tabel users.',
+        message: 'Password akun berhasil diperbarui! Tanggal updated_at telah tercatat di tabel users.',
         update_at: nowIso,
+        updated_at: nowIso,
         is_default_password: false,
         activity_log: logEntry,
       });
@@ -2478,6 +2672,7 @@ app.post('/api/users/change-password', async (req, res) => {
       success: true,
       message: 'Password berhasil diperbarui (mode offline).',
       update_at: nowIso,
+      updated_at: nowIso,
       is_default_password: false,
       activity_log: {
         timestamp: nowIso,
@@ -2495,8 +2690,9 @@ app.post('/api/users/change-password', async (req, res) => {
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || !activeDbConfig.host || err.message?.includes('connect')) {
       return res.json({
         success: true,
-        message: 'Password berhasil diperbarui (mode offline). Tanggal update_at telah tercatat di profil pengguna.',
+        message: 'Password berhasil diperbarui (mode offline). Tanggal updated_at telah tercatat di profil pengguna.',
         update_at: nowIso,
+        updated_at: nowIso,
         is_default_password: false,
         activity_log: {
           timestamp: nowIso,
@@ -4060,6 +4256,997 @@ app.delete('/api/whatsapp/logs', requirePermission('settings-whatsapp', 'delete'
     success: true,
     message: 'Seluruh riwayat log WhatsApp & Webhook Fonnte berhasil dibersihkan.',
   });
+});
+
+// ====================================================================
+// 9.4. PUSTAKA REGULASI (PERUNDANG-UNDANGAN PDF & AKSES PUBLIK)
+// ====================================================================
+const REGULASI_FILE = path.resolve(process.cwd(), 'regulasi_library.json');
+let regulasiTableEnsured = false;
+
+interface RegulasiRecord {
+  id_regulasi: string;
+  judul: string;
+  nomor_regulasi: string;
+  tahun: number;
+  kategori: string;
+  tentang: string;
+  tanggal_penetapan?: string;
+  file_url: string;
+  file_name: string;
+  file_size: number;
+  is_public: boolean;
+  download_count: number;
+  uploaded_by?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+async function ensureRegulasiTable(conn: mysql.PoolConnection) {
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS \`pustaka_regulasi\` (
+      \`id_regulasi\` VARCHAR(64) NOT NULL,
+      \`judul\` VARCHAR(255) NOT NULL,
+      \`nomor_regulasi\` VARCHAR(120) NOT NULL,
+      \`tahun\` INT NOT NULL,
+      \`kategori\` VARCHAR(80) NOT NULL DEFAULT 'Lainnya',
+      \`tentang\` TEXT NULL,
+      \`tanggal_penetapan\` VARCHAR(20) NULL,
+      \`file_url\` VARCHAR(255) NOT NULL,
+      \`file_name\` VARCHAR(255) NOT NULL,
+      \`file_size\` INT NOT NULL DEFAULT 0,
+      \`is_public\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`download_count\` INT NOT NULL DEFAULT 0,
+      \`uploaded_by\` VARCHAR(120) NULL,
+      \`created_at\` VARCHAR(40) NOT NULL,
+      \`updated_at\` VARCHAR(40) NULL,
+      PRIMARY KEY (\`id_regulasi\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function ensureRegulasiTableLazy(): Promise<boolean> {
+  if (regulasiTableEnsured) return true;
+  if (!pool) return false;
+  try {
+    const conn = await pool.getConnection();
+    await ensureRegulasiTable(conn);
+    conn.release();
+    regulasiTableEnsured = true;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function readRegulasiDisk(): RegulasiRecord[] {
+  try {
+    if (fs.existsSync(REGULASI_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(REGULASI_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (_) {}
+  return [];
+}
+
+function writeRegulasiDisk(items: RegulasiRecord[]) {
+  try {
+    fs.writeFileSync(REGULASI_FILE, JSON.stringify(items, null, 2), 'utf-8');
+  } catch (_) {}
+}
+
+async function readRegulasiList(): Promise<{ items: RegulasiRecord[]; source: 'mysql' | 'disk' }> {
+  const diskItems = readRegulasiDisk();
+  try {
+    if (pool && (await ensureRegulasiTableLazy())) {
+      const conn = await pool.getConnection();
+      try {
+        const [rows]: [any[], any] = await conn.query(
+          'SELECT * FROM pustaka_regulasi ORDER BY tahun DESC, created_at DESC'
+        );
+        if (rows.length > 0) {
+          const normalized: RegulasiRecord[] = rows.map((r) => ({
+            id_regulasi: String(r.id_regulasi),
+            judul: String(r.judul || ''),
+            nomor_regulasi: String(r.nomor_regulasi || ''),
+            tahun: Number(r.tahun) || new Date().getFullYear(),
+            kategori: String(r.kategori || 'Lainnya'),
+            tentang: String(r.tentang || ''),
+            tanggal_penetapan: r.tanggal_penetapan || undefined,
+            file_url: String(r.file_url || ''),
+            file_name: String(r.file_name || ''),
+            file_size: Number(r.file_size) || 0,
+            is_public: Boolean(r.is_public),
+            download_count: Number(r.download_count) || 0,
+            uploaded_by: r.uploaded_by || undefined,
+            created_at: String(r.created_at || new Date().toISOString()),
+            updated_at: r.updated_at || undefined,
+          }));
+          writeRegulasiDisk(normalized);
+          return { items: normalized, source: 'mysql' };
+        }
+        // Seed MySQL from disk if disk has data
+        if (diskItems.length > 0) {
+          for (const item of diskItems) {
+            await conn.query(
+              `INSERT IGNORE INTO pustaka_regulasi
+               (id_regulasi, judul, nomor_regulasi, tahun, kategori, tentang, tanggal_penetapan, file_url, file_name, file_size, is_public, download_count, uploaded_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.id_regulasi,
+                item.judul,
+                item.nomor_regulasi,
+                item.tahun,
+                item.kategori,
+                item.tentang,
+                item.tanggal_penetapan || null,
+                item.file_url,
+                item.file_name,
+                item.file_size,
+                item.is_public ? 1 : 0,
+                item.download_count || 0,
+                item.uploaded_by || null,
+                item.created_at,
+                item.updated_at || null,
+              ]
+            );
+          }
+          return { items: diskItems, source: 'mysql' };
+        }
+      } finally {
+        conn.release();
+      }
+    }
+  } catch (_) {}
+  const sortedDisk = [...diskItems].sort((a, b) => {
+    if ((b.tahun || 0) !== (a.tahun || 0)) return (b.tahun || 0) - (a.tahun || 0);
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+  return { items: sortedDisk, source: 'disk' };
+}
+
+function removeRegulasiFileIfUnused(fileUrl: string, remainingItems: RegulasiRecord[]) {
+  if (!fileUrl || !fileUrl.startsWith('/uploads/regulasi/')) return;
+  const stillUsed = remainingItems.some((item) => item.file_url === fileUrl);
+  if (stillUsed) return;
+  const safeName = path.basename(fileUrl);
+  const fullPath = path.join(REGULASI_DIR, safeName);
+  try {
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+    }
+  } catch (_) {}
+}
+
+app.get('/api/regulasi', async (req, res) => {
+  try {
+    const publicOnly = req.query.publicOnly === 'true' || req.query.publicOnly === '1';
+    const { items, source } = await readRegulasiList();
+    const filtered = publicOnly ? items.filter((item) => item.is_public !== false) : items;
+    return res.json({
+      success: true,
+      source,
+      items: filtered,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, items: [] });
+  }
+});
+
+app.post('/api/regulasi', requirePermission('regulasi', 'add'), async (req, res) => {
+  try {
+    const {
+      judul,
+      nomor_regulasi,
+      tahun,
+      kategori,
+      tentang,
+      tanggal_penetapan,
+      fileName,
+      fileData,
+      is_public,
+      uploaded_by,
+    } = req.body || {};
+
+    if (!judul || !String(judul).trim()) {
+      return res.status(400).json({ success: false, message: 'Judul regulasi wajib diisi.' });
+    }
+    if (!nomor_regulasi || !String(nomor_regulasi).trim()) {
+      return res.status(400).json({ success: false, message: 'Nomor regulasi wajib diisi.' });
+    }
+    if (!fileData || !String(fileData).trim()) {
+      return res.status(400).json({ success: false, message: 'File PDF regulasi wajib diunggah.' });
+    }
+
+    const originalName = (fileName || 'regulasi.pdf').trim();
+    const isPdfBase64 =
+      String(fileData).startsWith('data:application/pdf') ||
+      originalName.toLowerCase().endsWith('.pdf');
+    if (!isPdfBase64) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hanya file berformat PDF (.pdf) yang diperbolehkan pada Pustaka Regulasi.',
+      });
+    }
+
+    const saved = saveBase64UploadToDisk('regulasi', String(fileData), originalName);
+    const nowIso = new Date().toISOString();
+    const newItem: RegulasiRecord = {
+      id_regulasi: `reg_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      judul: String(judul).trim(),
+      nomor_regulasi: String(nomor_regulasi).trim(),
+      tahun: Number(tahun) || new Date().getFullYear(),
+      kategori: String(kategori || 'Lainnya').trim(),
+      tentang: String(tentang || '').trim(),
+      tanggal_penetapan: tanggal_penetapan ? String(tanggal_penetapan).trim() : undefined,
+      file_url: saved.url,
+      file_name: originalName,
+      file_size: saved.sizeBytes,
+      is_public: is_public !== undefined ? Boolean(is_public) : true,
+      download_count: 0,
+      uploaded_by: uploaded_by ? String(uploaded_by).trim() : 'Admin PPDI',
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    const { items } = await readRegulasiList();
+    const updatedList = [newItem, ...items];
+    writeRegulasiDisk(updatedList);
+
+    if (pool && (await ensureRegulasiTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query(
+          `INSERT INTO pustaka_regulasi
+           (id_regulasi, judul, nomor_regulasi, tahun, kategori, tentang, tanggal_penetapan, file_url, file_name, file_size, is_public, download_count, uploaded_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            newItem.id_regulasi,
+            newItem.judul,
+            newItem.nomor_regulasi,
+            newItem.tahun,
+            newItem.kategori,
+            newItem.tentang,
+            newItem.tanggal_penetapan || null,
+            newItem.file_url,
+            newItem.file_name,
+            newItem.file_size,
+            newItem.is_public ? 1 : 0,
+            0,
+            newItem.uploaded_by || null,
+            newItem.created_at,
+            newItem.updated_at || null,
+          ]
+        );
+        conn.release();
+      } catch (dbErr) {
+        console.warn('[Pustaka Regulasi] Gagal insert ke MySQL, tersimpan di JSON disk:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Dokumen regulasi PDF berhasil diunggah dan diterbitkan.',
+      item: newItem,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Gagal mengunggah regulasi.' });
+  }
+});
+
+app.put('/api/regulasi/:id', requirePermission('regulasi', 'edit'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { items } = await readRegulasiList();
+    const idx = items.findIndex((item) => item.id_regulasi === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: 'Dokumen regulasi tidak ditemukan.' });
+    }
+
+    const existing = items[idx];
+    const {
+      judul,
+      nomor_regulasi,
+      tahun,
+      kategori,
+      tentang,
+      tanggal_penetapan,
+      is_public,
+      fileName,
+      fileData,
+    } = req.body || {};
+
+    let nextFileUrl = existing.file_url;
+    let nextFileName = existing.file_name;
+    let nextFileSize = existing.file_size;
+    const oldFileUrl = existing.file_url;
+
+    if (fileData && String(fileData).trim()) {
+      const origName = (fileName || existing.file_name || 'regulasi.pdf').trim();
+      const isPdfBase64 =
+        String(fileData).startsWith('data:application/pdf') || origName.toLowerCase().endsWith('.pdf');
+      if (!isPdfBase64) {
+        return res.status(400).json({
+          success: false,
+          message: 'Hanya file berformat PDF (.pdf) yang diperbolehkan.',
+        });
+      }
+      const saved = saveBase64UploadToDisk('regulasi', String(fileData), origName);
+      nextFileUrl = saved.url;
+      nextFileName = origName;
+      nextFileSize = saved.sizeBytes;
+    }
+
+    const updatedItem: RegulasiRecord = {
+      ...existing,
+      judul: judul !== undefined ? String(judul).trim() : existing.judul,
+      nomor_regulasi: nomor_regulasi !== undefined ? String(nomor_regulasi).trim() : existing.nomor_regulasi,
+      tahun: tahun !== undefined ? Number(tahun) || existing.tahun : existing.tahun,
+      kategori: kategori !== undefined ? String(kategori).trim() : existing.kategori,
+      tentang: tentang !== undefined ? String(tentang).trim() : existing.tentang,
+      tanggal_penetapan:
+        tanggal_penetapan !== undefined
+          ? tanggal_penetapan
+            ? String(tanggal_penetapan).trim()
+            : undefined
+          : existing.tanggal_penetapan,
+      is_public: is_public !== undefined ? Boolean(is_public) : existing.is_public,
+      file_url: nextFileUrl,
+      file_name: nextFileName,
+      file_size: nextFileSize,
+      updated_at: new Date().toISOString(),
+    };
+
+    const nextItems = [...items];
+    nextItems[idx] = updatedItem;
+    writeRegulasiDisk(nextItems);
+
+    if (oldFileUrl !== nextFileUrl) {
+      removeRegulasiFileIfUnused(oldFileUrl, nextItems);
+    }
+
+    if (pool && (await ensureRegulasiTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query(
+          `UPDATE pustaka_regulasi
+           SET judul = ?, nomor_regulasi = ?, tahun = ?, kategori = ?, tentang = ?, tanggal_penetapan = ?,
+               file_url = ?, file_name = ?, file_size = ?, is_public = ?, updated_at = ?
+           WHERE id_regulasi = ?`,
+          [
+            updatedItem.judul,
+            updatedItem.nomor_regulasi,
+            updatedItem.tahun,
+            updatedItem.kategori,
+            updatedItem.tentang,
+            updatedItem.tanggal_penetapan || null,
+            updatedItem.file_url,
+            updatedItem.file_name,
+            updatedItem.file_size,
+            updatedItem.is_public ? 1 : 0,
+            updatedItem.updated_at || null,
+            id,
+          ]
+        );
+        conn.release();
+      } catch (dbErr) {
+        console.warn('[Pustaka Regulasi] Gagal update MySQL:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Data regulasi berhasil diperbarui.',
+      item: updatedItem,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.delete('/api/regulasi/:id', requirePermission('regulasi', 'delete'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { items } = await readRegulasiList();
+    const target = items.find((item) => item.id_regulasi === id);
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Dokumen regulasi tidak ditemukan.' });
+    }
+
+    const remaining = items.filter((item) => item.id_regulasi !== id);
+    writeRegulasiDisk(remaining);
+    removeRegulasiFileIfUnused(target.file_url, remaining);
+
+    if (pool && (await ensureRegulasiTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query('DELETE FROM pustaka_regulasi WHERE id_regulasi = ?', [id]);
+        conn.release();
+      } catch (dbErr) {
+        console.warn('[Pustaka Regulasi] Gagal delete MySQL:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Regulasi "${target.nomor_regulasi}" berhasil dihapus.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/regulasi/:id/download', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { items } = await readRegulasiList();
+    const idx = items.findIndex((item) => item.id_regulasi === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan.' });
+    }
+    const nextCount = (items[idx].download_count || 0) + 1;
+    items[idx] = { ...items[idx], download_count: nextCount };
+    writeRegulasiDisk(items);
+
+    if (pool && (await ensureRegulasiTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query('UPDATE pustaka_regulasi SET download_count = download_count + 1 WHERE id_regulasi = ?', [id]);
+        conn.release();
+      } catch (_) {}
+    }
+
+    return res.json({ success: true, download_count: nextCount });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ====================================================================
+// 9.4B. KALENDER ACARA PPDI (AGENDA, RAPAT, BATAS BERKAS & FEED .ICS)
+// ====================================================================
+const KALENDER_FILE = path.resolve(process.cwd(), 'calendar_events.json');
+let kalenderTableEnsured = false;
+
+interface CalendarEventRecord {
+  id_acara: string;
+  judul: string;
+  kategori: string;
+  tanggal_mulai: string;
+  waktu_mulai?: string;
+  tanggal_selesai?: string;
+  waktu_selesai?: string;
+  is_all_day: boolean;
+  lokasi?: string;
+  deskripsi?: string;
+  pengingat_menit: number;
+  status: string;
+  created_by?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+function buildStarterCalendarEvents(): CalendarEventRecord[] {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const nextMonthDate = new Date(y, now.getMonth() + 1, 1);
+  const ny = nextMonthDate.getFullYear();
+  const nm = String(nextMonthDate.getMonth() + 1).padStart(2, '0');
+  const lastDayOfMonth = new Date(y, now.getMonth() + 1, 0).getDate();
+  const curDay = now.getDate();
+  const meetingDay = String(Math.min(Math.max(curDay + 3, 10), lastDayOfMonth)).padStart(2, '0');
+  const deadlineDay = String(lastDayOfMonth).padStart(2, '0');
+  const nowIso = now.toISOString();
+
+  return [
+    {
+      id_acara: 'evt_seed_rapat_rutin',
+      judul: 'Rapat Koordinasi Rutin Pengurus PPDI Kab. Bandung',
+      kategori: 'Rapat Rutin',
+      tanggal_mulai: `${y}-${m}-${meetingDay}`,
+      waktu_mulai: '09:00',
+      tanggal_selesai: `${y}-${m}-${meetingDay}`,
+      waktu_selesai: '12:00',
+      is_all_day: false,
+      lokasi: 'Sekretariat PPDI Kabupaten Bandung, Soreang',
+      deskripsi: 'Evaluasi pendataan anggota, progres E-KTA digital, dan sinkronisasi data purna tugas kecamatan.',
+      pengingat_menit: 1440,
+      status: 'Terjadwal',
+      created_by: 'SUPERADMIN KABUPATEN',
+      created_at: nowIso,
+      updated_at: nowIso,
+    },
+    {
+      id_acara: 'evt_seed_batas_berkas',
+      judul: 'Batas Akhir Pengumpulan Berkas SK Pengangkatan & Pemutakhiran NIPD',
+      kategori: 'Batas Waktu Berkas',
+      tanggal_mulai: `${y}-${m}-${deadlineDay}`,
+      waktu_mulai: '16:00',
+      tanggal_selesai: `${y}-${m}-${deadlineDay}`,
+      waktu_selesai: '16:00',
+      is_all_day: true,
+      lokasi: 'Portal e-Arsip SK PPDI Kab. Bandung',
+      deskripsi: 'Pengurus Desa & Kecamatan diharapkan mengunggah pindai PDF SK terbaru serta kelengkapan foto anggota.',
+      pengingat_menit: 2880,
+      status: 'Terjadwal',
+      created_by: 'SUPERADMIN KABUPATEN',
+      created_at: nowIso,
+      updated_at: nowIso,
+    },
+    {
+      id_acara: 'evt_seed_kegiatan_ppdi',
+      judul: 'Sosialisasi Regulasi Desa & Penyerahan KTA Digital Wilayah',
+      kategori: 'Kegiatan PPDI',
+      tanggal_mulai: `${ny}-${nm}-05`,
+      waktu_mulai: '08:30',
+      tanggal_selesai: `${ny}-${nm}-05`,
+      waktu_selesai: '13:30',
+      is_all_day: false,
+      lokasi: 'Gedung KORPRI Kabupaten Bandung',
+      deskripsi: 'Bimbingan teknis regulasi pemerintahan desa terbaru dan verifikasi kolektif KTA perangkat desa.',
+      pengingat_menit: 1440,
+      status: 'Terjadwal',
+      created_by: 'SUPERADMIN KABUPATEN',
+      created_at: nowIso,
+      updated_at: nowIso,
+    },
+  ];
+}
+
+async function ensureKalenderTable(conn: mysql.PoolConnection) {
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS \`kalender_acara\` (
+      \`id_acara\` VARCHAR(64) NOT NULL,
+      \`judul\` VARCHAR(255) NOT NULL,
+      \`kategori\` VARCHAR(80) NOT NULL DEFAULT 'Kegiatan PPDI',
+      \`tanggal_mulai\` VARCHAR(20) NOT NULL,
+      \`waktu_mulai\` VARCHAR(10) NULL,
+      \`tanggal_selesai\` VARCHAR(20) NULL,
+      \`waktu_selesai\` VARCHAR(10) NULL,
+      \`is_all_day\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`lokasi\` VARCHAR(255) NULL,
+      \`deskripsi\` TEXT NULL,
+      \`pengingat_menit\` INT NOT NULL DEFAULT 1440,
+      \`status\` VARCHAR(40) NOT NULL DEFAULT 'Terjadwal',
+      \`created_by\` VARCHAR(120) NULL,
+      \`created_at\` VARCHAR(40) NOT NULL,
+      \`updated_at\` VARCHAR(40) NULL,
+      PRIMARY KEY (\`id_acara\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function ensureKalenderTableLazy(): Promise<boolean> {
+  if (kalenderTableEnsured) return true;
+  if (!pool) return false;
+  try {
+    const conn = await pool.getConnection();
+    await ensureKalenderTable(conn);
+    conn.release();
+    kalenderTableEnsured = true;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function readKalenderDisk(): CalendarEventRecord[] {
+  try {
+    if (fs.existsSync(KALENDER_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(KALENDER_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    } else {
+      const starters = buildStarterCalendarEvents();
+      fs.writeFileSync(KALENDER_FILE, JSON.stringify(starters, null, 2), 'utf-8');
+      return starters;
+    }
+  } catch (_) {}
+  return [];
+}
+
+function writeKalenderDisk(items: CalendarEventRecord[]) {
+  try {
+    fs.writeFileSync(KALENDER_FILE, JSON.stringify(items, null, 2), 'utf-8');
+  } catch (_) {}
+}
+
+function sortKalenderItems(items: CalendarEventRecord[]): CalendarEventRecord[] {
+  return [...items].sort((a, b) => {
+    const da = `${a.tanggal_mulai || ''}T${a.waktu_mulai || '00:00'}`;
+    const db = `${b.tanggal_mulai || ''}T${b.waktu_mulai || '00:00'}`;
+    return da.localeCompare(db);
+  });
+}
+
+async function readKalenderList(): Promise<{ items: CalendarEventRecord[]; source: 'mysql' | 'disk' }> {
+  const diskItems = readKalenderDisk();
+  try {
+    if (pool && (await ensureKalenderTableLazy())) {
+      const conn = await pool.getConnection();
+      try {
+        const [rows]: [any[], any] = await conn.query(
+          'SELECT * FROM kalender_acara ORDER BY tanggal_mulai ASC, waktu_mulai ASC'
+        );
+        if (rows.length > 0) {
+          const normalized: CalendarEventRecord[] = rows.map((r) => ({
+            id_acara: String(r.id_acara),
+            judul: String(r.judul || ''),
+            kategori: String(r.kategori || 'Kegiatan PPDI'),
+            tanggal_mulai: String(r.tanggal_mulai || ''),
+            waktu_mulai: r.waktu_mulai || undefined,
+            tanggal_selesai: r.tanggal_selesai || undefined,
+            waktu_selesai: r.waktu_selesai || undefined,
+            is_all_day: Boolean(r.is_all_day),
+            lokasi: r.lokasi || undefined,
+            deskripsi: r.deskripsi || undefined,
+            pengingat_menit: Number(r.pengingat_menit) || 0,
+            status: String(r.status || 'Terjadwal'),
+            created_by: r.created_by || undefined,
+            created_at: String(r.created_at || new Date().toISOString()),
+            updated_at: r.updated_at || undefined,
+          }));
+          writeKalenderDisk(normalized);
+          return { items: sortKalenderItems(normalized), source: 'mysql' };
+        }
+        if (diskItems.length > 0) {
+          for (const item of diskItems) {
+            await conn.query(
+              `INSERT IGNORE INTO kalender_acara
+               (id_acara, judul, kategori, tanggal_mulai, waktu_mulai, tanggal_selesai, waktu_selesai, is_all_day, lokasi, deskripsi, pengingat_menit, status, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.id_acara,
+                item.judul,
+                item.kategori,
+                item.tanggal_mulai,
+                item.waktu_mulai || null,
+                item.tanggal_selesai || null,
+                item.waktu_selesai || null,
+                item.is_all_day ? 1 : 0,
+                item.lokasi || null,
+                item.deskripsi || null,
+                item.pengingat_menit || 0,
+                item.status || 'Terjadwal',
+                item.created_by || null,
+                item.created_at,
+                item.updated_at || null,
+              ]
+            );
+          }
+          return { items: sortKalenderItems(diskItems), source: 'mysql' };
+        }
+      } finally {
+        conn.release();
+      }
+    }
+  } catch (_) {}
+  return { items: sortKalenderItems(diskItems), source: 'disk' };
+}
+
+function escapeServerIcsText(val: string): string {
+  return (val || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function pad2Server(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function formatServerIcsDate(dateStr: string, timeStr?: string, isAllDay?: boolean, addOneDay = false): string {
+  const cleanDate = (dateStr || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+    const now = new Date();
+    return `${now.getFullYear()}${pad2Server(now.getMonth() + 1)}${pad2Server(now.getDate())}`;
+  }
+  if (isAllDay || !timeStr) {
+    if (addOneDay) {
+      const d = new Date(`${cleanDate}T00:00:00`);
+      d.setDate(d.getDate() + 1);
+      return `${d.getFullYear()}${pad2Server(d.getMonth() + 1)}${pad2Server(d.getDate())}`;
+    }
+    return cleanDate.replace(/-/g, '');
+  }
+  const [hh = '09', mm = '00'] = timeStr.trim().split(':');
+  return `${cleanDate.replace(/-/g, '')}T${pad2Server(Number(hh))}${pad2Server(Number(mm))}00`;
+}
+
+function buildServerIcsFeed(events: CalendarEventRecord[], calTitle = 'Kalender Acara PPDI Kab. Bandung'): string {
+  const nowStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//PPDI Kabupaten Bandung//Kalender Acara//ID',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${escapeServerIcsText(calTitle)}`,
+    'X-WR-TIMEZONE:Asia/Jakarta',
+  ];
+
+  events
+    .filter((ev) => ev.status !== 'Dibatalkan')
+    .forEach((ev) => {
+      const startDate = ev.tanggal_mulai;
+      const endDate = ev.tanggal_selesai || ev.tanggal_mulai;
+      const isAllDay = ev.is_all_day || !ev.waktu_mulai;
+
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:${ev.id_acara}@ppdi-bandungkab.id`);
+      lines.push(`DTSTAMP:${nowStamp}`);
+      if (isAllDay) {
+        lines.push(`DTSTART;VALUE=DATE:${formatServerIcsDate(startDate, undefined, true, false)}`);
+        lines.push(`DTEND;VALUE=DATE:${formatServerIcsDate(endDate, undefined, true, true)}`);
+      } else {
+        let endTime = ev.waktu_selesai;
+        if (!endTime && ev.waktu_mulai) {
+          const [hh = '09', mm = '00'] = ev.waktu_mulai.split(':');
+          endTime = `${pad2Server((Number(hh) + 2) % 24)}:${mm}`;
+        }
+        lines.push(`DTSTART;TZID=Asia/Jakarta:${formatServerIcsDate(startDate, ev.waktu_mulai, false, false)}`);
+        lines.push(`DTEND;TZID=Asia/Jakarta:${formatServerIcsDate(endDate, endTime, false, false)}`);
+      }
+      lines.push(`SUMMARY:${escapeServerIcsText(ev.judul)}`);
+      lines.push(`DESCRIPTION:${escapeServerIcsText(`[${ev.kategori}] ${ev.deskripsi || ''}`.trim())}`);
+      if (ev.lokasi) lines.push(`LOCATION:${escapeServerIcsText(ev.lokasi)}`);
+      lines.push(`CATEGORIES:${escapeServerIcsText(ev.kategori)}`);
+      lines.push('STATUS:CONFIRMED');
+      if (ev.pengingat_menit > 0) {
+        lines.push('BEGIN:VALARM');
+        lines.push('ACTION:DISPLAY');
+        lines.push(`DESCRIPTION:${escapeServerIcsText(ev.judul)}`);
+        lines.push(`TRIGGER:-PT${ev.pengingat_menit}M`);
+        lines.push('END:VALARM');
+      }
+      lines.push('END:VEVENT');
+    });
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+app.get('/api/kalender', async (_req, res) => {
+  try {
+    const { items, source } = await readKalenderList();
+    return res.json({ success: true, source, items });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, items: [] });
+  }
+});
+
+app.get('/api/kalender/feed.ics', async (_req, res) => {
+  try {
+    const { items } = await readKalenderList();
+    const ics = buildServerIcsFeed(items);
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="kalender-acara-ppdi.ics"');
+    return res.send(ics);
+  } catch (err: any) {
+    return res.status(500).send('Gagal menghasilkan feed kalender.');
+  }
+});
+
+app.get('/api/kalender/:id/event.ics', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { items } = await readKalenderList();
+    const found = items.find((item) => item.id_acara === id);
+    if (!found) {
+      return res.status(404).json({ success: false, message: 'Acara tidak ditemukan.' });
+    }
+    const ics = buildServerIcsFeed([found], found.judul);
+    const safeName = found.judul.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || 'acara_ppdi';
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.ics"`);
+    return res.send(ics);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/kalender', requirePermission('kalender', 'add'), async (req, res) => {
+  try {
+    const {
+      judul,
+      kategori,
+      tanggal_mulai,
+      waktu_mulai,
+      tanggal_selesai,
+      waktu_selesai,
+      is_all_day,
+      lokasi,
+      deskripsi,
+      pengingat_menit,
+      status,
+      created_by,
+    } = req.body || {};
+
+    if (!judul || !String(judul).trim()) {
+      return res.status(400).json({ success: false, message: 'Judul acara wajib diisi.' });
+    }
+    if (!tanggal_mulai || !String(tanggal_mulai).trim()) {
+      return res.status(400).json({ success: false, message: 'Tanggal mulai acara wajib diisi.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const newEvent: CalendarEventRecord = {
+      id_acara: `evt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      judul: String(judul).trim(),
+      kategori: String(kategori || 'Kegiatan PPDI').trim(),
+      tanggal_mulai: String(tanggal_mulai).trim().slice(0, 10),
+      waktu_mulai: !is_all_day && waktu_mulai ? String(waktu_mulai).trim() : undefined,
+      tanggal_selesai: tanggal_selesai
+        ? String(tanggal_selesai).trim().slice(0, 10)
+        : String(tanggal_mulai).trim().slice(0, 10),
+      waktu_selesai: !is_all_day && waktu_selesai ? String(waktu_selesai).trim() : undefined,
+      is_all_day: Boolean(is_all_day),
+      lokasi: lokasi ? String(lokasi).trim() : undefined,
+      deskripsi: deskripsi ? String(deskripsi).trim() : undefined,
+      pengingat_menit: pengingat_menit !== undefined ? Number(pengingat_menit) || 0 : 1440,
+      status: String(status || 'Terjadwal').trim(),
+      created_by: created_by ? String(created_by).trim() : 'Admin PPDI',
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    const { items } = await readKalenderList();
+    const updated = sortKalenderItems([...items, newEvent]);
+    writeKalenderDisk(updated);
+
+    if (pool && (await ensureKalenderTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query(
+          `INSERT INTO kalender_acara
+           (id_acara, judul, kategori, tanggal_mulai, waktu_mulai, tanggal_selesai, waktu_selesai, is_all_day, lokasi, deskripsi, pengingat_menit, status, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            newEvent.id_acara,
+            newEvent.judul,
+            newEvent.kategori,
+            newEvent.tanggal_mulai,
+            newEvent.waktu_mulai || null,
+            newEvent.tanggal_selesai || null,
+            newEvent.waktu_selesai || null,
+            newEvent.is_all_day ? 1 : 0,
+            newEvent.lokasi || null,
+            newEvent.deskripsi || null,
+            newEvent.pengingat_menit,
+            newEvent.status,
+            newEvent.created_by || null,
+            newEvent.created_at,
+            newEvent.updated_at || null,
+          ]
+        );
+        conn.release();
+      } catch (dbErr) {
+        console.warn('[Kalender Acara] Gagal insert MySQL:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Jadwal acara baru berhasil ditambahkan.',
+      item: newEvent,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.put('/api/kalender/:id', requirePermission('kalender', 'edit'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { items } = await readKalenderList();
+    const idx = items.findIndex((item) => item.id_acara === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: 'Acara tidak ditemukan.' });
+    }
+
+    const existing = items[idx];
+    const body = req.body || {};
+    const nextIsAllDay = body.is_all_day !== undefined ? Boolean(body.is_all_day) : existing.is_all_day;
+    const updatedItem: CalendarEventRecord = {
+      ...existing,
+      judul: body.judul !== undefined ? String(body.judul).trim() : existing.judul,
+      kategori: body.kategori !== undefined ? String(body.kategori).trim() : existing.kategori,
+      tanggal_mulai: body.tanggal_mulai !== undefined ? String(body.tanggal_mulai).trim().slice(0, 10) : existing.tanggal_mulai,
+      waktu_mulai: nextIsAllDay
+        ? undefined
+        : body.waktu_mulai !== undefined
+        ? String(body.waktu_mulai).trim() || undefined
+        : existing.waktu_mulai,
+      tanggal_selesai: body.tanggal_selesai !== undefined
+        ? String(body.tanggal_selesai).trim().slice(0, 10) || undefined
+        : existing.tanggal_selesai,
+      waktu_selesai: nextIsAllDay
+        ? undefined
+        : body.waktu_selesai !== undefined
+        ? String(body.waktu_selesai).trim() || undefined
+        : existing.waktu_selesai,
+      is_all_day: nextIsAllDay,
+      lokasi: body.lokasi !== undefined ? String(body.lokasi).trim() || undefined : existing.lokasi,
+      deskripsi: body.deskripsi !== undefined ? String(body.deskripsi).trim() || undefined : existing.deskripsi,
+      pengingat_menit: body.pengingat_menit !== undefined ? Number(body.pengingat_menit) || 0 : existing.pengingat_menit,
+      status: body.status !== undefined ? String(body.status).trim() : existing.status,
+      updated_at: new Date().toISOString(),
+    };
+
+    const nextItems = [...items];
+    nextItems[idx] = updatedItem;
+    const sorted = sortKalenderItems(nextItems);
+    writeKalenderDisk(sorted);
+
+    if (pool && (await ensureKalenderTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query(
+          `UPDATE kalender_acara
+           SET judul = ?, kategori = ?, tanggal_mulai = ?, waktu_mulai = ?, tanggal_selesai = ?, waktu_selesai = ?,
+               is_all_day = ?, lokasi = ?, deskripsi = ?, pengingat_menit = ?, status = ?, updated_at = ?
+           WHERE id_acara = ?`,
+          [
+            updatedItem.judul,
+            updatedItem.kategori,
+            updatedItem.tanggal_mulai,
+            updatedItem.waktu_mulai || null,
+            updatedItem.tanggal_selesai || null,
+            updatedItem.waktu_selesai || null,
+            updatedItem.is_all_day ? 1 : 0,
+            updatedItem.lokasi || null,
+            updatedItem.deskripsi || null,
+            updatedItem.pengingat_menit,
+            updatedItem.status,
+            updatedItem.updated_at || null,
+            id,
+          ]
+        );
+        conn.release();
+      } catch (dbErr) {
+        console.warn('[Kalender Acara] Gagal update MySQL:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Jadwal acara berhasil diperbarui.',
+      item: updatedItem,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.delete('/api/kalender/:id', requirePermission('kalender', 'delete'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { items } = await readKalenderList();
+    const target = items.find((item) => item.id_acara === id);
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Acara tidak ditemukan.' });
+    }
+    const remaining = items.filter((item) => item.id_acara !== id);
+    writeKalenderDisk(remaining);
+
+    if (pool && (await ensureKalenderTableLazy())) {
+      try {
+        const conn = await pool.getConnection();
+        await conn.query('DELETE FROM kalender_acara WHERE id_acara = ?', [id]);
+        conn.release();
+      } catch (dbErr) {
+        console.warn('[Kalender Acara] Gagal delete MySQL:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Acara "${target.judul}" berhasil dihapus.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ====================================================================

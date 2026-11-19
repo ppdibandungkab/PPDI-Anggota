@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { WhatsAppSettings } from '../types/ppdi';
 import { dispatchWhatsAppNotification, safeFetchJson } from '../utils/ppdiHelpers';
@@ -100,18 +100,41 @@ export const WhatsAppSettingsView: React.FC = () => {
   const [waDbStatus, setWaDbStatus] = useState<WhatsAppDbStatus | null>(null);
   const [initializingDb, setInitializingDb] = useState<boolean>(false);
 
-  // Sync local form when appSettings loads from backend
+  const isDirtyRef = useRef(false);
+  const lastSyncedWaSignatureRef = useRef('');
+  const formContainerRef = useRef<HTMLFormElement>(null);
+
+  // Sync local form when appSettings loads from backend, unless user is editing
   useEffect(() => {
     const cfg = appSettings?.whatsappSettings;
-    if (cfg) {
-      setEnabled(Boolean(cfg.enabled));
-      setSenderNumber(cfg.senderNumber || '');
-      setFonnteToken(cfg.fonnteToken || '');
-      setWebhookUrl(cfg.webhookUrl || defaultOriginWebhook);
-      setWebhookSecret(cfg.webhookSecret || '');
-      setAutoReplyEnabled(cfg.autoReplyEnabled !== undefined ? Boolean(cfg.autoReplyEnabled) : true);
-      setCountryCode(cfg.countryCode || '62');
+    if (!cfg) return;
+
+    const signature = JSON.stringify({
+      enabled: Boolean(cfg.enabled),
+      senderNumber: cfg.senderNumber || '',
+      fonnteToken: cfg.fonnteToken || '',
+      webhookUrl: cfg.webhookUrl || defaultOriginWebhook,
+      webhookSecret: cfg.webhookSecret || '',
+      autoReplyEnabled: cfg.autoReplyEnabled !== undefined ? Boolean(cfg.autoReplyEnabled) : true,
+      countryCode: cfg.countryCode || '62',
+    });
+
+    const isFocusedInsideForm =
+      typeof document !== 'undefined' &&
+      Boolean(formContainerRef.current && document.activeElement && formContainerRef.current.contains(document.activeElement));
+
+    if (isDirtyRef.current || isFocusedInsideForm || lastSyncedWaSignatureRef.current === signature) {
+      return;
     }
+
+    lastSyncedWaSignatureRef.current = signature;
+    setEnabled(Boolean(cfg.enabled));
+    setSenderNumber(cfg.senderNumber || '');
+    setFonnteToken(cfg.fonnteToken || '');
+    setWebhookUrl(cfg.webhookUrl || defaultOriginWebhook);
+    setWebhookSecret(cfg.webhookSecret || '');
+    setAutoReplyEnabled(cfg.autoReplyEnabled !== undefined ? Boolean(cfg.autoReplyEnabled) : true);
+    setCountryCode(cfg.countryCode || '62');
   }, [appSettings?.whatsappSettings, defaultOriginWebhook]);
 
   const fetchWaDbStatus = async () => {
@@ -211,6 +234,7 @@ export const WhatsAppSettingsView: React.FC = () => {
       });
 
       await fetchWaDbStatus();
+      isDirtyRef.current = false;
 
       setFeedback({
         type: 'success',
@@ -419,7 +443,10 @@ export const WhatsAppSettingsView: React.FC = () => {
             role="switch"
             aria-checked={enabled}
             disabled={!canEdit}
-            onClick={() => setEnabled((prev) => !prev)}
+            onClick={() => {
+              isDirtyRef.current = true;
+              setEnabled((prev) => !prev);
+            }}
             className={`relative inline-flex h-7 w-13 shrink-0 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
               enabled ? 'bg-[#064E3B]' : 'bg-neutral-300'
             }`}
@@ -495,7 +522,14 @@ export const WhatsAppSettingsView: React.FC = () => {
       </div>
 
       {/* Main Configuration Form */}
-      <form onSubmit={handleSave} className="bg-white border border-neutral-200 rounded-2xl p-5 sm:p-6 shadow-xs space-y-5">
+      <form
+        ref={formContainerRef}
+        onSubmit={handleSave}
+        onChange={() => {
+          isDirtyRef.current = true;
+        }}
+        className="bg-white border border-neutral-200 rounded-2xl p-5 sm:p-6 shadow-xs space-y-5"
+      >
         <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div className="flex items-center gap-2">
             <Smartphone className="w-5 h-5 text-[#064E3B]" />
@@ -599,7 +633,10 @@ export const WhatsAppSettingsView: React.FC = () => {
               <button
                 type="button"
                 disabled={!canEdit}
-                onClick={() => setWebhookUrl(defaultOriginWebhook)}
+                onClick={() => {
+                  isDirtyRef.current = true;
+                  setWebhookUrl(defaultOriginWebhook);
+                }}
                 className="text-[11px] text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer font-semibold"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -669,7 +706,10 @@ export const WhatsAppSettingsView: React.FC = () => {
               role="switch"
               aria-checked={autoReplyEnabled}
               disabled={!canEdit}
-              onClick={() => setAutoReplyEnabled((prev) => !prev)}
+              onClick={() => {
+                isDirtyRef.current = true;
+                setAutoReplyEnabled((prev) => !prev);
+              }}
               className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
                 autoReplyEnabled ? 'bg-[#064E3B]' : 'bg-neutral-300'
               }`}

@@ -39,8 +39,40 @@ export const AppSettingsView: React.FC = () => {
   const [watermarkLogoUrl, setWatermarkLogoUrl] = useState(appSettings?.watermarkLogoUrl || '');
   const [watermarkOpacity, setWatermarkOpacity] = useState<number>(resolveInitialOpacity);
 
+  const isDirtyRef = useRef(false);
+  const lastSyncedSignatureRef = useRef('');
+  const formContainerRef = useRef<HTMLFormElement>(null);
+
   useEffect(() => {
     if (!appSettings) return;
+    const incomingOpacity =
+      typeof appSettings.watermarkOpacity === 'number'
+        ? appSettings.watermarkOpacity
+        : typeof appSettings.watermarkOpacityFront === 'number'
+        ? appSettings.watermarkOpacityFront
+        : 0.09;
+
+    const signature = JSON.stringify({
+      appName: appSettings.appName || 'PPDI KABUPATEN BANDUNG',
+      appSubtitle: appSettings.appSubtitle || 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
+      logoUrl: appSettings.logoUrl || '',
+      loginBackgroundType: appSettings.loginBackgroundType || 'preset_emerald',
+      loginBackgroundImage: appSettings.loginBackgroundImage || '',
+      loginOverlayOpacity: appSettings.loginOverlayOpacity || '0.5',
+      syncIntervalSeconds: appSettings.syncIntervalSeconds || 60,
+      watermarkLogoUrl: appSettings.watermarkLogoUrl || '',
+      watermarkOpacity: incomingOpacity,
+    });
+
+    const isFocusedInsideForm =
+      typeof document !== 'undefined' &&
+      Boolean(formContainerRef.current && document.activeElement && formContainerRef.current.contains(document.activeElement));
+
+    if (isDirtyRef.current || isFocusedInsideForm || lastSyncedSignatureRef.current === signature) {
+      return;
+    }
+
+    lastSyncedSignatureRef.current = signature;
     setAppName(appSettings.appName || 'PPDI KABUPATEN BANDUNG');
     setAppSubtitle(appSettings.appSubtitle || 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA');
     setLogoUrl(appSettings.logoUrl || '');
@@ -49,11 +81,7 @@ export const AppSettingsView: React.FC = () => {
     setLoginOverlayOpacity(appSettings.loginOverlayOpacity || '0.5');
     setSyncInterval(String(appSettings.syncIntervalSeconds || 60));
     setWatermarkLogoUrl(appSettings.watermarkLogoUrl || '');
-    if (typeof appSettings.watermarkOpacity === 'number') {
-      setWatermarkOpacity(appSettings.watermarkOpacity);
-    } else if (typeof appSettings.watermarkOpacityFront === 'number') {
-      setWatermarkOpacity(appSettings.watermarkOpacityFront);
-    }
+    setWatermarkOpacity(incomingOpacity);
   }, [appSettings]);
 
   const [saving, setSaving] = useState(false);
@@ -74,6 +102,7 @@ export const AppSettingsView: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
+          isDirtyRef.current = true;
           setLogoUrl(event.target.result as string);
         }
       };
@@ -92,6 +121,7 @@ export const AppSettingsView: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
+          isDirtyRef.current = true;
           setLoginBackgroundImage(event.target.result as string);
           setLoginBackgroundType('custom_image');
         }
@@ -111,6 +141,7 @@ export const AppSettingsView: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
+          isDirtyRef.current = true;
           setWatermarkLogoUrl(event.target.result as string);
         }
       };
@@ -147,6 +178,7 @@ export const AppSettingsView: React.FC = () => {
         syncIntervalSeconds: Number(syncInterval) || 60,
       });
 
+      isDirtyRef.current = false;
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 4000);
     } catch (err: any) {
@@ -180,7 +212,14 @@ export const AppSettingsView: React.FC = () => {
         </div>
       )}
 
-      <form onSubmit={handleSave} className="space-y-6">
+      <form
+        ref={formContainerRef}
+        onSubmit={handleSave}
+        onChange={() => {
+          isDirtyRef.current = true;
+        }}
+        className="space-y-6"
+      >
         {/* ============================================================== */}
         {/* SECTION 1: PENGATURAN LOGO APLIKASI */}
         {/* ============================================================== */}
@@ -214,7 +253,10 @@ export const AppSettingsView: React.FC = () => {
               {logoUrl && (
                 <button
                   type="button"
-                  onClick={() => setLogoUrl('')}
+                  onClick={() => {
+                    isDirtyRef.current = true;
+                    setLogoUrl('');
+                  }}
                   className="mt-2 text-[11px] text-red-600 hover:text-red-700 font-medium cursor-pointer"
                 >
                   Reset ke Logo Default
@@ -288,16 +330,20 @@ export const AppSettingsView: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      setLogoUrl('/logo_kabupaten_bandung.svg')
-                    }
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setLogoUrl('/logo_kabupaten_bandung.svg');
+                    }}
                     className="px-3 py-1 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded-md text-[11px] text-neutral-700 cursor-pointer font-medium"
                   >
                     Logo Lambang Kab. Bandung
                   </button>
                   <button
                     type="button"
-                    onClick={() => setLogoUrl('')}
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setLogoUrl('');
+                    }}
                     className="px-3 py-1 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded-md text-[11px] text-neutral-700 cursor-pointer font-medium"
                   >
                     Icon Garuda PPDI (Default)
@@ -332,7 +378,10 @@ export const AppSettingsView: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
-                    onClick={() => setLoginBackgroundType('preset_emerald')}
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setLoginBackgroundType('preset_emerald');
+                    }}
                     className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
                       loginBackgroundType === 'preset_emerald'
                         ? 'border-[#064E3B] bg-emerald-50 ring-2 ring-[#064E3B]/20 text-[#064E3B]'
@@ -348,7 +397,10 @@ export const AppSettingsView: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => setLoginBackgroundType('gradient_mesh')}
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setLoginBackgroundType('gradient_mesh');
+                    }}
                     className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
                       loginBackgroundType === 'gradient_mesh'
                         ? 'border-[#064E3B] bg-emerald-50 ring-2 ring-[#064E3B]/20 text-[#064E3B]'
@@ -364,7 +416,10 @@ export const AppSettingsView: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => setLoginBackgroundType('dark_slate')}
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setLoginBackgroundType('dark_slate');
+                    }}
                     className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
                       loginBackgroundType === 'dark_slate'
                         ? 'border-[#064E3B] bg-emerald-50 ring-2 ring-[#064E3B]/20 text-[#064E3B]'
@@ -380,7 +435,10 @@ export const AppSettingsView: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => setLoginBackgroundType('custom_image')}
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setLoginBackgroundType('custom_image');
+                    }}
                     className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
                       loginBackgroundType === 'custom_image'
                         ? 'border-[#064E3B] bg-emerald-50 ring-2 ring-[#064E3B]/20 text-[#064E3B]'
@@ -527,7 +585,10 @@ export const AppSettingsView: React.FC = () => {
                   {watermarkLogoUrl && (
                     <button
                       type="button"
-                      onClick={() => setWatermarkLogoUrl('')}
+                      onClick={() => {
+                        isDirtyRef.current = true;
+                        setWatermarkLogoUrl('');
+                      }}
                       className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 cursor-pointer"
                     >
                       <RotateCcw className="w-3 h-3" />
@@ -567,7 +628,10 @@ export const AppSettingsView: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setWatermarkLogoUrl('/logo_kabupaten_bandung.svg')}
+                  onClick={() => {
+                    isDirtyRef.current = true;
+                    setWatermarkLogoUrl('/logo_kabupaten_bandung.svg');
+                  }}
                   className="px-3 py-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded-lg text-[11px] text-neutral-700 cursor-pointer font-medium"
                 >
                   Preset Lambang Kab. Bandung
@@ -582,7 +646,10 @@ export const AppSettingsView: React.FC = () => {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setWatermarkOpacity(0.09)}
+                    onClick={() => {
+                      isDirtyRef.current = true;
+                      setWatermarkOpacity(0.09);
+                    }}
                     className="text-[11px] text-emerald-700 hover:text-emerald-900 font-semibold cursor-pointer flex items-center gap-1 shrink-0"
                   >
                     <RotateCcw className="w-3 h-3" />

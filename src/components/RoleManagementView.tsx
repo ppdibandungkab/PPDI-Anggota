@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { DEFAULT_ROLE_PERMISSIONS, RoleConfig } from '../types/ppdi';
 import { Shield, Save, CheckCircle, RotateCcw } from 'lucide-react';
@@ -10,6 +10,8 @@ const MODULE_LABELS: Record<string, string> = {
   ekta: 'E-KTA Digital & Cetak',
   pensiun: 'Peringatan Purna Tugas',
   arsip: 'e-Arsip Berkas SK',
+  regulasi: 'Pustaka Regulasi',
+  kalender: 'Kalender Acara (Dashboard)',
   iuran: 'Kas & Iuran Anggota',
   'log-aktivitas': 'Log Aktivitas Admin',
   'settings-app': 'Setting Aplikasi',
@@ -39,18 +41,27 @@ export const RoleManagementView: React.FC = () => {
   });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const isDirtyRef = useRef(false);
+  const lastSyncedSignatureRef = useRef('');
 
   useEffect(() => {
     if (appSettings.rolePermissions && Object.keys(appSettings.rolePermissions).length > 0) {
-      setPermissions({
+      const merged = {
         ...DEFAULT_ROLE_PERMISSIONS,
         ...appSettings.rolePermissions,
-      });
+      };
+      const signature = JSON.stringify(merged);
+      if (isDirtyRef.current || lastSyncedSignatureRef.current === signature) {
+        return;
+      }
+      lastSyncedSignatureRef.current = signature;
+      setPermissions(merged);
     }
   }, [appSettings.rolePermissions]);
 
   const handlePermissionChange = (role: string, module: string, action: string, value: boolean) => {
     if (!canEditRole) return;
+    isDirtyRef.current = true;
     setPermissions(prev => ({
       ...prev,
       [role]: {
@@ -67,6 +78,7 @@ export const RoleManagementView: React.FC = () => {
     if (!canEditRole) return;
     setSaving(true);
     await updateAppSettings({ rolePermissions: permissions });
+    isDirtyRef.current = false;
     setSaving(false);
     setSuccess(true);
     setTimeout(() => setSuccess(false), 3000);
@@ -78,6 +90,7 @@ export const RoleManagementView: React.FC = () => {
       setPermissions(DEFAULT_ROLE_PERMISSIONS);
       setSaving(true);
       await updateAppSettings({ rolePermissions: DEFAULT_ROLE_PERMISSIONS });
+      isDirtyRef.current = false;
       setSaving(false);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);

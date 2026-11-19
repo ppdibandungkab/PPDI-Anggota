@@ -11,6 +11,7 @@ import {
   formatPhoneForWhatsApp,
   dispatchWhatsAppNotification,
   isFonnteWebhookActive,
+  formatNIPDDisplay,
 } from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
 import { exportAnggotaToExcel, exportAnggotaToCSV } from '../utils/excelExport';
@@ -38,6 +39,7 @@ import {
   QrCode,
   ChevronLeft,
   ChevronRight,
+  Printer,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 import { QrLabelPrintModal } from './QrLabelPrintModal';
@@ -144,7 +146,11 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
       if (q) {
         const matchNik = m.anggota.nik.toLowerCase().includes(q);
         const matchName = m.anggota.nama_lengkap.toLowerCase().includes(q);
-        const matchNiap = m.anggota.nipd?.toLowerCase().includes(q) ?? false;
+        const compactQ = q.replace(/\s+/g, '');
+        const rawNipd = (m.anggota.nipd || '').toLowerCase();
+        const matchNiap =
+          rawNipd.includes(q) ||
+          (compactQ.length > 0 && rawNipd.replace(/\s+/g, '').includes(compactQ));
         const matchKta = m.keanggotaan?.no_kta.toLowerCase().includes(q) ?? false;
         const matchDesa = m.desa?.nama_desa.toLowerCase().includes(q) ?? false;
         const matchKec = m.kecamatan?.nama_kecamatan.toLowerCase().includes(q) ?? false;
@@ -458,11 +464,19 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     exportAnggotaToCSV(filteredList);
   };
 
+  // Trigger print-friendly table view
+  const handlePrintTable = () => {
+    setHighlightedRowIndex(-1);
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  };
+
   return (
     <>
-    <div className={`space-y-4 ${isQrLabelModalOpen ? 'no-print' : ''}`}>
+    <div className={`space-y-4 print:space-y-0 ${isQrLabelModalOpen ? 'no-print' : 'anggota-print-root'}`}>
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-200 gap-3">
+      <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-200 gap-3">
         <div>
           <h1 className="text-xl font-bold text-neutral-900 tracking-tight">
             Data Induk Perangkat Desa (Anggota PPDI)
@@ -505,6 +519,17 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             >
               <Download className="w-3.5 h-3.5 text-neutral-600" />
               <span>Ekspor CSV</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintTable}
+              aria-label="Print tabel anggota"
+              title="Cetak tampilan tabel data anggota saat ini (Print-friendly)"
+              className="px-3 py-1.5 text-xs font-semibold text-neutral-800 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#064E3B]" />
+              <span>Print</span>
             </button>
 
             <button
@@ -585,7 +610,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div
-          className={`p-3 rounded-xl border flex items-center justify-between text-xs shadow-xs transition-all ${
+          className={`no-print p-3 rounded-xl border flex items-center justify-between text-xs shadow-xs transition-all ${
             toastMessage.type === 'success'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
               : 'bg-red-50 border-red-200 text-red-900'
@@ -609,7 +634,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
       )}
 
       {/* Real-time Quick Search & Filter Container */}
-      <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs space-y-3">
+      <div className="no-print bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs space-y-3">
         {/* Prominent Real-time Search Input Column */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-xs font-semibold text-neutral-700">
@@ -829,7 +854,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
       </div>
 
       {/* Total Found & Page Size Dropdown Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-neutral-500 px-1">
+      <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-neutral-500 px-1">
         <span>
           {totalFiltered === 0 ? (
             <>
@@ -880,7 +905,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
 
       {/* Bulk Selection Action Bar */}
       {selectedMembersList.length > 0 && (
-        <div className="bg-emerald-900 text-white px-4 py-2.5 rounded-xl shadow-md border border-emerald-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+        <div className="no-print bg-emerald-900 text-white px-4 py-2.5 rounded-xl shadow-md border border-emerald-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-amber-400 text-neutral-950 font-extrabold text-[11px] flex items-center justify-center shrink-0">
               {selectedMembersList.length}
@@ -932,13 +957,77 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
         </div>
       )}
 
+      {/* Print-Only Report Header */}
+      <div className="hidden print:block mb-3 pb-2 border-b-2 border-neutral-800">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-600">
+              {appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}
+            </p>
+            <h2 className="text-base font-bold text-neutral-900 uppercase tracking-tight">
+              Data Induk Perangkat Desa (Anggota PPDI)
+            </h2>
+          </div>
+          <div className="text-right text-[10px] font-mono text-neutral-600">
+            <div>
+              Menampilkan {totalFiltered === 0 ? '0' : `${startIndex + 1}–${endIndex}`} dari {totalFiltered} data
+              {totalPages > 1 ? ` (Hal. ${safeCurrentPage}/${totalPages})` : ''}
+            </div>
+            <div>
+              Dicetak:{' '}
+              {new Date().toLocaleString('id-ID', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </div>
+          </div>
+        </div>
+        {(filterKecamatan !== 'all' ||
+          filterDesa !== 'all' ||
+          filterKategori !== 'all' ||
+          filterJabatan !== 'all' ||
+          filterStatusKTA !== 'all' ||
+          filterStatusPensiun !== 'all' ||
+          searchQuery) && (
+          <div className="mt-1.5 text-[10px] font-mono text-neutral-700 flex flex-wrap gap-x-3 gap-y-0.5">
+            <span className="font-bold">Filter aktif:</span>
+            {searchQuery && <span>Cari: "{searchQuery}"</span>}
+            {filterKecamatan !== 'all' && (
+              <span>
+                Kec.{' '}
+                {kecamatanList.find((k) => k.id_kecamatan === filterKecamatan)?.nama_kecamatan ||
+                  filterKecamatan}
+              </span>
+            )}
+            {filterDesa !== 'all' && (
+              <span>
+                Desa {desaList.find((d) => d.id_desa === filterDesa)?.nama_desa || filterDesa}
+              </span>
+            )}
+            {filterKategori !== 'all' && <span>Unit: {filterKategori}</span>}
+            {filterJabatan !== 'all' && (
+              <span>
+                Jabatan:{' '}
+                {jabatanList.find((j) => String(j.id_jabatan) === filterJabatan)?.nama_jabatan ||
+                  filterJabatan}
+              </span>
+            )}
+            {filterStatusKTA !== 'all' && <span>KTA: {filterStatusKTA}</span>}
+            {filterStatusPensiun !== 'all' && <span>Pensiun: {filterStatusPensiun}</span>}
+          </div>
+        )}
+      </div>
+
       {/* Main High-Density Table */}
-      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-xs anggota-print-table-wrapper">
+        <div className="overflow-x-auto anggota-print-table-scroll">
+          <table className="w-full text-left border-collapse text-xs anggota-print-table">
             <thead>
               <tr className="bg-neutral-50 border-b border-neutral-200 text-neutral-600 font-semibold">
-                <th className="py-3 px-3 w-10 text-center">
+                <th className="no-print py-3 px-3 w-10 text-center">
                   <input
                     type="checkbox"
                     aria-label="Pilih semua anggota pada halaman ini"
@@ -959,7 +1048,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                 <th className="py-3 px-4">No. KTA PPDI</th>
                 <th className="py-3 px-4">Usia & Pensiun</th>
                 <th className="py-3 px-4 text-center">Status KTA</th>
-                <th className="py-3 px-4 text-right">Aksi</th>
+                <th className="no-print py-3 px-4 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200 text-neutral-800">
@@ -992,7 +1081,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                         if (targetEl.closest('button, input, a')) return;
                         setHighlightedRowIndex(idx);
                       }}
-                      className={`transition-colors ${
+                      className={`transition-colors print:bg-transparent print:ring-0 ${
                         isHighlighted
                           ? 'bg-amber-50/90 ring-2 ring-inset ring-[#064E3B]'
                           : isSelected
@@ -1001,7 +1090,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                       }`}
                     >
                       {/* Checkbox */}
-                      <td className="py-2.5 px-3 text-center">
+                      <td className="no-print py-2.5 px-3 text-center">
                         <input
                           type="checkbox"
                           aria-label={`Pilih ${item.anggota.nama_lengkap}`}
@@ -1012,7 +1101,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                       </td>
 
                       {/* No */}
-                      <td className="py-2.5 px-3 text-center font-mono text-neutral-400 tabular-nums">
+                      <td className="py-2.5 px-3 text-center font-mono text-neutral-400 print:text-neutral-700 tabular-nums">
                         {startIndex + idx + 1}
                       </td>
 
@@ -1022,7 +1111,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                           <img
                             src={getPhotoUrl(item.anggota.foto, item.anggota.jenis_kelamin)}
                             alt={item.anggota.nama_lengkap.toUpperCase()}
-                            className="w-8 h-8 rounded-full object-cover shrink-0 border border-neutral-200"
+                            className="w-8 h-8 rounded-full object-cover shrink-0 border border-neutral-200 print:hidden"
                             onError={(e) => handleImageError(e, item.anggota.jenis_kelamin)}
                             referrerPolicy="no-referrer"
                           />
@@ -1030,12 +1119,12 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                             <div className="font-semibold text-neutral-900 hover:text-emerald-800 cursor-pointer uppercase tracking-tight" onClick={() => onOpenDetailModal(item)}>
                               {hasFullName}
                             </div>
-                            <div className="text-[11px] text-neutral-500 font-mono flex items-center gap-1.5">
+                            <div className="text-[11px] text-neutral-500 font-mono flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                               <span>NIK: {item.anggota.nik}</span>
                               {item.anggota.nipd && (
                                 <>
                                   <span>·</span>
-                                  <span>NIPD: {item.anggota.nipd}</span>
+                                  <span>NIPD: {formatNIPDDisplay(item.anggota.nipd)}</span>
                                 </>
                               )}
                             </div>
@@ -1124,7 +1213,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                       </td>
 
                       {/* Actions */}
-                      <td className="py-2.5 px-4 text-right">
+                      <td className="no-print py-2.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => onOpenDetailModal(item)}
@@ -1182,7 +1271,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
 
         {/* Table Pagination Footer */}
         {totalFiltered > 0 && (
-          <div className="px-4 py-2.5 bg-neutral-50/80 border-t border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+          <div className="no-print px-4 py-2.5 bg-neutral-50/80 border-t border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
             <div className="flex items-center gap-3 text-neutral-600">
               <span className="tabular-nums">
                 Halaman <strong className="text-neutral-900">{safeCurrentPage}</strong> dari{' '}
@@ -1250,7 +1339,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
 
       {/* MODAL KONFIRMASI HAPUS ANGGOTA (REPLACE NATIVE WINDOW.CONFIRM) */}
       {memberToDelete && (
-        <div className="fixed inset-0 z-50 bg-[#111113]/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="no-print fixed inset-0 z-50 bg-[#111113]/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-neutral-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="p-5 border-b border-neutral-100 flex items-start gap-3 bg-red-50/70">
@@ -1358,7 +1447,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
 
       {/* MODAL KIRIM NOTIFIKASI WHATSAPP ANGGOTA */}
       {waModalMember && (
-        <div className="fixed inset-0 z-50 bg-[#111113]/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="no-print fixed inset-0 z-50 bg-[#111113]/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-neutral-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150 text-neutral-900">
             {/* Modal Header */}
             <div className="p-5 border-b border-neutral-100 flex items-start gap-3 bg-emerald-50/80">
