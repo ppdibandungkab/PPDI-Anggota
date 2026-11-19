@@ -324,7 +324,7 @@ export const BulkKtaExportModal: React.FC<BulkKtaExportModalProps> = ({
           <div className={`relative z-10 grid grid-cols-12 items-center my-auto ${compact ? 'gap-1.5 py-0.5' : 'gap-3 py-1'}`}>
             <div className="col-span-4 flex items-center justify-center">
               <div
-                className={`w-full aspect-[3/4] overflow-hidden border border-amber-300 bg-neutral-900 ${
+                className={`w-full aspect-[3/4] overflow-hidden border border-amber-300 bg-neutral-900 flex items-center justify-center p-0.5 ${
                   compact ? 'rounded-[4px] max-w-[42px]' : 'rounded-lg max-w-[82px]'
                 }`}
               >
@@ -333,7 +333,7 @@ export const BulkKtaExportModal: React.FC<BulkKtaExportModalProps> = ({
                   alt={member.anggota.nama_lengkap}
                   onError={(e) => handleImageError(e, member.anggota.jenis_kelamin)}
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
+                  className="max-w-full max-h-full w-auto h-auto object-contain rounded-[3px]"
                 />
               </div>
             </div>

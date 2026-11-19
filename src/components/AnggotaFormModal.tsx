@@ -1510,7 +1510,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                         />
                       </div>
                       <div>
-                        <label className="block text-neutral-700 font-medium mb-1">TMT Jabatan</label>
+                        <label className="block text-neutral-700 font-medium mb-1">Terhitung Mulai Tanggal (TMT) Jabatan Perangkat Desa</label>
                         <input
                           type="date"
                           value={newRwTmt}

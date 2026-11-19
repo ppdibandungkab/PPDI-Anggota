@@ -399,11 +399,11 @@ export const EKTAView: React.FC<EKTAViewProps> = ({ selectedMemberId, onOpenVeri
                   <div className="relative z-10 grid grid-cols-12 gap-3 items-center py-1.5">
                     {/* Photo slot */}
                     <div className="col-span-4 flex flex-col items-center justify-center">
-                      <div className="w-20 sm:w-22 aspect-[3/4] rounded-xl overflow-hidden border-2 border-amber-300 shadow-lg bg-neutral-900">
+                      <div className="w-20 sm:w-22 aspect-[3/4] rounded-xl overflow-hidden border-2 border-amber-300 shadow-lg bg-neutral-900 flex items-center justify-center p-0.5">
                         <img
                           src={getPhotoUrl(currentMember.anggota.foto, currentMember.anggota.jenis_kelamin)}
                           alt={currentMember.anggota.nama_lengkap}
-                          className="w-full h-full object-cover"
+                          className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
                           onError={(e) => handleImageError(e, currentMember.anggota.jenis_kelamin)}
                           referrerPolicy="no-referrer"
                         />

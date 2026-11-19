@@ -262,7 +262,7 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
                   </div>
 
                   <div>
-                    <span className="text-neutral-500 text-[10px] block">Terhitung Mulai Tanggal (TMT)</span>
+                    <span className="text-neutral-500 text-[10px] block">Terhitung Mulai Tanggal (TMT) Jabatan Perangkat Desa</span>
                     <span className="text-neutral-800">{formatDateIndo(result.jabatanTerkini?.tmt_jabatan)}</span>
                   </div>
 

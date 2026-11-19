@@ -67,6 +67,7 @@ export interface RiwayatJabatan {
   tmt_jabatan: string; // YYYY-MM-DD
   status_aktif: StatusAktifJabatan;
   file_sk?: string; // URL or doc name
+  tanda_tangan?: string; // Digital signature URL or PNG data URI
   keterangan?: string;
   created_at?: string;
 }
@@ -147,6 +148,7 @@ export interface PendaftaranPerangkatDesa {
   tgl_sk_pengangkatan?: string;
   tmt_jabatan?: string;
   file_sk?: string;
+  tanda_tangan?: string;
   status_approval: 'Menunggu' | 'Disetujui' | 'Ditolak';
   catatan_approval?: string;
   tgl_pendaftaran: string;
@@ -284,6 +286,7 @@ export interface WhatsAppSettings {
   webhookUrl: string;
   webhookSecret?: string;
   autoReplyEnabled?: boolean;
+  autoNotifyRetirement3Months?: boolean;
   countryCode?: string;
 }
 

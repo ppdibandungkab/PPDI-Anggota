@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import {
   Shield,
@@ -17,6 +17,8 @@ import {
   X,
   Users as UsersIcon,
   HelpCircle,
+  Search,
+  Filter,
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types/ppdi';
 import { ChangePasswordModal } from './ChangePasswordModal';
@@ -45,6 +47,10 @@ export const UserSettingsView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Filter & Search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
+
   const handleAnggotaSelect = (idAnggota: string) => {
     setSelectedIdAnggota(idAnggota);
     if (!idAnggota) return;
@@ -65,10 +71,59 @@ export const UserSettingsView: React.FC = () => {
   };
 
   const isKabupatenLevel = currentUser.role === 'Superadmin_Kabupaten' || currentUser.role === 'Admin_Kabupaten';
-  const visibleUsers = users.filter((u) => {
-    if (isKabupatenLevel) return true;
-    return u.id_user === currentUser.id_user;
-  });
+  const visibleUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (isKabupatenLevel) return true;
+      return u.id_user === currentUser.id_user;
+    });
+  }, [users, isKabupatenLevel, currentUser.id_user]);
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<UserRole, number> = {
+      Superadmin_Kabupaten: 0,
+      Admin_Kabupaten: 0,
+      Admin_Kecamatan: 0,
+      Admin_Desa: 0,
+      Anggota: 0,
+    };
+    visibleUsers.forEach((u) => {
+      if (counts[u.role] !== undefined) {
+        counts[u.role] += 1;
+      }
+    });
+    return counts;
+  }, [visibleUsers]);
+
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return visibleUsers.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) {
+        return false;
+      }
+      if (q) {
+        const kecName =
+          kecamatanList.find(
+            (k) => k.id_kecamatan.replace(/\./g, '') === (u.id_kecamatan || '').replace(/\./g, '')
+          )?.nama_kecamatan || '';
+        const desaName =
+          desaList.find((d) => String(d.id_desa) === String(u.id_desa))?.nama_desa || '';
+        const haystack = [
+          String(u.id_user),
+          u.username,
+          u.nama,
+          u.email,
+          u.role,
+          u.id_anggota || '',
+          kecName,
+          desaName,
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [visibleUsers, roleFilter, searchQuery, kecamatanList, desaList]);
 
   const canAddUser = hasPermission('settings-user', 'add');
   const canEditUser = hasPermission('settings-user', 'edit');
@@ -471,7 +526,9 @@ export const UserSettingsView: React.FC = () => {
                 </h2>
                 <p className="text-[11px] text-neutral-500 font-mono mt-0.5">
                   {isKabupatenLevel
-                    ? `Menampilkan ${visibleUsers.length} akun pengguna terdaftar`
+                    ? filteredUsers.length === visibleUsers.length
+                      ? `Menampilkan ${visibleUsers.length} akun pengguna terdaftar`
+                      : `Menampilkan ${filteredUsers.length} dari ${visibleUsers.length} akun pengguna`
                     : 'Menampilkan data profil akun yang sedang login'}
                 </p>
               </div>
@@ -484,6 +541,80 @@ export const UserSettingsView: React.FC = () => {
                   <span>Tambah Pengguna</span>
                 </button>
               )}
+            </div>
+
+            {/* Search Text & Filter Tingkatan (Role) Bar */}
+            <div className="p-3.5 bg-white border-b border-neutral-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  aria-label="Cari Akun Pengguna"
+                  placeholder="Cari username, nama lengkap, email, atau wilayah..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-hidden focus:ring-2 focus:ring-[#064E3B]/20 focus:border-[#064E3B] focus:bg-white font-mono text-xs"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Bersihkan kata kunci pencarian"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="user-role-filter"
+                    className="text-neutral-600 font-semibold flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <Filter className="w-3.5 h-3.5 text-[#064E3B]" />
+                    <span>Tingkatan (Role):</span>
+                  </label>
+                  <select
+                    id="user-role-filter"
+                    aria-label="Filter Tingkatan Role Pengguna"
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value as 'all' | UserRole)}
+                    className="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-2 text-xs font-mono font-semibold text-neutral-800 focus:outline-hidden focus:ring-2 focus:ring-[#064E3B]/20 focus:border-[#064E3B] cursor-pointer"
+                  >
+                    <option value="all">Semua Tingkatan ({visibleUsers.length})</option>
+                    <option value="Superadmin_Kabupaten">
+                      Superadmin_Kabupaten ({roleCounts.Superadmin_Kabupaten})
+                    </option>
+                    <option value="Admin_Kabupaten">
+                      Admin_Kabupaten ({roleCounts.Admin_Kabupaten})
+                    </option>
+                    <option value="Admin_Kecamatan">
+                      Admin_Kecamatan ({roleCounts.Admin_Kecamatan})
+                    </option>
+                    <option value="Admin_Desa">
+                      Admin_Desa ({roleCounts.Admin_Desa})
+                    </option>
+                    <option value="Anggota">
+                      Anggota ({roleCounts.Anggota})
+                    </option>
+                  </select>
+                </div>
+
+                {(searchQuery || roleFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setRoleFilter('all');
+                    }}
+                    className="px-2.5 py-2 text-[11px] font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 border border-neutral-200 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    Reset Filter
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -501,7 +632,31 @@ export const UserSettingsView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200">
-                  {visibleUsers.map((u) => {
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-10 text-center text-neutral-500 font-sans">
+                        <div className="space-y-2 max-w-sm mx-auto">
+                          <Search className="w-7 h-7 text-neutral-300 mx-auto" />
+                          <p className="text-xs font-semibold text-neutral-700">
+                            Tidak ada akun pengguna yang sesuai dengan filter atau pencarian.
+                          </p>
+                          {(searchQuery || roleFilter !== 'all') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery('');
+                                setRoleFilter('all');
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold text-[#064E3B] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer"
+                            >
+                              Tampilkan Semua Akun
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((u) => {
                     const isCurrent = u.id_user === currentUser.id_user;
                     const isTargetSuperadmin = u.role === 'Superadmin_Kabupaten';
                     const isAdminKabupatenBlocked = currentUser.role === 'Admin_Kabupaten' && isTargetSuperadmin;
@@ -694,7 +849,8 @@ export const UserSettingsView: React.FC = () => {
                         </td>
                       </tr>
                     );
-                  })}
+                  })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -744,6 +900,7 @@ export const UserSettingsView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
+                      setRoleFilter(item.role);
                       setActiveTab('users');
                     }}
                     className="w-full py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg text-xs font-bold transition-colors cursor-pointer text-center"

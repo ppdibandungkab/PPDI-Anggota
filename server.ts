@@ -113,10 +113,12 @@ createOrGetPool();
 const UPLOADS_ROOT = path.resolve(process.cwd(), 'public', 'uploads');
 const FOTO_DIR = path.join(UPLOADS_ROOT, 'foto');
 const SK_DIR = path.join(UPLOADS_ROOT, 'sk');
+const TTD_DIR = path.join(UPLOADS_ROOT, 'ttd');
 
 try {
   fs.mkdirSync(FOTO_DIR, { recursive: true });
   fs.mkdirSync(SK_DIR, { recursive: true });
+  fs.mkdirSync(TTD_DIR, { recursive: true });
 } catch (e) {
   console.error('Failed to create upload directories:', e);
 }
@@ -288,13 +290,13 @@ function requirePermission(moduleId: string, action: 'view' | 'add' | 'edit' | '
 
 // Helper to save base64 upload data URL to disk and return /uploads/<folder>/<fileName>
 function saveBase64UploadToDisk(
-  type: 'foto' | 'sk',
+  type: 'foto' | 'sk' | 'ttd',
   fileData: string,
   fileName?: string,
   nik?: string
 ): { url: string; fileName: string; sizeBytes: number; mimeType: string } {
-  const folderType = type === 'sk' ? 'sk' : 'foto';
-  const targetFolder = folderType === 'sk' ? SK_DIR : FOTO_DIR;
+  const folderType = type === 'sk' ? 'sk' : type === 'ttd' ? 'ttd' : 'foto';
+  const targetFolder = folderType === 'sk' ? SK_DIR : folderType === 'ttd' ? TTD_DIR : FOTO_DIR;
 
   let mimeType = '';
   let base64Clean = fileData;
@@ -310,7 +312,7 @@ function saveBase64UploadToDisk(
     else if (mimeType.includes('png')) ext = '.png';
     else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
     else if (mimeType.includes('webp')) ext = '.webp';
-    else ext = folderType === 'sk' ? '.pdf' : '.jpg';
+    else ext = folderType === 'sk' ? '.pdf' : folderType === 'ttd' ? '.png' : '.jpg';
   }
 
   const cleanBase = (fileName || `${folderType}_doc`)
@@ -335,7 +337,7 @@ function saveBase64UploadToDisk(
 }
 
 // ====================================================================
-// 0. UPLOAD FOTO & BERKAS SK (DEDICATED FOLDERS: /uploads/foto & /uploads/sk)
+// 0. UPLOAD FOTO, BERKAS SK & TANDA TANGAN (/uploads/foto, /uploads/sk, /uploads/ttd)
 // ====================================================================
 app.post('/api/upload', async (req, res) => {
   try {
@@ -344,7 +346,7 @@ app.post('/api/upload', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Data file base64 tidak ditemukan' });
     }
 
-    const folderType = type === 'sk' ? 'sk' : 'foto';
+    const folderType = type === 'sk' ? 'sk' : type === 'ttd' ? 'ttd' : 'foto';
     const saved = saveBase64UploadToDisk(folderType, fileData, fileName, nik);
 
     return res.json({
@@ -365,7 +367,7 @@ app.post('/api/upload', async (req, res) => {
 // List files in upload directories
 app.get('/api/uploads/list', (_req, res) => {
   try {
-    const listFiles = (dir: string, type: 'foto' | 'sk') => {
+    const listFiles = (dir: string, type: 'foto' | 'sk' | 'ttd') => {
       if (!fs.existsSync(dir)) return [];
       const files = fs.readdirSync(dir);
       return files
@@ -385,12 +387,14 @@ app.get('/api/uploads/list', (_req, res) => {
 
     const fotoFiles = listFiles(FOTO_DIR, 'foto');
     const skFiles = listFiles(SK_DIR, 'sk');
+    const ttdFiles = listFiles(TTD_DIR, 'ttd');
 
     return res.json({
       success: true,
       folders: {
         fotoDir: FOTO_DIR,
         skDir: SK_DIR,
+        ttdDir: TTD_DIR,
       },
       foto: {
         count: fotoFiles.length,
@@ -399,6 +403,10 @@ app.get('/api/uploads/list', (_req, res) => {
       sk: {
         count: skFiles.length,
         files: skFiles,
+      },
+      ttd: {
+        count: ttdFiles.length,
+        files: ttdFiles,
       },
     });
   } catch (err: any) {
@@ -410,10 +418,10 @@ app.get('/api/uploads/list', (_req, res) => {
 app.delete('/api/uploads/:folder/:fileName', (req, res) => {
   try {
     const { folder, fileName } = req.params;
-    if (folder !== 'foto' && folder !== 'sk') {
+    if (folder !== 'foto' && folder !== 'sk' && folder !== 'ttd') {
       return res.status(400).json({ success: false, message: 'Folder tidak valid' });
     }
-    const targetDir = folder === 'sk' ? SK_DIR : FOTO_DIR;
+    const targetDir = folder === 'sk' ? SK_DIR : folder === 'ttd' ? TTD_DIR : FOTO_DIR;
     const safeFileName = path.basename(fileName);
     const filePath = path.join(targetDir, safeFileName);
 
@@ -786,6 +794,18 @@ async function ensureAppSettingsTable(conn: any): Promise<void> {
   `);
 }
 
+let signatureColumnsEnsured = false;
+async function ensureSignatureColumns(conn: any): Promise<void> {
+  if (signatureColumnsEnsured) return;
+  try {
+    await conn.query(`ALTER TABLE riwayat_jabatan ADD COLUMN tanda_tangan MEDIUMTEXT NULL AFTER file_sk`);
+  } catch (_) {}
+  try {
+    await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN tanda_tangan MEDIUMTEXT NULL AFTER file_sk`);
+  } catch (_) {}
+  signatureColumnsEnsured = true;
+}
+
 // Endpoint untuk inisialisasi / sinkronisasi struktur seluruh tabel database PPDI
 app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async (_req, res) => {
   try {
@@ -881,6 +901,7 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         \`tmt_jabatan\` DATE NOT NULL,
         \`status_aktif\` VARCHAR(30) NOT NULL DEFAULT 'Aktif',
         \`file_sk\` VARCHAR(255) NULL,
+        \`tanda_tangan\` MEDIUMTEXT NULL,
         \`keterangan\` TEXT NULL,
         \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (\`id_riwayat\`)
@@ -991,6 +1012,7 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         \`tmt_jabatan\` DATE NULL,
         \`foto\` VARCHAR(255) NULL,
         \`file_sk\` VARCHAR(255) NULL,
+        \`tanda_tangan\` MEDIUMTEXT NULL,
         \`status_approval\` VARCHAR(30) NOT NULL DEFAULT 'Menunggu',
         \`catatan_approval\` TEXT NULL,
         \`tgl_pendaftaran\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1000,10 +1022,12 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    // Migration for pendaftaran_perangkat_desa columns
+    // Migration for pendaftaran_perangkat_desa & riwayat_jabatan columns
     try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN gelar_depan VARCHAR(30) NULL AFTER nama_lengkap`); } catch (_) {}
     try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN gelar_belakang VARCHAR(50) NULL AFTER gelar_depan`); } catch (_) {}
     try { await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN foto VARCHAR(255) NULL AFTER tmt_jabatan`); } catch (_) {}
+    signatureColumnsEnsured = false;
+    await ensureSignatureColumns(conn);
 
     // Seed default superadmin if users table empty
     const [userRows]: [any[], any] = await conn.query('SELECT COUNT(*) as cnt FROM users');
@@ -1091,6 +1115,8 @@ app.get('/api/anggota', async (_req, res) => {
       ORDER BY a.created_at DESC, a.id_anggota ASC
     `);
 
+    await ensureSignatureColumns(conn);
+
     let riwayatRows: any[] = [];
     try {
       const [rows]: [any[], any] = await conn.query(`
@@ -1104,6 +1130,7 @@ app.get('/api/anggota', async (_req, res) => {
           DATE_FORMAT(tmt_jabatan, '%Y-%m-%d') as tmt_jabatan,
           status_aktif,
           file_sk,
+          tanda_tangan,
           created_at
         FROM riwayat_jabatan
         ORDER BY created_at DESC, tgl_sk_pengangkatan DESC, id_riwayat DESC
@@ -1720,18 +1747,29 @@ app.delete('/api/anggota/:id', requirePermission('anggota', 'delete'), async (re
 // 4. RIWAYAT JABATAN & MUTASI
 // ====================================================================
 app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) => {
-  const { id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, keterangan } = req.body;
+  const { id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan } = req.body;
 
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
+    await ensureSignatureColumns(conn);
 
     const validDesaId = await resolveDesaId(conn, id_desa);
     const newIdRiwayat = crypto.randomUUID();
 
+    let savedTtdPath: string | null = tanda_tangan ? String(tanda_tangan).trim() : null;
+    if (savedTtdPath && savedTtdPath.startsWith('data:')) {
+      try {
+        const saved = saveBase64UploadToDisk('ttd', savedTtdPath, 'ttd_sk', id_anggota);
+        savedTtdPath = saved.url;
+      } catch (e) {
+        console.warn('Gagal menyimpan file tanda tangan SK ke disk:', e);
+      }
+    }
+
     await conn.query(
-      `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, keterangan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         newIdRiwayat,
         id_anggota,
@@ -1742,6 +1780,7 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
         tmt_jabatan,
         status_aktif || 'Aktif',
         file_sk || null,
+        savedTtdPath,
         keterangan || null,
       ]
     );
@@ -1772,15 +1811,26 @@ app.put('/api/riwayat/:id/status', requirePermission('anggota', 'edit'), async (
 // Update Full Riwayat Jabatan
 app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, res) => {
   const { id } = req.params;
-  const { id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk } = req.body;
+  const { id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan } = req.body;
 
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
+    await ensureSignatureColumns(conn);
 
     let validDesaId = null;
     if (id_desa) {
       validDesaId = await resolveDesaId(conn, id_desa);
+    }
+
+    let savedTtdPath: string | null = tanda_tangan ? String(tanda_tangan).trim() : null;
+    if (savedTtdPath && savedTtdPath.startsWith('data:')) {
+      try {
+        const saved = saveBase64UploadToDisk('ttd', savedTtdPath, 'ttd_sk_upd', id);
+        savedTtdPath = saved.url;
+      } catch (e) {
+        console.warn('Gagal menyimpan pembaruan file tanda tangan ke disk:', e);
+      }
     }
 
     await conn.query(
@@ -1791,9 +1841,10 @@ app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, re
         tgl_sk_pengangkatan = COALESCE(?, tgl_sk_pengangkatan),
         tmt_jabatan = COALESCE(?, tmt_jabatan),
         status_aktif = COALESCE(?, status_aktif),
-        file_sk = COALESCE(?, file_sk)
+        file_sk = COALESCE(?, file_sk),
+        tanda_tangan = COALESCE(?, tanda_tangan)
       WHERE id_riwayat = ?`,
-      [validDesaId, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, id]
+      [validDesaId, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, savedTtdPath, id]
     );
     conn.release();
     return res.json({ success: true, message: 'Riwayat jabatan berhasil diperbarui di MySQL' });
@@ -2513,6 +2564,7 @@ app.get('/api/pendaftaran', async (req, res) => {
     querySql += ' ORDER BY p.id_pendaftaran DESC';
 
     const conn = await pool.getConnection();
+    await ensureSignatureColumns(conn);
     const [rows]: [any[], any] = await conn.query(querySql, queryParams);
     conn.release();
     return res.json({ success: true, pendaftaran: rows });
@@ -2530,6 +2582,7 @@ app.post('/api/pendaftaran', async (req, res) => {
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
+    await ensureSignatureColumns(conn);
 
     // Cek apakah NIK sudah ada di pendaftaran aktif atau di anggota
     const [existsInAnggota]: [any[], any] = await conn.query(
@@ -2559,7 +2612,7 @@ app.post('/api/pendaftaran', async (req, res) => {
     const validDesaId = await resolveDesaId(conn, data.id_desa);
     const cleanKecId = data.id_kecamatan || validDesaId.slice(0, 6);
 
-    // If foto / file_sk is sent as base64 data URL, save physically to /uploads/foto or /uploads/sk
+    // If foto / file_sk / tanda_tangan is sent as base64 data URL, save physically to /uploads/foto, /uploads/sk, /uploads/ttd
     let savedFotoPath: string | null = data.foto ? String(data.foto).trim() : null;
     if (savedFotoPath && savedFotoPath.startsWith('data:')) {
       try {
@@ -2580,13 +2633,23 @@ app.post('/api/pendaftaran', async (req, res) => {
       }
     }
 
+    let savedTtdPath: string | null = data.tanda_tangan ? String(data.tanda_tangan).trim() : null;
+    if (savedTtdPath && savedTtdPath.startsWith('data:')) {
+      try {
+        const saved = saveBase64UploadToDisk('ttd', savedTtdPath, 'pendaftaran_ttd', data.nik);
+        savedTtdPath = saved.url;
+      } catch (e) {
+        console.warn('Gagal menyimpan file tanda tangan pendaftaran ke disk:', e);
+      }
+    }
+
     const [insertRes]: [any, any] = await conn.query(
       `INSERT INTO pendaftaran_perangkat_desa (
         nik, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama,
         pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan,
         id_kecamatan, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan,
-        foto, file_sk, status_approval
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
+        foto, file_sk, tanda_tangan, status_approval
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
       [
         data.nik,
         data.nama_lengkap.trim().toUpperCase(),
@@ -2609,6 +2672,7 @@ app.post('/api/pendaftaran', async (req, res) => {
         data.tmt_jabatan || new Date().toISOString().split('T')[0],
         savedFotoPath,
         savedSkPath,
+        savedTtdPath,
       ]
     );
 
@@ -2724,6 +2788,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       );
     }
 
+    await ensureSignatureColumns(conn);
+
     // 2. Insert or update riwayat_jabatan
     const [existingRw]: [any[], any] = await conn.query(
       'SELECT id_riwayat FROM riwayat_jabatan WHERE id_anggota = ? AND status_aktif = "Aktif" LIMIT 1',
@@ -2732,8 +2798,8 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
 
     if (existingRw.length === 0) {
       await conn.query(
-        `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'Aktif', ?)`,
+        `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'Aktif', ?, ?)`,
         [
           newIdRiwayat,
           effectiveIdAnggota,
@@ -2743,6 +2809,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           p.tmt_jabatan || new Date().toISOString().split('T')[0],
           p.file_sk || null,
+          p.tanda_tangan || null,
         ]
       );
     }
@@ -3476,6 +3543,7 @@ app.get('/api/whatsapp/settings', async (_req, res) => {
           webhookUrl: r.webhook_url || '',
           webhookSecret: r.webhook_secret || '',
           autoReplyEnabled: r.auto_reply_enabled !== undefined ? Boolean(r.auto_reply_enabled) : true,
+          autoNotifyRetirement3Months: Boolean(settings.whatsappSettings?.autoNotifyRetirement3Months),
           countryCode: r.country_code || '62',
         };
       }
@@ -3504,6 +3572,10 @@ app.post('/api/whatsapp/settings', requirePermission('settings-whatsapp', 'edit'
       webhookUrl: String(incomingWa.webhookUrl || '').trim(),
       webhookSecret: String(incomingWa.webhookSecret || '').trim(),
       autoReplyEnabled: incomingWa.autoReplyEnabled !== undefined ? Boolean(incomingWa.autoReplyEnabled) : true,
+      autoNotifyRetirement3Months:
+        incomingWa.autoNotifyRetirement3Months !== undefined
+          ? Boolean(incomingWa.autoNotifyRetirement3Months)
+          : Boolean(existing.whatsappSettings?.autoNotifyRetirement3Months),
       countryCode: String(incomingWa.countryCode || '62').trim() || '62',
     };
     const nextSettings = {

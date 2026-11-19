@@ -110,6 +110,73 @@ async function loadSafeImageDataUrl(
 }
 
 /**
+ * Loads a member photo and renders it into an exact inner-frame canvas (proportional to 18.4 x 24.7 mm)
+ * using aspect-preserving `object-contain` centering so jsPDF never stretches portrait, square, or landscape photos.
+ */
+async function loadContainFramedPhotoDataUrl(
+  rawUrl: string | undefined | null,
+  cache: Map<string, string | null>
+): Promise<string | null> {
+  if (!rawUrl || !rawUrl.trim()) return null;
+  const trimmed = rawUrl.trim();
+  const cacheKey = `__framed_contain__:${trimmed}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null;
+
+  const targetW = 368;
+  const targetH = 494;
+
+  const resolved = await new Promise<string | null>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const timer = window.setTimeout(() => resolve(null), 3500);
+
+    img.onload = () => {
+      window.clearTimeout(timer);
+      try {
+        const natW = Math.max(1, img.naturalWidth || 100);
+        const natH = Math.max(1, img.naturalHeight || 100);
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        // Match bg-neutral-900 (#111827) frame background cleanly behind contained photo
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(0, 0, targetW, targetH);
+
+        const ratio = Math.min(targetW / natW, targetH / natH);
+        const drawW = natW * ratio;
+        const drawH = natH * ratio;
+        const dx = (targetW - drawW) / 2;
+        const dy = (targetH - drawH) / 2;
+
+        ctx.drawImage(img, dx, dy, drawW, drawH);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(null);
+      }
+    };
+
+    img.onerror = () => {
+      window.clearTimeout(timer);
+      resolve(null);
+    };
+
+    img.src = trimmed;
+  });
+
+  if (resolved) {
+    cache.set(cacheKey, resolved);
+    return resolved;
+  }
+
+  return loadSafeImageDataUrl(trimmed, cache);
+}
+
+/**
  * Generates a grayscale, brightened, semi-transparent PNG data URL matching EKTAView's
  * Organization Logo Watermark (`filter grayscale brightness-200` + subtle opacity).
  */
@@ -919,7 +986,7 @@ export async function exportBulkKtaToPDF({
     let photoDataUrl: string | null = null;
     if (cardSide === 'both' || cardSide === 'front') {
       const photoUrl = getPhotoUrl(member.anggota.foto, member.anggota.jenis_kelamin);
-      photoDataUrl = await loadSafeImageDataUrl(photoUrl, imageCache);
+      photoDataUrl = await loadContainFramedPhotoDataUrl(photoUrl, imageCache);
     }
 
     const { desaName, kecName } = resolveWilayahNames(member, kecamatanList, desaList);

@@ -18,9 +18,11 @@ import {
   AlertCircle,
   History,
   Clock,
+  PenTool,
 } from 'lucide-react';
 import { PermissionGate } from './PermissionGate';
 import { MemberCombobox } from './MemberCombobox';
+import { SignatureCanvas } from './SignatureCanvas';
 
 export const ArsipSKView: React.FC = () => {
   const { fullMembers, riwayatList, kecamatanList, desaList, jabatanList, addRiwayatJabatan, hasPermission, currentUser } = usePPDI();
@@ -65,6 +67,7 @@ export const ArsipSKView: React.FC = () => {
   const [uploadTmt, setUploadTmt] = useState(new Date().toISOString().split('T')[0]);
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadFileData, setUploadFileData] = useState('');
+  const [uploadSignature, setUploadSignature] = useState('');
   const [uploadError, setUploadError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
@@ -85,9 +88,10 @@ export const ArsipSKView: React.FC = () => {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderData, setFolderData] = useState<{
     success: boolean;
-    folders: { fotoDir: string; skDir: string };
+    folders: { fotoDir: string; skDir: string; ttdDir?: string };
     foto: { count: number; files: Array<{ name: string; url: string; sizeBytes: number; mtime: string }> };
     sk: { count: number; files: Array<{ name: string; url: string; sizeBytes: number; mtime: string }> };
+    ttd?: { count: number; files: Array<{ name: string; url: string; sizeBytes: number; mtime: string }> };
   } | null>(null);
   const [loadingFolderData, setLoadingFolderData] = useState(false);
 
@@ -352,6 +356,7 @@ export const ArsipSKView: React.FC = () => {
     }
 
     let targetFileUrl = '';
+    let targetSignatureUrl = '';
 
     try {
       setIsUploading(true);
@@ -373,9 +378,34 @@ export const ArsipSKView: React.FC = () => {
         // Fallback offline jika server tidak terjangkau
         targetFileUrl = uploadFileData;
       }
+
+      if (uploadSignature) {
+        try {
+          const sigRes = await safeFetchJson('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'ttd',
+              fileName: `ttd_sk_${selectedMember?.anggota.nik || 'anggota'}.png`,
+              fileData: uploadSignature,
+              nik: selectedMember?.anggota.nik,
+            }),
+          });
+          if (sigRes.ok && sigRes.data?.success && sigRes.data.url) {
+            targetSignatureUrl = sigRes.data.url;
+          } else {
+            targetSignatureUrl = uploadSignature;
+          }
+        } catch {
+          targetSignatureUrl = uploadSignature;
+        }
+      }
     } catch (err) {
       console.warn('Gagal upload fisik ke server, simpan data URL lokal:', err);
       targetFileUrl = uploadFileData;
+      if (uploadSignature) {
+        targetSignatureUrl = uploadSignature;
+      }
     }
 
     try {
@@ -388,6 +418,7 @@ export const ArsipSKView: React.FC = () => {
         tmt_jabatan: uploadTmt,
         status_aktif: 'Aktif',
         file_sk: targetFileUrl,
+        tanda_tangan: targetSignatureUrl || undefined,
         keterangan: 'Arsip Surat Keputusan digital terunggah',
       });
 
@@ -396,6 +427,7 @@ export const ArsipSKView: React.FC = () => {
       setUploadNoSk('');
       setUploadFileName('');
       setUploadFileData('');
+      setUploadSignature('');
       setUploadError('');
     } catch (err: any) {
       setUploadError(err?.message || 'Gagal menyimpan data SK ke database.');
@@ -720,6 +752,12 @@ export const ArsipSKView: React.FC = () => {
                           <span>
                             Tgl SK: {formatDateIndo(ver.riwayat.tgl_sk_pengangkatan)} · TMT {formatDateIndo(ver.riwayat.tmt_jabatan)}
                           </span>
+                          {ver.riwayat.tanda_tangan && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-semibold">
+                              <PenTool className="w-2.5 h-2.5" />
+                              Bertanda Tangan Digital
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -839,6 +877,27 @@ export const ArsipSKView: React.FC = () => {
                 </div>
               </div>
 
+              {selectedSkDoc.riwayat.tanda_tangan && (
+                <div className="bg-white p-3 rounded-lg border border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block uppercase tracking-wider font-semibold">
+                      Tanda Tangan Digital Pengaju / Perangkat Desa
+                    </span>
+                    <span className="text-[11px] font-semibold text-emerald-800 inline-flex items-center gap-1 mt-0.5">
+                      <PenTool className="w-3 h-3 text-emerald-600" />
+                      <span>Terverifikasi secara digital saat pengajuan SK</span>
+                    </span>
+                  </div>
+                  <div className="px-3 py-1.5 rounded-lg border border-neutral-200 bg-neutral-50 flex items-center justify-center shrink-0">
+                    <img
+                      src={selectedSkDoc.riwayat.tanda_tangan}
+                      alt="Tanda Tangan Digital"
+                      className="h-12 w-auto max-w-[180px] object-contain"
+                    />
+                  </div>
+                </div>
+              )}
+
               {isPdf ? (
                 <iframe
                   src={resolvedUrl}
@@ -904,7 +963,7 @@ export const ArsipSKView: React.FC = () => {
       {/* Upload New SK Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-neutral-200 space-y-4 text-xs">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-6 my-4 border border-neutral-200 space-y-4 text-xs">
             <div className="flex items-center justify-between pb-2 border-b border-neutral-200">
               <div>
                 <h3 className="font-bold text-neutral-900 text-sm">Upload Berkas SK Baru</h3>
@@ -913,6 +972,7 @@ export const ArsipSKView: React.FC = () => {
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setShowUploadModal(false)}
                 className="p-1 text-neutral-400 hover:text-neutral-700 rounded-lg cursor-pointer"
               >
@@ -1045,6 +1105,20 @@ export const ArsipSKView: React.FC = () => {
                 )}
               </div>
 
+              <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200">
+                <SignatureCanvas
+                  value={uploadSignature}
+                  onChange={setUploadSignature}
+                  label="Tanda Tangan Digital Pengaju / Perangkat Desa"
+                  height={130}
+                  signerName={
+                    uploadMemberOptions.find((m) => m.anggota.id_anggota === uploadMemberId)?.anggota
+                      .nama_lengkap
+                  }
+                  helperText="Tanda tangani langsung di layar perangkat sebagai bukti sah pengajuan arsip SK."
+                />
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-neutral-200">
                 <button
                   type="button"
@@ -1112,20 +1186,20 @@ export const ArsipSKView: React.FC = () => {
             {/* Content Body */}
             <div className="p-6 overflow-y-auto space-y-6">
               {/* Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-800 block">
                       Folder Pasfoto
                     </span>
-                    <span className="text-base font-mono font-bold text-neutral-900 block mt-0.5">
+                    <span className="text-sm font-mono font-bold text-neutral-900 block mt-0.5">
                       /uploads/foto/
                     </span>
                     <span className="text-xs text-neutral-600 mt-1 block">
-                      Total Berkas: <strong>{folderData?.foto.count ?? 0} file</strong>
+                      Total: <strong>{folderData?.foto.count ?? 0} file</strong>
                     </span>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800 font-bold font-mono">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800 font-bold font-mono text-[11px]">
                     IMG
                   </div>
                 </div>
@@ -1135,15 +1209,32 @@ export const ArsipSKView: React.FC = () => {
                     <span className="text-[10px] font-mono uppercase tracking-wider text-blue-800 block">
                       Folder Berkas SK
                     </span>
-                    <span className="text-base font-mono font-bold text-neutral-900 block mt-0.5">
+                    <span className="text-sm font-mono font-bold text-neutral-900 block mt-0.5">
                       /uploads/sk/
                     </span>
                     <span className="text-xs text-neutral-600 mt-1 block">
-                      Total Berkas: <strong>{folderData?.sk.count ?? 0} file</strong>
+                      Total: <strong>{folderData?.sk.count ?? 0} file</strong>
                     </span>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-800 font-bold font-mono">
+                  <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center text-blue-800 font-bold font-mono text-[11px]">
                     PDF
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-amber-800 block">
+                      Folder Tanda Tangan
+                    </span>
+                    <span className="text-sm font-mono font-bold text-neutral-900 block mt-0.5">
+                      /uploads/ttd/
+                    </span>
+                    <span className="text-xs text-neutral-600 mt-1 block">
+                      Total: <strong>{folderData?.ttd?.count ?? 0} file</strong>
+                    </span>
+                  </div>
+                  <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center text-amber-800 font-bold font-mono text-[11px]">
+                    TTD
                   </div>
                 </div>
               </div>

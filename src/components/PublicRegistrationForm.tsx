@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { X, CheckCircle, AlertCircle, Image as ImageIcon, FileText, Loader2, Calendar } from 'lucide-react';
+import { SignatureCanvas } from './SignatureCanvas';
 
 interface PublicRegistrationFormProps {
   isOpen: boolean;
@@ -96,6 +97,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     tmtJabatan: '',
     foto: '',
     fileSk: '',
+    tandaTangan: '',
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -170,6 +172,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       tmtJabatan: '',
       foto: '',
       fileSk: '',
+      tandaTangan: '',
     });
     setSuccess(false);
     setNikError('');
@@ -369,6 +372,11 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       return;
     }
 
+    if (!formData.tandaTangan) {
+      setFormError('Tanda Tangan Digital pemohon wajib dibubuhkan pada canvas!');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -395,6 +403,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         tmt_jabatan: tmtValidation.isoDate,
         foto: formData.foto,
         file_sk: formData.fileSk,
+        tanda_tangan: formData.tandaTangan,
       });
       setSuccess(true);
     } catch (err: any) {
@@ -822,10 +831,10 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                 )}
               </div>
 
-              {/* TMT Jabatan (DD-MM-YYYY) */}
+              {/* Terhitung Mulai Tanggal (TMT) Perangkat (DD-MM-YYYY) */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase flex items-center justify-between">
-                  <span>TMT Jabatan <span className="text-red-500">*</span></span>
+                  <span>Terhitung Mulai Tanggal (TMT) Jabatan Perangkat Desa<span className="text-red-500">*</span></span>
                   <span className="text-[10px] font-mono text-neutral-400 font-normal">DD-MM-YYYY</span>
                 </label>
                 <div className="relative">
@@ -1011,6 +1020,22 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
               </div>
             </div>
 
+            {/* Canvas Tanda Tangan Digital Pemohon */}
+            <div className="p-4 rounded-xl bg-neutral-50 border border-neutral-200">
+              <SignatureCanvas
+                value={formData.tandaTangan}
+                onChange={(sigDataUrl) => {
+                  setFormData((prev) => ({ ...prev, tandaTangan: sigDataUrl }));
+                  if (formError) setFormError('');
+                }}
+                label="Tanda Tangan Digital Pemohon"
+                required
+                height={150}
+                signerName={formData.namaLengkap}
+                helperText="Bubuhkan tanda tangan Anda langsung di layar (komputer / HP) sebagai pengesahan keaslian data pendaftaran."
+              />
+            </div>
+
             {formError && (
               <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1038,7 +1063,8 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                   !tglSkValidation.valid ||
                   !tmtValidation.valid ||
                   !formData.foto ||
-                  !formData.fileSk
+                  !formData.fileSk ||
+                  !formData.tandaTangan
                 } 
                 className="flex-1 py-3 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-xl font-bold text-sm transition-colors cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
