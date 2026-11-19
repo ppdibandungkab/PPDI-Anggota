@@ -407,6 +407,34 @@ app.get('/api/database/backup/status', async (_req, res) => {
   }
 });
 
+app.get('/api/database/backup/download/:filename?', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    let targetPath: string | null = null;
+    if (filename && filename !== 'latest') {
+      const safeName = path.basename(filename);
+      const p = path.join(BACKUP_DIR, safeName);
+      if (fs.existsSync(p)) targetPath = p;
+    }
+    if (!targetPath) {
+      if (fs.existsSync(BACKUP_DIR)) {
+        const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.sql')).sort().reverse();
+        if (files.length > 0) {
+          targetPath = path.join(BACKUP_DIR, files[0]);
+        }
+      }
+    }
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      return res.status(404).json({ success: false, message: 'File backup SQL tidak ditemukan' });
+    }
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(targetPath)}"`);
+    res.setHeader('Content-Type', 'application/sql');
+    return res.sendFile(targetPath);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/database/backup', async (_req, res) => {
   try {
     const result = await executeDatabaseBackup();
@@ -1736,9 +1764,6 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
 
     await conn.beginTransaction();
 
-    const newIdRiwayat = crypto.randomUUID();
-    const newIdPpdi = crypto.randomUUID();
-
     const nipdValue = anggota.nipd || anggota.niap_nipd || anggota.niap || generateServerNIPD({
       tanggal_lahir: anggota.tanggal_lahir,
       tmt_jabatan: riwayat?.tmt_jabatan,
@@ -1776,10 +1801,9 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
     if (riwayat) {
       const validDesaId = await resolveDesaId(conn, riwayat.id_desa);
       await conn.query(
-        `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          newIdRiwayat,
           newIdAnggota,
           validDesaId,
           riwayat.id_jabatan || 2,
@@ -1796,10 +1820,9 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
     if (keanggotaan) {
       const dbStatusKta = keanggotaan.status_kta === 'Aktif' ? 'Aktif' : 'Pending_Verifikasi';
       await conn.query(
-        `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO keanggotaan_ppdi (id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+         VALUES (?, ?, ?, ?, ?)`,
         [
-          newIdPpdi,
           newIdAnggota,
           keanggotaan.no_kta,
           keanggotaan.tgl_bergabung || new Date().toISOString().split('T')[0],
@@ -1874,8 +1897,6 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
         continue;
       }
 
-      const newIdRiwayat = crypto.randomUUID();
-      const newIdPpdi = crypto.randomUUID();
       const nipdVal = ang.nipd || ang.niap || ang.niap_nipd || generateServerNIPD({
         tanggal_lahir: ang.tanggal_lahir,
         tmt_jabatan: ang.tmt_jabatan,
@@ -1916,10 +1937,9 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
 
       // Insert riwayat
       await conn.query(
-        `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          newIdRiwayat,
           newIdAnggota,
           validDesaId,
           rw.id_jabatan || 2,
@@ -1944,10 +1964,9 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
       existingKtaSet.add(autoKta);
 
       await conn.query(
-        `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO keanggotaan_ppdi (id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+         VALUES (?, ?, ?, ?, ?)`,
         [
-          newIdPpdi,
           newIdAnggota,
           autoKta,
           kta.tgl_bergabung || new Date().toISOString().split('T')[0],
@@ -2060,12 +2079,11 @@ app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, re
           [effectiveJabatanPengurus, numericId]
         );
       } else {
-        const newIdPpdi = crypto.randomUUID();
         const defaultKta = `32.04.PPDI.${Date.now().toString().slice(-6)}`;
         await conn.query(
-          `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
-           VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
-          [newIdPpdi, numericId, defaultKta, effectiveJabatanPengurus]
+          `INSERT INTO keanggotaan_ppdi (id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+           VALUES (?, ?, CURDATE(), ?, 'Aktif')`,
+          [numericId, defaultKta, effectiveJabatanPengurus]
         );
       }
     }
@@ -2168,7 +2186,6 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
     await ensureSignatureColumns(conn);
 
     const validDesaId = await resolveDesaId(conn, id_desa);
-    const newIdRiwayat = crypto.randomUUID();
 
     let savedTtdPath: string | null = tanda_tangan ? String(tanda_tangan).trim() : null;
     if (savedTtdPath && savedTtdPath.startsWith('data:')) {
@@ -2180,11 +2197,10 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
       }
     }
 
-    await conn.query(
-      `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    const [rwInsertRes]: [any, any] = await conn.query(
+      `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        newIdRiwayat,
         id_anggota,
         validDesaId,
         id_jabatan || 2,
@@ -2199,7 +2215,7 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
     );
 
     conn.release();
-    return res.json({ success: true, id_riwayat: newIdRiwayat, message: 'Riwayat mutasi/jabatan berhasil disimpan di MySQL' });
+    return res.json({ success: true, id_riwayat: rwInsertRes.insertId, message: 'Riwayat mutasi/jabatan berhasil disimpan di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -2320,12 +2336,11 @@ app.put('/api/kta/:idAnggota/jabatan-pengurus', requirePermission('anggota', 'ed
         [val, idAnggota]
       );
     } else {
-      const newIdPpdi = crypto.randomUUID();
       const defaultKta = `32.04.PPDI.${Date.now().toString().slice(-6)}`;
       await conn.query(
-        `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
-         VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
-        [newIdPpdi, idAnggota, defaultKta, val]
+        `INSERT INTO keanggotaan_ppdi (id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+         VALUES (?, ?, CURDATE(), ?, 'Aktif')`,
+        [idAnggota, defaultKta, val]
       );
     }
 
@@ -3320,8 +3335,16 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     let effectiveIdAnggota: number;
     const nipdVal = `NIPD.${p.nik.slice(-6)}`;
     const validDesaId = await resolveDesaId(conn, p.id_desa);
-    const newIdRiwayat = crypto.randomUUID();
-    const newIdPpdi = crypto.randomUUID();
+
+    const safeTglLahir = p.tanggal_lahir
+      ? (p.tanggal_lahir instanceof Date ? p.tanggal_lahir.toISOString().slice(0, 10) : String(p.tanggal_lahir).slice(0, 10))
+      : '1990-01-01';
+    const safeTglSk = p.tgl_sk_pengangkatan
+      ? (p.tgl_sk_pengangkatan instanceof Date ? p.tgl_sk_pengangkatan.toISOString().slice(0, 10) : String(p.tgl_sk_pengangkatan).slice(0, 10))
+      : new Date().toISOString().split('T')[0];
+    const safeTmt = p.tmt_jabatan
+      ? (p.tmt_jabatan instanceof Date ? p.tmt_jabatan.toISOString().slice(0, 10) : String(p.tmt_jabatan).slice(0, 10))
+      : new Date().toISOString().split('T')[0];
 
     if (existingAng.length > 0) {
       effectiveIdAnggota = Number(existingAng[0].id_anggota);
@@ -3346,16 +3369,16 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.nama_lengkap.trim().toUpperCase(),
           p.gelar_depan || null,
           p.gelar_belakang || null,
-          p.tempat_lahir,
-          p.tanggal_lahir,
-          p.jenis_kelamin,
-          p.agama,
-          p.pendidikan_terakhir,
+          p.tempat_lahir || 'Bandung',
+          safeTglLahir,
+          p.jenis_kelamin || 'L',
+          p.agama || 'Islam',
+          p.pendidikan_terakhir || 'S1',
           p.no_hp_wa,
           p.email,
           p.foto || null,
-          p.alamat_rumah,
-          p.status_pernikahan,
+          p.alamat_rumah || 'Kabupaten Bandung',
+          p.status_pernikahan || 'Kawin',
           effectiveIdAnggota,
         ]
       );
@@ -3370,7 +3393,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           p.gelar_depan || null,
           p.gelar_belakang || null,
           p.tempat_lahir || 'Bandung',
-          p.tanggal_lahir || '1990-01-01',
+          safeTglLahir,
           p.jenis_kelamin || 'L',
           p.agama || 'Islam',
           p.pendidikan_terakhir || 'S1',
@@ -3394,18 +3417,39 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
 
     if (existingRw.length === 0) {
       await conn.query(
-        `INSERT INTO riwayat_jabatan (id_riwayat, id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'Aktif', ?, ?)`,
+        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan)
+         VALUES (?, ?, ?, ?, ?, ?, 'Aktif', ?, ?)`,
         [
-          newIdRiwayat,
           effectiveIdAnggota,
           validDesaId,
           p.id_jabatan || 1,
           p.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
-          p.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
-          p.tmt_jabatan || new Date().toISOString().split('T')[0],
+          safeTglSk,
+          safeTmt,
           p.file_sk || null,
           p.tanda_tangan || null,
+        ]
+      );
+    } else {
+      await conn.query(
+        `UPDATE riwayat_jabatan SET
+          id_desa = ?,
+          id_jabatan = ?,
+          no_sk_pengangkatan = COALESCE(?, no_sk_pengangkatan),
+          tgl_sk_pengangkatan = COALESCE(?, tgl_sk_pengangkatan),
+          tmt_jabatan = COALESCE(?, tmt_jabatan),
+          file_sk = COALESCE(?, file_sk),
+          tanda_tangan = COALESCE(?, tanda_tangan)
+         WHERE id_riwayat = ?`,
+        [
+          validDesaId,
+          p.id_jabatan || 1,
+          p.no_sk_pengangkatan || null,
+          safeTglSk,
+          safeTmt,
+          p.file_sk || null,
+          p.tanda_tangan || null,
+          existingRw[0].id_riwayat,
         ]
       );
     }
@@ -3458,9 +3502,9 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       }
 
       await conn.query(
-        `INSERT INTO keanggotaan_ppdi (id_ppdi, id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
-         VALUES (?, ?, ?, CURDATE(), ?, 'Aktif')`,
-        [newIdPpdi, effectiveIdAnggota, finalKta, effectiveJabatanPengurus]
+        `INSERT INTO keanggotaan_ppdi (id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
+         VALUES (?, ?, CURDATE(), ?, 'Aktif')`,
+        [effectiveIdAnggota, finalKta, effectiveJabatanPengurus]
       );
     }
 
@@ -3496,7 +3540,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       try { await conn.rollback(); } catch (_) {}
       conn.release();
     }
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, message: err.message, error: err.message });
   }
 });
 

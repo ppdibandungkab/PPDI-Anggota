@@ -2039,8 +2039,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }),
     });
     const json = res.data;
-    if (!res.ok || json.success === false) {
-      throw new Error(json.message || res.error || 'Gagal menyetujui pendaftaran');
+    if (!res.ok || json?.success === false) {
+      throw new Error(json?.message || json?.error || res.error || 'Gagal menyetujui pendaftaran');
     }
 
     addActivityLog({

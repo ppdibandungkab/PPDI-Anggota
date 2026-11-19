@@ -43,6 +43,9 @@ import {
   ShieldCheck,
   Zap,
   CalendarDays,
+  Database,
+  HardDrive,
+  RefreshCw,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -132,6 +135,68 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
   const [isQuickSkModalOpen, setIsQuickSkModalOpen] = useState<boolean>(false);
   const [reportBulan, setReportBulan] = useState<number>(() => new Date().getMonth() + 1);
   const [reportTahun, setReportTahun] = useState<number>(() => new Date().getFullYear());
+
+  // Database Backup Status State
+  const [backupLog, setBackupLog] = useState<{
+    timestamp: string;
+    filename: string;
+    fileSize: number;
+    status: 'SUCCESS' | 'ERROR' | string;
+    message: string;
+  } | null>(null);
+  const [backupFilesCount, setBackupFilesCount] = useState<number>(0);
+  const [isLoadingBackupStatus, setIsLoadingBackupStatus] = useState<boolean>(false);
+  const [isTriggeringBackup, setIsTriggeringBackup] = useState<boolean>(false);
+  const [backupActionMsg, setBackupActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchBackupStatus = async () => {
+    try {
+      setIsLoadingBackupStatus(true);
+      const res = await fetch('/api/database/backup/status');
+      const data = await res.json();
+      if (data.success) {
+        setBackupLog(data.lastLog);
+        setBackupFilesCount(data.filesCount || 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch backup status:', err);
+    } finally {
+      setIsLoadingBackupStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackupStatus();
+  }, []);
+
+  const handleTriggerBackupNow = async () => {
+    try {
+      setIsTriggeringBackup(true);
+      setBackupActionMsg(null);
+      const res = await fetch('/api/database/backup', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setBackupActionMsg({
+          type: 'success',
+          text: `Backup database berhasil dibuat! File: ${data.filename} (${(data.fileSize / 1024 / 1024).toFixed(2)} MB)`,
+        });
+        await fetchBackupStatus();
+        showActionToast('Backup Berhasil', 'Dump file database SQL harian berhasil dibuat dan tersimpan di server.');
+      } else {
+        setBackupActionMsg({
+          type: 'error',
+          text: data.error || data.message || 'Gagal memproses backup database',
+        });
+      }
+    } catch (err: any) {
+      setBackupActionMsg({
+        type: 'error',
+        text: err.message || 'Koneksi gagal saat memproses backup',
+      });
+    } finally {
+      setIsTriggeringBackup(false);
+    }
+  };
 
   const showActionToast = (title: string, message: string) => {
     setActionToast({ title, message });
@@ -798,7 +863,139 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         </div>
       </section>
 
-      {/* Re-open chip jika Alert 6 Bulan ditutup sementara */}
+      {/* ------------------------------------------------------------- */}
+      {/* PANEL STATUS LOG BACKUP DATABASE OTOMATIS HARIAN             */}
+      {/* ------------------------------------------------------------- */}
+      <section
+        aria-label="Status Backup Database"
+        className="bg-white border border-neutral-200 rounded-2xl p-3.5 sm:p-4.5 shadow-xs space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-100">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
+                  Status Backup Database Otomatis Harian
+                </h2>
+                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                  Auto-Scheduler Aktif
+                </span>
+                {backupLog?.status === 'SUCCESS' && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[10px] font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Dump Terakhir Sukses
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-500 mt-0.5 leading-relaxed">
+                Pencadangan harian otomatis skema &amp; seluruh data tabel MySQL/MariaDB ke server lokal dengan dump SQL aman.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={fetchBackupStatus}
+              disabled={isLoadingBackupStatus}
+              title="Perbarui status log backup"
+              className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingBackupStatus ? 'animate-spin text-blue-600' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={handleTriggerBackupNow}
+              disabled={isTriggeringBackup}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+            >
+              {isTriggeringBackup ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Mencadangkan...</span>
+                </>
+              ) : (
+                <>
+                  <HardDrive className="w-3.5 h-3.5" />
+                  <span>Backup Sekarang</span>
+                </>
+              )}
+            </button>
+            <a
+              href="/api/database/backup/download"
+              download
+              className="px-3 py-1.5 rounded-lg border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Unduh file dump SQL terakhir langsung ke perangkat Anda"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-600" />
+              <span>Unduh Dump SQL</span>
+            </a>
+          </div>
+        </div>
+
+        {backupActionMsg && (
+          <div
+            className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+              backupActionMsg.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : 'bg-red-50 text-red-900 border-red-200'
+            }`}
+          >
+            <span>{backupActionMsg.text}</span>
+            <button
+              type="button"
+              onClick={() => setBackupActionMsg(null)}
+              className="text-neutral-400 hover:text-neutral-700 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Waktu Backup Terakhir</span>
+            <span className="text-xs sm:text-[13px] font-bold text-neutral-900 mt-1 block">
+              {backupLog?.timestamp
+                ? new Date(backupLog.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB'
+                : 'Belum Pernah'}
+            </span>
+          </div>
+
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">File Dump SQL</span>
+            <span className="text-xs sm:text-[13px] font-mono font-semibold text-neutral-900 mt-1 block truncate" title={backupLog?.filename || '-'}>
+              {backupLog?.filename || '-'}
+            </span>
+          </div>
+
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Ukuran File Dump</span>
+            <span className="text-xs sm:text-[13px] font-bold text-neutral-900 mt-1 block">
+              {backupLog?.fileSize
+                ? `${(backupLog.fileSize / 1024 / 1024).toFixed(2)} MB (${backupLog.fileSize.toLocaleString('id-ID')} bytes)`
+                : '-'}
+            </span>
+          </div>
+
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Total Arsip Tersimpan</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xs sm:text-[13px] font-bold text-neutral-900">
+                {backupFilesCount} File SQL
+              </span>
+              <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                Tersinkron
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {retirement6MonthsMembers.length > 0 && dismissed6MonthAlert && (
         <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-red-50 border border-red-200 text-xs">
           <div className="flex items-center gap-2 text-red-900 font-semibold">
