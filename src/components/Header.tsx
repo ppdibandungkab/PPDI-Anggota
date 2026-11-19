@@ -573,8 +573,8 @@ export const Header: React.FC<{
               </button>
 
               <button
-                onClick={() => refreshDataFromMySQL()}
-                title="Sinkronkan data langsung dari MySQL database"
+                onClick={() => refreshDataFromMySQL({ force: true })}
+                title="Sinkronkan data langsung dari MySQL database (perbarui cache lokal)"
                 className="flex items-center gap-1 px-2 py-1 rounded-sm text-xs text-[#111113]/70 hover:text-[#064E3B] hover:bg-white transition-colors cursor-pointer border border-[#111113]/15 bg-white/50"
               >
                 <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-[#064E3B]' : ''}`} />

@@ -190,4 +190,5 @@ export const SettingDatabaseView: React.FC = () => {
       </div>
     </div>
   );
+  
 };

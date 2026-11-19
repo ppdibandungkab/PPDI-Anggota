@@ -1029,6 +1029,271 @@ app.get('/api/db/status', async (_req, res) => {
   }
 });
 
+// Diagnostic check for database schema, INT(11) alignment, Foreign Keys, AUTO_INCREMENT, and promotion readiness
+app.get('/api/db/schema-diagnostic', async (_req, res) => {
+  let conn: any;
+  try {
+    const currentPool = createOrGetPool();
+    conn = await currentPool.getConnection();
+
+    const targetTables = [
+      'anggota',
+      'riwayat_jabatan',
+      'keanggotaan_ppdi',
+      'iuran_anggota',
+      'users',
+      'whatsapp_logs',
+      'pendaftaran_perangkat_desa',
+      'ref_kecamatan',
+      'ref_desa',
+      'ref_jabatan',
+    ];
+
+    // 1. Inspect key columns across relevant tables
+    const [columns]: [any[], any] = await conn.query(
+      `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, CHARACTER_MAXIMUM_LENGTH, COLUMN_KEY
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME IN (?)
+       ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+      [targetTables]
+    );
+
+    // 2. Inspect Foreign Key Constraints & check for data type / signedness / collation mismatches
+    const [foreignKeys]: [any[], any] = await conn.query(
+      `SELECT
+         kcu.CONSTRAINT_NAME,
+         kcu.TABLE_NAME AS child_table,
+         kcu.COLUMN_NAME AS child_column,
+         kcu.REFERENCED_TABLE_NAME AS parent_table,
+         kcu.REFERENCED_COLUMN_NAME AS parent_column,
+         rc.UPDATE_RULE,
+         rc.DELETE_RULE,
+         c_child.COLUMN_TYPE AS child_column_type,
+         c_child.IS_NULLABLE AS child_nullable,
+         c_child.COLLATION_NAME AS child_collation,
+         c_parent.COLUMN_TYPE AS parent_column_type,
+         c_parent.COLLATION_NAME AS parent_collation
+       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+       LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+         ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+         AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+         AND rc.TABLE_NAME = kcu.TABLE_NAME
+       LEFT JOIN INFORMATION_SCHEMA.COLUMNS c_child
+         ON c_child.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+         AND c_child.TABLE_NAME = kcu.TABLE_NAME
+         AND c_child.COLUMN_NAME = kcu.COLUMN_NAME
+       LEFT JOIN INFORMATION_SCHEMA.COLUMNS c_parent
+         ON c_parent.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+         AND c_parent.TABLE_NAME = kcu.REFERENCED_TABLE_NAME
+         AND c_parent.COLUMN_NAME = kcu.REFERENCED_COLUMN_NAME
+       WHERE kcu.TABLE_SCHEMA = DATABASE()
+         AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+       ORDER BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME`
+    );
+
+    const fkIssues: any[] = [];
+    for (const fk of foreignKeys) {
+      const childBaseType = String(fk.child_column_type || '').toLowerCase().replace(/\(\d+\)/, '');
+      const parentBaseType = String(fk.parent_column_type || '').toLowerCase().replace(/\(\d+\)/, '');
+      const typeMismatch = childBaseType !== parentBaseType;
+      const collationMismatch =
+        fk.child_collation && fk.parent_collation && fk.child_collation !== fk.parent_collation;
+      if (typeMismatch || collationMismatch) {
+        fkIssues.push({
+          severity: 'ERROR',
+          constraint: fk.CONSTRAINT_NAME,
+          detail: `${fk.child_table}.${fk.child_column} (${fk.child_column_type}) -> ${fk.parent_table}.${fk.parent_column} (${fk.parent_column_type})`,
+          typeMismatch,
+          collationMismatch,
+        });
+      }
+    }
+
+    // 3. Inspect INT(11) & AUTO_INCREMENT status on core identity columns
+    const keyColumnsCheck: any[] = [];
+    const expectedIntCols = [
+      { table: 'anggota', col: 'id_anggota', expectAutoInc: true, expectNullable: false },
+      { table: 'riwayat_jabatan', col: 'id_riwayat', expectAutoInc: true, expectNullable: false },
+      { table: 'riwayat_jabatan', col: 'id_anggota', expectAutoInc: false, expectNullable: false },
+      { table: 'keanggotaan_ppdi', col: 'id_ppdi', expectAutoInc: true, expectNullable: false },
+      { table: 'keanggotaan_ppdi', col: 'id_anggota', expectAutoInc: false, expectNullable: false },
+      { table: 'iuran_anggota', col: 'id_anggota', expectAutoInc: false, expectNullable: false },
+      { table: 'users', col: 'id_anggota', expectAutoInc: false, expectNullable: true },
+      { table: 'pendaftaran_perangkat_desa', col: 'id_pendaftaran', expectAutoInc: true, expectNullable: false },
+    ];
+
+    const schemaIssues: any[] = [];
+    for (const spec of expectedIntCols) {
+      const found = columns.find((c) => c.TABLE_NAME === spec.table && c.COLUMN_NAME === spec.col);
+      if (!found) {
+        keyColumnsCheck.push({ ...spec, status: 'MISSING_COLUMN', actual: null });
+        schemaIssues.push({
+          severity: 'WARNING',
+          table: spec.table,
+          column: spec.col,
+          message: `Kolom ${spec.table}.${spec.col} tidak ditemukan.`,
+        });
+        continue;
+      }
+      const isInt = String(found.DATA_TYPE).toLowerCase() === 'int';
+      const hasAutoInc = String(found.EXTRA || '').toLowerCase().includes('auto_increment');
+      const isUnsigned = String(found.COLUMN_TYPE || '').toLowerCase().includes('unsigned');
+      const ok = isInt && (!spec.expectAutoInc || hasAutoInc) && !isUnsigned;
+
+      keyColumnsCheck.push({
+        table: spec.table,
+        column: spec.col,
+        columnType: found.COLUMN_TYPE,
+        isNullable: found.IS_NULLABLE,
+        columnKey: found.COLUMN_KEY,
+        extra: found.EXTRA,
+        ok,
+      });
+
+      if (!ok) {
+        schemaIssues.push({
+          severity: 'ERROR',
+          table: spec.table,
+          column: spec.col,
+          message: `${spec.table}.${spec.col} bertipe ${found.COLUMN_TYPE} (EXTRA: "${found.EXTRA || '-'}") — seharusnya INT(11)${spec.expectAutoInc ? ' AUTO_INCREMENT' : ''}.`,
+        });
+      }
+    }
+
+    // 4. Check AUTO_INCREMENT counters vs MAX(id) and zero-ID rows
+    const autoIncChecks: any[] = [];
+    const pkTables = [
+      { table: 'anggota', pk: 'id_anggota' },
+      { table: 'riwayat_jabatan', pk: 'id_riwayat' },
+      { table: 'keanggotaan_ppdi', pk: 'id_ppdi' },
+      { table: 'pendaftaran_perangkat_desa', pk: 'id_pendaftaran' },
+    ];
+    for (const t of pkTables) {
+      try {
+        const [tblInfo]: [any[], any] = await conn.query(
+          `SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+          [t.table]
+        );
+        const [stats]: [any[], any] = await conn.query(
+          `SELECT COUNT(*) AS total, COALESCE(MAX(\`${t.pk}\`), 0) AS max_id, SUM(CASE WHEN \`${t.pk}\` <= 0 OR \`${t.pk}\` IS NULL THEN 1 ELSE 0 END) AS zero_or_null FROM \`${t.table}\``
+        );
+        const autoIncVal = tblInfo[0]?.AUTO_INCREMENT ? Number(tblInfo[0].AUTO_INCREMENT) : null;
+        const maxId = Number(stats[0]?.max_id || 0);
+        const zeroCount = Number(stats[0]?.zero_or_null || 0);
+        const valid = (autoIncVal === null || autoIncVal > maxId) && zeroCount === 0;
+        autoIncChecks.push({
+          table: t.table,
+          pk: t.pk,
+          totalRows: Number(stats[0]?.total || 0),
+          maxId,
+          autoIncrementNext: autoIncVal,
+          zeroOrNullIds: zeroCount,
+          ok: valid,
+        });
+        if (!valid) {
+          schemaIssues.push({
+            severity: 'ERROR',
+            table: t.table,
+            column: t.pk,
+            message: `Ketidaksesuaian AUTO_INCREMENT pada ${t.table}.${t.pk}: next=${autoIncVal}, max=${maxId}, zeroOrNull=${zeroCount}.`,
+          });
+        }
+      } catch (e: any) {
+        autoIncChecks.push({ table: t.table, pk: t.pk, error: e.message, ok: false });
+      }
+    }
+
+    // 5. Check orphan FK references & pending registrations readiness
+    const orphanChecks: any = {};
+    const orphanQueries = [
+      { key: 'riwayat_missing_anggota', sql: 'SELECT COUNT(*) AS cnt FROM riwayat_jabatan r LEFT JOIN anggota a ON r.id_anggota = a.id_anggota WHERE a.id_anggota IS NULL' },
+      { key: 'keanggotaan_missing_anggota', sql: 'SELECT COUNT(*) AS cnt FROM keanggotaan_ppdi k LEFT JOIN anggota a ON k.id_anggota = a.id_anggota WHERE a.id_anggota IS NULL' },
+      { key: 'iuran_missing_anggota', sql: 'SELECT COUNT(*) AS cnt FROM iuran_anggota i LEFT JOIN anggota a ON i.id_anggota = a.id_anggota WHERE a.id_anggota IS NULL' },
+      { key: 'riwayat_missing_desa', sql: 'SELECT COUNT(*) AS cnt FROM riwayat_jabatan r LEFT JOIN ref_desa d ON r.id_desa = d.id_desa WHERE d.id_desa IS NULL' },
+      { key: 'riwayat_missing_jabatan', sql: 'SELECT COUNT(*) AS cnt FROM riwayat_jabatan r LEFT JOIN ref_jabatan j ON r.id_jabatan = j.id_jabatan WHERE j.id_jabatan IS NULL' },
+    ];
+    for (const q of orphanQueries) {
+      try {
+        const [r]: [any[], any] = await conn.query(q.sql);
+        orphanChecks[q.key] = Number(r[0]?.cnt || 0);
+      } catch (e: any) {
+        orphanChecks[q.key] = `ERROR: ${e.message}`;
+      }
+    }
+
+    // 6. Inspect pending registrations readiness for promotion
+    const [pendingRows]: [any[], any] = await conn.query(
+      `SELECT p.id_pendaftaran, p.nik, p.nama_lengkap, p.id_kecamatan, p.id_desa, p.id_jabatan,
+              p.tanggal_lahir, p.tgl_sk_pengangkatan, p.tmt_jabatan,
+              CHAR_LENGTH(p.foto) AS foto_len, CHAR_LENGTH(p.file_sk) AS file_sk_len,
+              p.status_approval,
+              (SELECT COUNT(*) FROM ref_desa d WHERE d.id_desa = p.id_desa) AS desa_exists,
+              (SELECT COUNT(*) FROM ref_jabatan j WHERE j.id_jabatan = p.id_jabatan) AS jabatan_exists,
+              (SELECT a.id_anggota FROM anggota a WHERE a.nik = p.nik LIMIT 1) AS existing_anggota_id
+       FROM pendaftaran_perangkat_desa p
+       WHERE p.status_approval != 'Disetujui'
+       ORDER BY p.id_pendaftaran DESC
+       LIMIT 20`
+    );
+
+    const anggotaFotoCol = columns.find((c) => c.TABLE_NAME === 'anggota' && c.COLUMN_NAME === 'foto');
+    const riwayatSkCol = columns.find((c) => c.TABLE_NAME === 'riwayat_jabatan' && c.COLUMN_NAME === 'file_sk');
+    const maxFotoLen = anggotaFotoCol?.CHARACTER_MAXIMUM_LENGTH || 65535;
+    const maxSkLen = riwayatSkCol?.CHARACTER_MAXIMUM_LENGTH || 65535;
+
+    const pendingDiagnostics = pendingRows.map((p: any) => {
+      const warnings: string[] = [];
+      if (!p.desa_exists) warnings.push(`id_desa '${p.id_desa}' tidak ditemukan di ref_desa (akan memakai fallback resolveDesaId)`);
+      if (!p.jabatan_exists) warnings.push(`id_jabatan '${p.id_jabatan}' tidak ditemukan di ref_jabatan`);
+      if (p.foto_len && p.foto_len > maxFotoLen) warnings.push(`Panjang foto (${p.foto_len}) melebihi batas kolom anggota.foto (${maxFotoLen})`);
+      if (p.file_sk_len && p.file_sk_len > maxSkLen) warnings.push(`Panjang file_sk (${p.file_sk_len}) melebihi batas kolom riwayat_jabatan.file_sk (${maxSkLen})`);
+      return { ...p, warnings };
+    });
+
+    // 7. Fetch recent approval transaction logs from activity_logs
+    let recentApprovalLogs: any[] = [];
+    try {
+      const [logs]: [any[], any] = await conn.query(
+        `SELECT id, timestamp, user_name, modul, aksi, keterangan
+         FROM activity_logs
+         WHERE modul LIKE '%Approval%' OR modul LIKE '%Pendaftaran%' OR aksi LIKE '%APPROVE%'
+         ORDER BY id DESC
+         LIMIT 15`
+      );
+      recentApprovalLogs = logs;
+    } catch (_) {}
+
+    conn.release();
+
+    const hasErrors = schemaIssues.some((i) => i.severity === 'ERROR') || fkIssues.length > 0;
+    return res.json({
+      success: true,
+      healthy: !hasErrors,
+      checkedAt: new Date().toISOString(),
+      keyColumnsCheck,
+      foreignKeysCount: foreignKeys.length,
+      foreignKeys,
+      fkIssues,
+      schemaIssues,
+      autoIncChecks,
+      orphanChecks,
+      pendingCount: pendingDiagnostics.length,
+      pendingDiagnostics,
+      recentApprovalLogs,
+      columnLengths: {
+        anggota_foto: anggotaFotoCol?.COLUMN_TYPE || null,
+        riwayat_file_sk: riwayatSkCol?.COLUMN_TYPE || null,
+      },
+    });
+  } catch (err: any) {
+    if (conn) {
+      try { conn.release(); } catch (_) {}
+    }
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Endpoint untuk menguji koneksi fleksibel (misal tes host lokal vs remote hosting)
 app.post('/api/db/test-connection', async (req, res) => {
   const { host, port, user, password, database } = req.body;
@@ -1682,6 +1947,274 @@ async function resolveDesaId(conn: any, rawIdDesa: any, rawNamaDesa?: string): P
   return anyDesa.length > 0 ? anyDesa[0].id_desa : '3204052001';
 }
 
+// Helper to resolve valid id_jabatan in ref_jabatan to prevent fk_riwayat_jabatan violations
+async function resolveJabatanId(conn: any, rawIdJabatan: any): Promise<number> {
+  const parsed = isValidInt32Id(rawIdJabatan);
+  if (parsed !== null) {
+    const [matches]: [any[], any] = await conn.query(
+      'SELECT id_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1',
+      [parsed]
+    );
+    if (matches.length > 0) return Number(matches[0].id_jabatan);
+  }
+  const [anyJabatan]: [any[], any] = await conn.query('SELECT id_jabatan FROM ref_jabatan ORDER BY id_jabatan ASC LIMIT 1');
+  return anyJabatan.length > 0 ? Number(anyJabatan[0].id_jabatan) : 1;
+}
+
+// Persistent approval transaction logger (executes outside rolled-back transactions so failure logs are preserved)
+async function logApprovalTransaction(params: {
+  ipAddress?: string;
+  userName?: string;
+  userRole?: string;
+  aksi: 'APPROVE_START' | 'APPROVE_SUCCESS' | 'APPROVE_ERROR' | 'REJECT_SUCCESS' | 'REJECT_ERROR';
+  idPendaftaran: string | number;
+  step?: string;
+  detail: string;
+}): Promise<void> {
+  const tag = params.aksi.includes('ERROR') ? '[Approval TX ERROR]' : '[Approval TX]';
+  const line = `${tag} pendaftaran=${params.idPendaftaran} step=${params.step || '-'} user=${params.userName || '-'} | ${params.detail}`;
+  if (params.aksi.includes('ERROR')) {
+    console.error(line);
+  } else {
+    console.log(line);
+  }
+
+  try {
+    if (!pool) return;
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS activity_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        timestamp DATETIME,
+        ip_address VARCHAR(45),
+        user_id INT,
+        user_name VARCHAR(150),
+        user_role VARCHAR(50),
+        modul VARCHAR(100),
+        aksi VARCHAR(50),
+        keterangan TEXT
+      )`
+    );
+    await pool.query(
+      `INSERT INTO activity_logs (timestamp, ip_address, user_id, user_name, user_role, modul, aksi, keterangan)
+       VALUES (NOW(), ?, NULL, ?, ?, 'Approval Pendaftaran', ?, ?)`,
+      [
+        params.ipAddress || '-',
+        params.userName || 'Admin',
+        params.userRole || 'Admin',
+        params.aksi,
+        `[Pendaftaran #${params.idPendaftaran}${params.step ? ` @ ${params.step}` : ''}] ${params.detail}`,
+      ]
+    );
+  } catch (logErr: any) {
+    console.warn('[Approval TX] Gagal menyimpan log ke activity_logs:', logErr?.message || logErr);
+  }
+}
+
+let activityLogsSchemaChecked = false;
+async function ensureActivityLogsTable(connOrPool: any) {
+  if (activityLogsSchemaChecked) return;
+  await connOrPool.query(
+    `CREATE TABLE IF NOT EXISTS activity_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      ip_address VARCHAR(45),
+      user_id INT NULL,
+      user_name VARCHAR(150),
+      user_role VARCHAR(50),
+      modul VARCHAR(100),
+      aksi VARCHAR(50),
+      target_id VARCHAR(64) NULL,
+      target_nama VARCHAR(180) NULL,
+      keterangan TEXT
+    )`
+  );
+  // Upgrade legacy activity_logs tables safely if target_id / target_nama columns do not exist yet
+  try {
+    const [cols]: [any[], any] = await connOrPool.query(`SHOW COLUMNS FROM activity_logs`);
+    const colNames = new Set((cols || []).map((c: any) => String(c.Field || '').toLowerCase()));
+    if (!colNames.has('target_id')) {
+      await connOrPool.query(`ALTER TABLE activity_logs ADD COLUMN target_id VARCHAR(64) NULL AFTER aksi`);
+    }
+    if (!colNames.has('target_nama')) {
+      await connOrPool.query(`ALTER TABLE activity_logs ADD COLUMN target_nama VARCHAR(180) NULL AFTER target_id`);
+    }
+  } catch (alterErr: any) {
+    console.warn('[ActivityLog] Skip alter activity_logs:', alterErr?.message || alterErr);
+  }
+  activityLogsSchemaChecked = true;
+}
+
+async function resolveActorFromRequest(req: express.Request): Promise<{
+  userId: number | null;
+  userName: string;
+  userRole: string;
+  ipAddress: string;
+}> {
+  const rawUserId = (req.headers['x-user-id'] || '').toString().trim();
+  const parsedUserId = /^\d+$/.test(rawUserId) ? Number(rawUserId) : null;
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || 'Admin').toString().trim() || 'Admin';
+  let userName = (req.headers['x-user-name'] || '').toString().trim();
+  const forwarded = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+  const ipAddress = forwarded || req.socket?.remoteAddress || '-';
+
+  if (!userName && parsedUserId !== null && pool) {
+    try {
+      const [rows]: [any[], any] = await pool.query(
+        'SELECT nama, username FROM users WHERE id_user = ? LIMIT 1',
+        [parsedUserId]
+      );
+      if (rows && rows.length > 0) {
+        userName = rows[0].nama || rows[0].username || '';
+      }
+    } catch (_) {
+      // ignore lookup error
+    }
+  }
+
+  return {
+    userId: parsedUserId,
+    userName: userName || userRole.replace(/_/g, ' '),
+    userRole,
+    ipAddress,
+  };
+}
+
+async function logMemberActivity(
+  req: express.Request,
+  params: {
+    idAnggota: string | number;
+    targetNama?: string | null;
+    modul: string;
+    aksi: 'TAMBAH' | 'EDIT' | 'HAPUS' | 'APPROVE' | 'REJECT' | 'STATUS_KTA' | 'IMPORT';
+    keterangan: string;
+  }
+) {
+  try {
+    if (!pool) return;
+    await ensureActivityLogsTable(pool);
+    const actor = await resolveActorFromRequest(req);
+    const targetIdStr = String(params.idAnggota);
+    let targetNama = (params.targetNama || '').trim();
+
+    if (!targetNama && /^\d+$/.test(targetIdStr)) {
+      try {
+        const [rows]: [any[], any] = await pool.query(
+          'SELECT nama_lengkap FROM anggota WHERE id_anggota = ? LIMIT 1',
+          [Number(targetIdStr)]
+        );
+        if (rows && rows.length > 0) {
+          targetNama = rows[0].nama_lengkap || '';
+        }
+      } catch (_) {}
+    }
+
+    await pool.query(
+      `INSERT INTO activity_logs (timestamp, ip_address, user_id, user_name, user_role, modul, aksi, target_id, target_nama, keterangan)
+       VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        actor.ipAddress,
+        actor.userId,
+        actor.userName,
+        actor.userRole,
+        params.modul,
+        params.aksi,
+        targetIdStr,
+        targetNama || null,
+        params.keterangan,
+      ]
+    );
+  } catch (err: any) {
+    console.warn('[MemberActivity] Gagal mencatat log aktivitas anggota:', err?.message || err);
+  }
+}
+
+// Fetch Member-Specific Activity History
+app.get('/api/anggota/:id/activity', async (req, res) => {
+  const { id } = req.params;
+  const nikQuery = (req.query.nik || '').toString().trim();
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
+
+  let conn;
+  try {
+    if (!pool) throw new Error('Pool not ready');
+    conn = await pool.getConnection();
+    await ensureActivityLogsTable(conn);
+
+    const numericId = isValidInt32Id(id);
+    let memberRow: any = null;
+    if (numericId !== null) {
+      const [mRows]: [any[], any] = await conn.query(
+        'SELECT id_anggota, nik, nama_lengkap, created_at, updated_at FROM anggota WHERE id_anggota = ? LIMIT 1',
+        [numericId]
+      );
+      if (mRows.length > 0) memberRow = mRows[0];
+    }
+
+    const effectiveId = memberRow ? String(memberRow.id_anggota) : String(id);
+    const effectiveNik = nikQuery || (memberRow?.nik ? String(memberRow.nik) : '');
+
+    // Build flexible matching conditions for both structured target_id logs and legacy keterangan logs
+    const conditions: string[] = [
+      'target_id = ?',
+      'keterangan LIKE ?',
+      'keterangan LIKE ?',
+      'keterangan LIKE ?',
+    ];
+    const queryParams: any[] = [
+      effectiveId,
+      `%id_anggota=${effectiveId}%`,
+      `%ID ${effectiveId}%`,
+      `%#${effectiveId}%`,
+    ];
+
+    if (effectiveNik && effectiveNik.length >= 8) {
+      conditions.push('keterangan LIKE ?');
+      queryParams.push(`%${effectiveNik}%`);
+    }
+
+    const [logRows]: [any[], any] = await conn.query(
+      `SELECT id, timestamp, ip_address, user_id, user_name, user_role, modul, aksi, target_id, target_nama, keterangan
+       FROM activity_logs
+       WHERE ${conditions.join(' OR ')}
+       ORDER BY timestamp DESC, id DESC
+       LIMIT ?`,
+      [...queryParams, limit]
+    );
+
+    const logs = (logRows || []).map((row: any) => ({
+      id: `db_${row.id}`,
+      timestamp: row.timestamp ? new Date(row.timestamp).toISOString() : new Date().toISOString(),
+      ip_address: row.ip_address || '-',
+      user_id: row.user_id || 0,
+      user_name: row.user_name || 'Administrator',
+      user_role: row.user_role || 'Admin',
+      modul: row.modul || 'Data Induk Anggota',
+      aksi: row.aksi || 'EDIT',
+      target_id: row.target_id || effectiveId,
+      target_nama: row.target_nama || memberRow?.nama_lengkap || '',
+      deskripsi: row.keterangan || '',
+      source: 'database',
+    }));
+
+    conn.release();
+    return res.json({
+      success: true,
+      id_anggota: effectiveId,
+      member_meta: memberRow
+        ? {
+            created_at: memberRow.created_at ? new Date(memberRow.created_at).toISOString() : null,
+            updated_at: memberRow.updated_at ? new Date(memberRow.updated_at).toISOString() : null,
+          }
+        : null,
+      logs,
+    });
+  } catch (err: any) {
+    if (conn) conn.release();
+    console.error('[GET /api/anggota/:id/activity] Error:', err);
+    return res.status(500).json({ success: false, error: err.message, logs: [] });
+  }
+});
+
 function generateServerNIPD(params: {
   tanggal_lahir?: string;
   tmt_jabatan?: string;
@@ -1834,6 +2367,14 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
 
     await conn.commit();
     conn.release();
+
+    await logMemberActivity(req, {
+      idAnggota: newIdAnggota,
+      targetNama: (anggota.nama_lengkap || '').trim().toUpperCase(),
+      modul: 'Data Induk Anggota',
+      aksi: 'TAMBAH',
+      keterangan: `Mendaftarkan anggota baru "${(anggota.nama_lengkap || '').trim().toUpperCase()}" (NIK: ${anggota.nik}${keanggotaan?.no_kta ? `, No. KTA: ${keanggotaan.no_kta}` : ''}).`,
+    });
 
     return res.json({
       success: true,
@@ -2028,6 +2569,16 @@ app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, re
       }
     }
 
+    // Fetch existing member snapshot before update to log specific modified fields
+    const [beforeRows]: [any[], any] = await conn.query(
+      `SELECT a.*, kp.jabatan_pengurus AS current_jabatan_pengurus
+       FROM anggota a
+       LEFT JOIN keanggotaan_ppdi kp ON kp.id_anggota = a.id_anggota
+       WHERE a.id_anggota = ? LIMIT 1`,
+      [numericId]
+    );
+    const beforeMember = beforeRows?.[0] || null;
+
     await conn.query(
       `UPDATE anggota SET
         nik = COALESCE(?, nik),
@@ -2089,6 +2640,48 @@ app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, re
     }
 
     conn.release();
+
+    // Build human-readable diff summary of modified profile fields
+    const changedParts: string[] = [];
+    const norm = (v: any) => (v === null || v === undefined ? '' : String(v).trim());
+    if (beforeMember) {
+      const fieldChecks: Array<[string, any, any]> = [
+        ['Nama', beforeMember.nama_lengkap, data.nama_lengkap ? data.nama_lengkap.trim().toUpperCase() : undefined],
+        ['NIK', beforeMember.nik, data.nik],
+        ['NIAP/NIPD', beforeMember.nipd, data.nipd || data.niap_nipd || data.niap],
+        ['Gelar Depan', beforeMember.gelar_depan, data.gelar_depan],
+        ['Gelar Belakang', beforeMember.gelar_belakang, data.gelar_belakang],
+        ['Tempat Lahir', beforeMember.tempat_lahir, data.tempat_lahir],
+        ['Tanggal Lahir', beforeMember.tanggal_lahir ? String(beforeMember.tanggal_lahir).slice(0, 10) : '', data.tanggal_lahir ? String(data.tanggal_lahir).slice(0, 10) : undefined],
+        ['Pendidikan', beforeMember.pendidikan_terakhir, data.pendidikan_terakhir],
+        ['No. HP/WA', beforeMember.no_hp_wa, data.no_hp_wa],
+        ['Email', beforeMember.email, data.email],
+        ['Alamat', beforeMember.alamat_rumah, data.alamat_rumah],
+        ['Status Pernikahan', beforeMember.status_pernikahan, data.status_pernikahan],
+        ['Jabatan Pengurus PPDI', beforeMember.current_jabatan_pengurus, effectiveJabatanPengurus],
+      ];
+      for (const [label, oldVal, newVal] of fieldChecks) {
+        if (newVal !== undefined && norm(oldVal) !== norm(newVal)) {
+          changedParts.push(`${label} (${norm(oldVal) || '-'} → ${norm(newVal) || '-'})`);
+        }
+      }
+      if (data.foto && norm(data.foto) !== norm(beforeMember.foto)) {
+        changedParts.push('Foto Profil diperbarui');
+      }
+    }
+    const targetName = (data.nama_lengkap ? data.nama_lengkap.trim().toUpperCase() : beforeMember?.nama_lengkap) || `Anggota #${numericId}`;
+    const changeDetail = changedParts.length > 0
+      ? `Perubahan profil anggota "${targetName}": ${changedParts.join('; ')}.`
+      : `Memperbarui profil & biodata anggota "${targetName}" (NIK: ${data.nik || beforeMember?.nik || '-'}).`;
+
+    await logMemberActivity(req, {
+      idAnggota: numericId,
+      targetNama: targetName,
+      modul: 'Profil Anggota',
+      aksi: 'EDIT',
+      keterangan: changeDetail,
+    });
+
     return res.json({ success: true, message: 'Data anggota dan jabatan kepengurusan PPDI berhasil diperbarui di MySQL' });
   } catch (err: any) {
     if (conn) conn.release();
@@ -2214,7 +2807,24 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
       ]
     );
 
+    let namaJabatan = `Jabatan #${id_jabatan || 2}`;
+    let namaDesa = validDesaId;
+    try {
+      const [jRows]: [any[], any] = await conn.query('SELECT nama_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1', [id_jabatan || 2]);
+      if (jRows?.[0]?.nama_jabatan) namaJabatan = jRows[0].nama_jabatan;
+      const [dRows]: [any[], any] = await conn.query('SELECT nama_desa FROM ref_desa WHERE id_desa = ? LIMIT 1', [validDesaId]);
+      if (dRows?.[0]?.nama_desa) namaDesa = `Desa ${dRows[0].nama_desa}`;
+    } catch (_) {}
+
     conn.release();
+
+    await logMemberActivity(req, {
+      idAnggota: id_anggota,
+      modul: 'Riwayat Jabatan & SK',
+      aksi: 'TAMBAH',
+      keterangan: `Menambahkan SK/Mutasi jabatan baru: ${namaJabatan} di ${namaDesa} (No. SK: ${no_sk_pengangkatan || '-'}, TMT: ${tmt_jabatan || '-'}, Status: ${status_aktif || 'Aktif'})${keterangan ? ` — ${keterangan}` : ''}.`,
+    });
+
     return res.json({ success: true, id_riwayat: rwInsertRes.insertId, message: 'Riwayat mutasi/jabatan berhasil disimpan di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2229,8 +2839,26 @@ app.put('/api/riwayat/:id/status', requirePermission('anggota', 'edit'), async (
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
+    const [existingRows]: [any[], any] = await conn.query(
+      `SELECT r.id_anggota, r.status_aktif, r.no_sk_pengangkatan, j.nama_jabatan
+       FROM riwayat_jabatan r
+       LEFT JOIN ref_jabatan j ON j.id_jabatan = r.id_jabatan
+       WHERE r.id_riwayat = ? LIMIT 1`,
+      [id]
+    );
+    const prevRow = existingRows?.[0] || null;
     await conn.query('UPDATE riwayat_jabatan SET status_aktif = ? WHERE id_riwayat = ?', [status_aktif, id]);
     conn.release();
+
+    if (prevRow?.id_anggota) {
+      await logMemberActivity(req, {
+        idAnggota: prevRow.id_anggota,
+        modul: 'Status Jabatan',
+        aksi: 'EDIT',
+        keterangan: `Mengubah status jabatan ${prevRow.nama_jabatan || 'Perangkat Desa'} (SK: ${prevRow.no_sk_pengangkatan || '-'}): ${prevRow.status_aktif || '-'} → ${status_aktif}.`,
+      });
+    }
+
     return res.json({ success: true, message: 'Status jabatan diperbarui di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2246,6 +2874,12 @@ app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, re
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
     await ensureSignatureColumns(conn);
+
+    const [prevRows]: [any[], any] = await conn.query(
+      `SELECT r.*, j.nama_jabatan FROM riwayat_jabatan r LEFT JOIN ref_jabatan j ON j.id_jabatan = r.id_jabatan WHERE r.id_riwayat = ? LIMIT 1`,
+      [id]
+    );
+    const prevRow = prevRows?.[0] || null;
 
     let validDesaId = null;
     if (id_desa) {
@@ -2275,7 +2909,42 @@ app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, re
       WHERE id_riwayat = ?`,
       [validDesaId, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, savedTtdPath, id]
     );
+
+    let newJabatanName = prevRow?.nama_jabatan || '';
+    if (id_jabatan) {
+      try {
+        const [jRows]: [any[], any] = await conn.query('SELECT nama_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1', [id_jabatan]);
+        if (jRows?.[0]?.nama_jabatan) newJabatanName = jRows[0].nama_jabatan;
+      } catch (_) {}
+    }
+
     conn.release();
+
+    if (prevRow?.id_anggota) {
+      const diffs: string[] = [];
+      if (id_jabatan && Number(id_jabatan) !== Number(prevRow.id_jabatan)) {
+        diffs.push(`Jabatan (${prevRow.nama_jabatan || prevRow.id_jabatan} → ${newJabatanName || id_jabatan})`);
+      }
+      if (no_sk_pengangkatan && no_sk_pengangkatan !== prevRow.no_sk_pengangkatan) {
+        diffs.push(`No. SK (${prevRow.no_sk_pengangkatan || '-'} → ${no_sk_pengangkatan})`);
+      }
+      if (status_aktif && status_aktif !== prevRow.status_aktif) {
+        diffs.push(`Status (${prevRow.status_aktif || '-'} → ${status_aktif})`);
+      }
+      if (tmt_jabatan && String(tmt_jabatan).slice(0, 10) !== String(prevRow.tmt_jabatan || '').slice(0, 10)) {
+        diffs.push(`TMT (${String(prevRow.tmt_jabatan || '-').slice(0, 10)} → ${String(tmt_jabatan).slice(0, 10)})`);
+      }
+      await logMemberActivity(req, {
+        idAnggota: prevRow.id_anggota,
+        modul: 'Riwayat Jabatan & SK',
+        aksi: 'EDIT',
+        keterangan:
+          diffs.length > 0
+            ? `Memperbarui data SK/Jabatan: ${diffs.join('; ')}.`
+            : `Memperbarui detail riwayat jabatan ${newJabatanName || 'Perangkat Desa'} (SK: ${no_sk_pengangkatan || prevRow.no_sk_pengangkatan || '-'}).`,
+      });
+    }
+
     return res.json({ success: true, message: 'Riwayat jabatan berhasil diperbarui di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2289,8 +2958,26 @@ app.delete('/api/riwayat/:id', requirePermission('anggota', 'delete'), async (re
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
+    const [prevRows]: [any[], any] = await conn.query(
+      `SELECT r.id_anggota, r.no_sk_pengangkatan, j.nama_jabatan
+       FROM riwayat_jabatan r
+       LEFT JOIN ref_jabatan j ON j.id_jabatan = r.id_jabatan
+       WHERE r.id_riwayat = ? LIMIT 1`,
+      [id]
+    );
+    const prevRow = prevRows?.[0] || null;
     await conn.query('DELETE FROM riwayat_jabatan WHERE id_riwayat = ?', [id]);
     conn.release();
+
+    if (prevRow?.id_anggota) {
+      await logMemberActivity(req, {
+        idAnggota: prevRow.id_anggota,
+        modul: 'Riwayat Jabatan & SK',
+        aksi: 'HAPUS',
+        keterangan: `Menghapus riwayat jabatan ${prevRow.nama_jabatan || 'Perangkat Desa'} (No. SK: ${prevRow.no_sk_pengangkatan || '-'}).`,
+      });
+    }
+
     return res.json({ success: true, message: 'Riwayat jabatan berhasil dihapus dari MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2307,8 +2994,23 @@ app.put('/api/kta/:idAnggota/status', requirePermission('ekta', 'edit'), async (
   try {
     if (!pool) throw new Error('Pool not ready');
     const conn = await pool.getConnection();
+    const [prevRows]: [any[], any] = await conn.query(
+      'SELECT status_kta, no_kta FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
+      [idAnggota]
+    );
+    const prevKta = prevRows?.[0] || null;
     await conn.query('UPDATE keanggotaan_ppdi SET status_kta = ? WHERE id_anggota = ?', [dbStatusKta, idAnggota]);
     conn.release();
+
+    const prevStatusLabel =
+      prevKta?.status_kta === 'Approved' ? 'Aktif' : prevKta?.status_kta === 'Pending_Verifikasi' ? 'Pending' : prevKta?.status_kta || '-';
+    await logMemberActivity(req, {
+      idAnggota,
+      modul: 'Keanggotaan & E-KTA',
+      aksi: 'STATUS_KTA',
+      keterangan: `Mengubah status keabsahan E-KTA${prevKta?.no_kta ? ` (${prevKta.no_kta})` : ''}: ${prevStatusLabel} → ${status_kta}.`,
+    });
+
     return res.json({ success: true, message: 'Status KTA diperbarui di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2326,9 +3028,10 @@ app.put('/api/kta/:idAnggota/jabatan-pengurus', requirePermission('anggota', 'ed
     const conn = await pool.getConnection();
 
     const [existingPpdi]: [any[], any] = await conn.query(
-      'SELECT id_ppdi FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
+      'SELECT id_ppdi, jabatan_pengurus FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
       [idAnggota]
     );
+    const prevRole = existingPpdi?.[0]?.jabatan_pengurus || 'Anggota Biasa';
 
     if (existingPpdi.length > 0) {
       await conn.query(
@@ -2345,6 +3048,14 @@ app.put('/api/kta/:idAnggota/jabatan-pengurus', requirePermission('anggota', 'ed
     }
 
     conn.release();
+
+    await logMemberActivity(req, {
+      idAnggota,
+      modul: 'Keanggotaan & E-KTA',
+      aksi: 'EDIT',
+      keterangan: `Mengubah jabatan kepengurusan PPDI: ${prevRole} → ${val}.`,
+    });
+
     return res.json({ success: true, message: 'Jabatan kepengurusan PPDI berhasil diperbarui di MySQL' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -3302,16 +4013,32 @@ app.post('/api/pendaftaran', async (req, res) => {
 app.put('/api/pendaftaran/:id/approve', async (req, res) => {
   const { id } = req.params;
   const { approved_by, no_kta_custom } = req.body;
+  const clientIp =
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    '-';
+  const userRole = String(req.headers['x-user-role'] || req.headers['user-role'] || 'Admin').trim();
+  const approverName = String(approved_by || 'Admin Kabupaten').trim();
 
-  let conn;
+  let conn: any;
+  let txStep = 'init_connection';
   try {
     if (!pool) throw new Error('Pool not ready');
     conn = await pool.getConnection();
+
+    txStep = 'ensure_int11_schema';
     await ensureAnggotaIntSchema(conn);
+
+    txStep = 'fetch_pendaftaran';
+    const parsedPendaftaranId = isValidInt32Id(id);
+    if (parsedPendaftaranId === null) {
+      conn.release();
+      return res.status(400).json({ success: false, message: `ID pendaftaran tidak valid: ${id}` });
+    }
 
     const [rows]: [any[], any] = await conn.query(
       'SELECT * FROM pendaftaran_perangkat_desa WHERE id_pendaftaran = ? LIMIT 1',
-      [id]
+      [parsedPendaftaranId]
     );
     if (rows.length === 0) {
       conn.release();
@@ -3324,17 +4051,29 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Pendaftaran ini sudah disetujui sebelumnya' });
     }
 
+    // Ensure signature columns exist BEFORE beginTransaction (DDL triggers implicit commit in MySQL/MariaDB)
+    txStep = 'ensure_signature_columns';
+    await ensureSignatureColumns(conn);
+
+    txStep = 'begin_transaction';
     await conn.beginTransaction();
 
     // Check if NIK already exists in anggota table
+    txStep = 'check_existing_anggota';
+    const cleanNik = String(p.nik || '').trim();
     const [existingAng]: [any[], any] = await conn.query(
       'SELECT id_anggota, nama_lengkap FROM anggota WHERE nik = ? LIMIT 1',
-      [p.nik]
+      [cleanNik]
     );
 
     let effectiveIdAnggota: number;
-    const nipdVal = `NIPD.${p.nik.slice(-6)}`;
+    let effectiveIdRiwayat: number | null = null;
+    let effectiveIdPpdi: number | null = null;
+
+    const nipdVal = `NIPD.${cleanNik.slice(-6)}`;
+    txStep = 'resolve_foreign_keys';
     const validDesaId = await resolveDesaId(conn, p.id_desa);
+    const validJabatanId = await resolveJabatanId(conn, p.id_jabatan);
 
     const safeTglLahir = p.tanggal_lahir
       ? (p.tanggal_lahir instanceof Date ? p.tanggal_lahir.toISOString().slice(0, 10) : String(p.tanggal_lahir).slice(0, 10))
@@ -3346,9 +4085,40 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       ? (p.tmt_jabatan instanceof Date ? p.tmt_jabatan.toISOString().slice(0, 10) : String(p.tmt_jabatan).slice(0, 10))
       : new Date().toISOString().split('T')[0];
 
+    // Prevent VARCHAR(255) overflow if registration record contains inline base64 data URL
+    let safeFotoPath: string | null = p.foto || null;
+    if (safeFotoPath && safeFotoPath.startsWith('data:')) {
+      try {
+        safeFotoPath = saveBase64UploadToDisk('foto', safeFotoPath, 'pendaftaran_foto.jpg', cleanNik).url;
+      } catch (_) {
+        safeFotoPath = null;
+      }
+    } else if (safeFotoPath && safeFotoPath.length > 255) {
+      safeFotoPath = safeFotoPath.slice(0, 255);
+    }
+
+    let safeFileSkPath: string | null = p.file_sk || null;
+    if (safeFileSkPath && safeFileSkPath.startsWith('data:')) {
+      try {
+        safeFileSkPath = saveBase64UploadToDisk('sk', safeFileSkPath, 'pendaftaran_sk.pdf', cleanNik).url;
+      } catch (_) {
+        safeFileSkPath = null;
+      }
+    } else if (safeFileSkPath && safeFileSkPath.length > 255) {
+      safeFileSkPath = safeFileSkPath.slice(0, 255);
+    }
+
+    const normalizedGender = p.jenis_kelamin === 'P' ? 'P' : 'L';
+    const normalizedNama = String(p.nama_lengkap || '').trim().toUpperCase();
+
     if (existingAng.length > 0) {
-      effectiveIdAnggota = Number(existingAng[0].id_anggota);
-      // Update existing member record
+      txStep = 'update_existing_anggota';
+      const parsedExistingId = isValidInt32Id(existingAng[0].id_anggota);
+      if (parsedExistingId === null) {
+        throw new Error(`Nilai id_anggota eksisting tidak valid sebagai INT(11): ${existingAng[0].id_anggota}`);
+      }
+      effectiveIdAnggota = parsedExistingId;
+
       await conn.query(
         `UPDATE anggota SET
           nama_lengkap = ?,
@@ -3366,71 +4136,76 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
           status_pernikahan = COALESCE(?, status_pernikahan)
          WHERE id_anggota = ?`,
         [
-          p.nama_lengkap.trim().toUpperCase(),
+          normalizedNama,
           p.gelar_depan || null,
           p.gelar_belakang || null,
           p.tempat_lahir || 'Bandung',
           safeTglLahir,
-          p.jenis_kelamin || 'L',
+          normalizedGender,
           p.agama || 'Islam',
           p.pendidikan_terakhir || 'S1',
-          p.no_hp_wa,
-          p.email,
-          p.foto || null,
+          p.no_hp_wa || '-',
+          p.email || null,
+          safeFotoPath,
           p.alamat_rumah || 'Kabupaten Bandung',
           p.status_pernikahan || 'Kawin',
           effectiveIdAnggota,
         ]
       );
     } else {
+      txStep = 'insert_new_anggota';
       const [angInsertRes]: [any, any] = await conn.query(
         `INSERT INTO anggota (nik, nipd, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama, pendidikan_terakhir, no_hp_wa, email, foto, alamat_rumah, status_pernikahan)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          p.nik,
+          cleanNik,
           nipdVal,
-          p.nama_lengkap.trim().toUpperCase(),
+          normalizedNama,
           p.gelar_depan || null,
           p.gelar_belakang || null,
           p.tempat_lahir || 'Bandung',
           safeTglLahir,
-          p.jenis_kelamin || 'L',
+          normalizedGender,
           p.agama || 'Islam',
           p.pendidikan_terakhir || 'S1',
-          p.no_hp_wa,
+          p.no_hp_wa || '-',
           p.email || null,
-          p.foto || null,
+          safeFotoPath,
           p.alamat_rumah || 'Kabupaten Bandung',
           p.status_pernikahan || 'Kawin',
         ]
       );
       effectiveIdAnggota = Number(angInsertRes.insertId);
+      if (!Number.isSafeInteger(effectiveIdAnggota) || effectiveIdAnggota <= 0) {
+        throw new Error(`Gagal memperoleh INT(11) AUTO_INCREMENT id_anggota baru (insertId=${angInsertRes.insertId})`);
+      }
     }
 
-    await ensureSignatureColumns(conn);
-
-    // 2. Insert or update riwayat_jabatan
+    // 2. Insert or update riwayat_jabatan (id_riwayat is INT(11) AUTO_INCREMENT — omitted on INSERT)
+    txStep = 'upsert_riwayat_jabatan';
     const [existingRw]: [any[], any] = await conn.query(
       'SELECT id_riwayat FROM riwayat_jabatan WHERE id_anggota = ? AND status_aktif = "Aktif" LIMIT 1',
       [effectiveIdAnggota]
     );
 
     if (existingRw.length === 0) {
-      await conn.query(
+      const [rwInsertRes]: [any, any] = await conn.query(
         `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan)
          VALUES (?, ?, ?, ?, ?, ?, 'Aktif', ?, ?)`,
         [
           effectiveIdAnggota,
           validDesaId,
-          p.id_jabatan || 1,
+          validJabatanId,
           p.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
           safeTglSk,
           safeTmt,
-          p.file_sk || null,
+          safeFileSkPath,
           p.tanda_tangan || null,
         ]
       );
+      effectiveIdRiwayat = Number(rwInsertRes.insertId);
     } else {
+      effectiveIdRiwayat = Number(existingRw[0].id_riwayat);
       await conn.query(
         `UPDATE riwayat_jabatan SET
           id_desa = ?,
@@ -3443,18 +4218,19 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
          WHERE id_riwayat = ?`,
         [
           validDesaId,
-          p.id_jabatan || 1,
+          validJabatanId,
           p.no_sk_pengangkatan || null,
           safeTglSk,
           safeTmt,
-          p.file_sk || null,
+          safeFileSkPath,
           p.tanda_tangan || null,
-          existingRw[0].id_riwayat,
+          effectiveIdRiwayat,
         ]
       );
     }
 
-    // 3. Generate Unique KTA & Insert/Update keanggotaan_ppdi and anggota
+    // 3. Generate Unique KTA & Insert/Update keanggotaan_ppdi (id_ppdi is INT(11) AUTO_INCREMENT — omitted on INSERT)
+    txStep = 'upsert_keanggotaan_ppdi';
     const [existingKta]: [any[], any] = await conn.query(
       'SELECT id_ppdi, no_kta FROM keanggotaan_ppdi WHERE id_anggota = ? LIMIT 1',
       [effectiveIdAnggota]
@@ -3465,16 +4241,18 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     let finalNomorUrut: number;
 
     if (existingKta.length > 0) {
+      effectiveIdPpdi = Number(existingKta[0].id_ppdi);
       finalKta = existingKta[0].no_kta;
       const ktaParts = finalKta.split('.');
       finalKecCode = ktaParts.length >= 3 ? `32.04.${ktaParts[2]}` : (p.id_kecamatan || '32.04.05');
       finalNomorUrut = ktaParts.length >= 5 ? parseInt(ktaParts[4], 10) || 1 : 1;
 
       await conn.query(
-        'UPDATE keanggotaan_ppdi SET status_kta = "Aktif", jabatan_pengurus = COALESCE(?, jabatan_pengurus) WHERE id_anggota = ?',
-        [p.jabatan_pengurus || null, effectiveIdAnggota]
+        'UPDATE keanggotaan_ppdi SET status_kta = "Aktif", jabatan_pengurus = COALESCE(?, jabatan_pengurus) WHERE id_ppdi = ?',
+        [p.jabatan_pengurus || null, effectiveIdPpdi]
       );
     } else {
+      txStep = 'generate_unique_kta';
       const ktaResult = await generateUniqueKTA(
         conn,
         p.id_kecamatan || validDesaId,
@@ -3485,10 +4263,9 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       finalKecCode = ktaResult.kodeKecamatan;
       finalNomorUrut = ktaResult.nomorUrut;
 
-      // Check if applicant is Kepala Desa
       const [jabatanInfo]: [any[], any] = await conn.query(
         'SELECT nama_jabatan, kategori_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1',
-        [p.id_jabatan || 1]
+        [validJabatanId]
       );
       const isKades = jabatanInfo.length > 0 && (
         jabatanInfo[0].kategori_jabatan === 'Kepala Desa' ||
@@ -3501,46 +4278,94 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
         effectiveJabatanPengurus = 'Anggota Istimewa';
       }
 
-      await conn.query(
+      txStep = 'insert_keanggotaan_ppdi';
+      const [ppdiInsertRes]: [any, any] = await conn.query(
         `INSERT INTO keanggotaan_ppdi (id_anggota, no_kta, tgl_bergabung, jabatan_pengurus, status_kta)
          VALUES (?, ?, CURDATE(), ?, 'Aktif')`,
         [effectiveIdAnggota, finalKta, effectiveJabatanPengurus]
       );
+      effectiveIdPpdi = Number(ppdiInsertRes.insertId);
+      if (!Number.isSafeInteger(effectiveIdPpdi) || effectiveIdPpdi <= 0) {
+        throw new Error(`Gagal memperoleh INT(11) AUTO_INCREMENT id_ppdi baru (insertId=${ppdiInsertRes.insertId})`);
+      }
     }
 
     // Sync kode_kecamatan, nomor_urut, and no_kta to anggota table
+    txStep = 'sync_anggota_kta_columns';
     try {
       await conn.query(
         `UPDATE anggota SET kode_kecamatan = ?, nomor_urut = ?, no_kta = ? WHERE id_anggota = ?`,
         [finalKecCode, finalNomorUrut, finalKta, effectiveIdAnggota]
       );
-    } catch (_) {}
+    } catch (syncErr: any) {
+      console.warn(`[Approval TX WARN] pendaftaran=${parsedPendaftaranId} gagal sync kolom KTA ke anggota:`, syncErr?.message);
+    }
 
     // 4. Update status pendaftaran to Disetujui
-    await conn.query(
+    txStep = 'update_pendaftaran_status';
+    const [updPendaftaranRes]: [any, any] = await conn.query(
       `UPDATE pendaftaran_perangkat_desa SET
         status_approval = 'Disetujui',
         tgl_approval = NOW(),
         approved_by = ?
        WHERE id_pendaftaran = ?`,
-      [approved_by || 'Admin Kabupaten', id]
+      [approverName, parsedPendaftaranId]
     );
+    if (!updPendaftaranRes || updPendaftaranRes.affectedRows === 0) {
+      throw new Error(`Gagal memperbarui status pendaftaran_perangkat_desa untuk id_pendaftaran=${parsedPendaftaranId}`);
+    }
 
+    txStep = 'commit_transaction';
     await conn.commit();
     conn.release();
+    conn = null;
+
+    await logApprovalTransaction({
+      ipAddress: clientIp,
+      userName: approverName,
+      userRole,
+      aksi: 'APPROVE_SUCCESS',
+      idPendaftaran: parsedPendaftaranId,
+      step: 'completed',
+      detail: `Disetujui: ${normalizedNama} (NIK: ${cleanNik}) -> id_anggota=${effectiveIdAnggota}, id_riwayat=${effectiveIdRiwayat}, id_ppdi=${effectiveIdPpdi}, no_kta=${finalKta}`,
+    });
 
     return res.json({
       success: true,
-      message: `Pendaftaran atas nama ${p.nama_lengkap.toUpperCase()} berhasil disetujui! Telah diterbitkan ke Data Induk Anggota dengan No. KTA ${finalKta}`,
+      message: `Pendaftaran atas nama ${normalizedNama} berhasil disetujui! Telah diterbitkan ke Data Induk Anggota dengan No. KTA ${finalKta}`,
+      nama_lengkap: normalizedNama,
       id_anggota: effectiveIdAnggota,
+      id_riwayat: effectiveIdRiwayat,
+      id_ppdi: effectiveIdPpdi,
       no_kta: finalKta,
     });
   } catch (err: any) {
     if (conn) {
       try { await conn.rollback(); } catch (_) {}
-      conn.release();
+      try { conn.release(); } catch (_) {}
     }
-    return res.status(500).json({ success: false, message: err.message, error: err.message });
+    const sqlCode = err?.code || 'UNKNOWN';
+    const sqlErrno = err?.errno ?? '-';
+    const sqlMsg = err?.sqlMessage || err?.message || 'Terjadi kesalahan sistem saat menyetujui pendaftaran';
+    const detailedMsg = `[Step: ${txStep}] [${sqlCode}/${sqlErrno}] ${sqlMsg}`;
+
+    await logApprovalTransaction({
+      ipAddress: clientIp,
+      userName: approverName,
+      userRole,
+      aksi: 'APPROVE_ERROR',
+      idPendaftaran: id,
+      step: txStep,
+      detail: detailedMsg,
+    });
+
+    return res.status(500).json({
+      success: false,
+      step: txStep,
+      code: sqlCode,
+      message: `Gagal menyetujui pendaftaran pada tahap "${txStep}": ${sqlMsg}`,
+      error: detailedMsg,
+    });
   }
 });
 

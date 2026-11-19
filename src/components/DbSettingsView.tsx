@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { safeFetchJson } from '../utils/ppdiHelpers';
-import { Database, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, Server, Layers, KeyRound, Plus, Edit2, Trash2, X, Search, Check } from 'lucide-react';
+import { Database, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, Server, Layers, KeyRound, Plus, Edit2, Trash2, X, Search, Check, HardDrive, Download, ShieldCheck } from 'lucide-react';
 
 export const DbSettingsView: React.FC = () => {
   const { dbStatus, checkDbStatus, initDbTables, setIsDbModalOpen, resetAllData } = usePPDI();
@@ -9,6 +9,24 @@ export const DbSettingsView: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [initMsg, setInitMsg] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Database Backup Status State
+  const [backupLog, setBackupLog] = useState<{
+    timestamp: string;
+    filename: string;
+    fileSize: number;
+    status: 'SUCCESS' | 'ERROR' | string;
+    message: string;
+  } | null>(null);
+  const [backupFilesCount, setBackupFilesCount] = useState<number>(0);
+  const [isLoadingBackupStatus, setIsLoadingBackupStatus] = useState<boolean>(false);
+  const [isTriggeringBackup, setIsTriggeringBackup] = useState<boolean>(false);
+  const [backupActionMsg, setBackupActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Schema & Foreign Key Diagnostic State
+  const [schemaDiag, setSchemaDiag] = useState<any | null>(null);
+  const [isLoadingDiag, setIsLoadingDiag] = useState<boolean>(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
 
   // CRUD State for Database Tables
   const [selectedTable, setSelectedTable] = useState<string>('ref_kecamatan');
@@ -21,6 +39,73 @@ export const DbSettingsView: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<any | null>(null);
   const [formData, setFormData] = useState<{ [key: string]: string }>({});
+
+  const fetchBackupStatus = async () => {
+    try {
+      setIsLoadingBackupStatus(true);
+      const res = await safeFetchJson('/api/database/backup/status');
+      const data = res.data;
+      if (res.ok && data?.success) {
+        setBackupLog(data.lastLog || null);
+        setBackupFilesCount(data.filesCount || 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch backup status:', err);
+    } finally {
+      setIsLoadingBackupStatus(false);
+    }
+  };
+
+  const handleTriggerBackupNow = async () => {
+    try {
+      setIsTriggeringBackup(true);
+      setBackupActionMsg(null);
+      const res = await safeFetchJson('/api/database/backup', { method: 'POST' });
+      const data = res.data;
+      if (res.ok && data?.success) {
+        setBackupActionMsg({
+          type: 'success',
+          text: `Backup database berhasil dibuat! File: ${data.filename} (${(data.fileSize / 1024 / 1024).toFixed(2)} MB)`,
+        });
+        await fetchBackupStatus();
+      } else {
+        setBackupActionMsg({
+          type: 'error',
+          text: data?.error || data?.message || res.error || 'Gagal memproses backup database',
+        });
+      }
+    } catch (err: any) {
+      setBackupActionMsg({
+        type: 'error',
+        text: err.message || 'Koneksi gagal saat memproses backup',
+      });
+    } finally {
+      setIsTriggeringBackup(false);
+    }
+  };
+
+  const fetchSchemaDiagnostic = async () => {
+    try {
+      setIsLoadingDiag(true);
+      setDiagError(null);
+      const res = await safeFetchJson('/api/db/schema-diagnostic');
+      const data = res.data;
+      if (res.ok && data?.success) {
+        setSchemaDiag(data);
+      } else {
+        setDiagError(data?.error || data?.message || res.error || 'Gagal menjalankan diagnostik skema');
+      }
+    } catch (err: any) {
+      setDiagError(err.message || 'Gagal menghubungi endpoint diagnostik');
+    } finally {
+      setIsLoadingDiag(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackupStatus();
+    fetchSchemaDiagnostic();
+  }, []);
 
   const tablesList = [
     { name: 'ref_kecamatan', label: 'Master Kecamatan (ref_kecamatan)', isView: false },
@@ -287,36 +372,311 @@ export const DbSettingsView: React.FC = () => {
         </div>
       )}
 
-      {/* Card: Reset Data Demo & Sandbox Simulation */}
-      <div className="bg-white border border-rose-200/90 rounded-xl p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-rose-50/40 via-white to-amber-50/20">
-        <div className="flex items-start gap-3.5">
-          <div className="p-2.5 bg-rose-100 text-rose-800 rounded-xl border border-rose-200 shrink-0">
-            <RotateCcw className="w-5 h-5 text-rose-700" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-xs font-bold text-neutral-900 uppercase font-mono tracking-wider">
-                Reset Data Demo Sistem
-              </h3>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 font-mono">
-                Dataset Simulasi
-              </span>
+      {/* ------------------------------------------------------------- */}
+      {/* PANEL STATUS LOG BACKUP DATABASE OTOMATIS HARIAN             */}
+      {/* ------------------------------------------------------------- */}
+      <section
+        aria-label="Status Backup Database"
+        className="bg-white border border-neutral-200 rounded-2xl p-3.5 sm:p-4.5 shadow-xs space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-100">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Database className="w-5 h-5" />
             </div>
-            <p className="text-xs text-neutral-600 mt-1 leading-relaxed max-w-2xl font-mono">
-              Kembalikan seluruh data master (anggota perangkat desa, riwayat SK pengangkatan, formulir pendaftaran online, iuran kas, dan akun pengguna) ke kondisi awal demo simulasi PPDI Kabupaten Bandung.
-            </p>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
+                  Status Backup Database Otomatis Harian
+                </h2>
+                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                  Auto-Scheduler Aktif
+                </span>
+                {backupLog?.status === 'SUCCESS' && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[10px] font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Dump Terakhir Sukses
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-500 mt-0.5 leading-relaxed">
+                Pencadangan harian otomatis skema &amp; seluruh data tabel MySQL/MariaDB ke server lokal dengan dump SQL aman.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={fetchBackupStatus}
+              disabled={isLoadingBackupStatus}
+              title="Perbarui status log backup"
+              className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingBackupStatus ? 'animate-spin text-blue-600' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={handleTriggerBackupNow}
+              disabled={isTriggeringBackup}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+            >
+              {isTriggeringBackup ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Mencadangkan...</span>
+                </>
+              ) : (
+                <>
+                  <HardDrive className="w-3.5 h-3.5" />
+                  <span>Backup Sekarang</span>
+                </>
+              )}
+            </button>
+            <a
+              href="/api/database/backup/download"
+              download
+              className="px-3 py-1.5 rounded-lg border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Unduh file dump SQL terakhir langsung ke perangkat Anda"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-600" />
+              <span>Unduh Dump SQL</span>
+            </a>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleResetDemo}
-          disabled={isResetting}
-          className="flex items-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer uppercase shrink-0 shadow-xs disabled:opacity-50 font-mono"
-        >
-          <RotateCcw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
-          <span>{isResetting ? 'Sedang Mereset Data...' : 'Reset Data Demo'}</span>
-        </button>
-      </div>
+
+        {backupActionMsg && (
+          <div
+            className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+              backupActionMsg.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : 'bg-red-50 text-red-900 border-red-200'
+            }`}
+          >
+            <span>{backupActionMsg.text}</span>
+            <button
+              type="button"
+              onClick={() => setBackupActionMsg(null)}
+              className="text-neutral-400 hover:text-neutral-700 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Waktu Backup Terakhir</span>
+            <span className="text-xs sm:text-[13px] font-bold text-neutral-900 mt-1 block">
+              {backupLog?.timestamp
+                ? new Date(backupLog.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB'
+                : 'Belum Pernah'}
+            </span>
+          </div>
+
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">File Dump SQL</span>
+            <span className="text-xs sm:text-[13px] font-mono font-semibold text-neutral-900 mt-1 block truncate" title={backupLog?.filename || '-'}>
+              {backupLog?.filename || '-'}
+            </span>
+          </div>
+
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Ukuran File Dump</span>
+            <span className="text-xs sm:text-[13px] font-bold text-neutral-900 mt-1 block">
+              {backupLog?.fileSize
+                ? `${(backupLog.fileSize / 1024 / 1024).toFixed(2)} MB (${backupLog.fileSize.toLocaleString('id-ID')} bytes)`
+                : '-'}
+            </span>
+          </div>
+
+          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Total Arsip Tersimpan</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xs sm:text-[13px] font-bold text-neutral-900">
+                {backupFilesCount} File SQL
+              </span>
+              <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                Tersinkron
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- */}
+      {/* PANEL DIAGNOSTIK SKEMA INT(11), FOREIGN KEY & LOG APPROVAL    */}
+      {/* ------------------------------------------------------------- */}
+      <section
+        aria-label="Diagnostik Skema Database"
+        className="bg-white border border-neutral-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-100">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#064E3B] text-amber-300 flex items-center justify-center shrink-0 shadow-2xs">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
+                  Diagnostik Skema INT(11), Foreign Key &amp; Approval
+                </h2>
+                {schemaDiag && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full font-mono text-[10px] font-bold border ${
+                      schemaDiag.healthy
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-red-50 text-red-800 border-red-200'
+                    }`}
+                  >
+                    {schemaDiag.healthy ? 'Skema Valid & Konsisten' : 'Perlu Perbaikan Skema'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                Verifikasi tipe data INT(11) AUTO_INCREMENT pada id_anggota, id_riwayat, dan id_ppdi serta relasi Foreign Key saat proses approval pendaftaran.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchSchemaDiagnostic}
+            disabled={isLoadingDiag}
+            className="px-3.5 py-2 rounded-lg bg-[#064E3B] hover:bg-[#043d2e] disabled:bg-neutral-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shrink-0 shadow-2xs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDiag ? 'animate-spin' : ''}`} />
+            <span>{isLoadingDiag ? 'Memeriksa...' : 'Cek Diagnostik Skema'}</span>
+          </button>
+        </div>
+
+        {diagError && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{diagError}</span>
+          </div>
+        )}
+
+        {schemaDiag && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {(schemaDiag.autoIncChecks || []).map((item: any) => (
+                <div key={item.table} className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-mono font-bold text-neutral-800 truncate">{item.table}</span>
+                    <span
+                      className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                        item.ok ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {item.ok ? 'OK' : 'WARN'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-neutral-600 font-mono">
+                    PK: <b>{item.pk}</b> · Baris: <b>{item.totalRows}</b>
+                  </div>
+                  <div className="text-[10px] text-neutral-500 font-mono">
+                    MAX: {item.maxId} · NEXT AI: {item.autoIncrementNext ?? '-'}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Key Columns INT(11) Status */}
+              <div className="border border-neutral-200 rounded-xl overflow-hidden">
+                <div className="px-3.5 py-2 bg-neutral-50 border-b border-neutral-200 text-xs font-bold text-neutral-800 flex items-center justify-between">
+                  <span>Verifikasi Kolom Kunci INT(11)</span>
+                  <span className="font-mono text-[10px] text-neutral-500">
+                    {(schemaDiag.keyColumnsCheck || []).filter((c: any) => c.ok).length}/{(schemaDiag.keyColumnsCheck || []).length} Valid
+                  </span>
+                </div>
+                <div className="divide-y divide-neutral-100 text-xs">
+                  {(schemaDiag.keyColumnsCheck || []).map((col: any) => (
+                    <div key={`${col.table}.${col.column}`} className="px-3.5 py-2 flex items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] text-neutral-800">
+                        {col.table}.<b>{col.column}</b>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-neutral-500">
+                          {col.columnType || 'MISSING'} {col.extra ? `(${col.extra})` : ''}
+                        </span>
+                        {col.ok ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Foreign Keys & Orphan Check */}
+              <div className="border border-neutral-200 rounded-xl overflow-hidden flex flex-col justify-between">
+                <div>
+                  <div className="px-3.5 py-2 bg-neutral-50 border-b border-neutral-200 text-xs font-bold text-neutral-800 flex items-center justify-between">
+                    <span>Relasi Foreign Key &amp; Integritas Data</span>
+                    <span className="font-mono text-[10px] text-emerald-700">
+                      {schemaDiag.foreignKeysCount || 0} FK · {(schemaDiag.fkIssues || []).length} Konflik
+                    </span>
+                  </div>
+                  <div className="divide-y divide-neutral-100 text-xs">
+                    {(schemaDiag.foreignKeys || []).map((fk: any) => (
+                      <div key={fk.CONSTRAINT_NAME} className="px-3.5 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <span className="font-mono text-[11px] text-neutral-800">
+                          {fk.child_table}.{fk.child_column} &rarr; {fk.parent_table}.{fk.parent_column}
+                        </span>
+                        <span className="font-mono text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 w-fit">
+                          {fk.child_column_type} = {fk.parent_column_type}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="px-3.5 py-2.5 bg-neutral-50 border-t border-neutral-200 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono text-neutral-600">
+                  <span>Orphan Riwayat: <b>{schemaDiag.orphanChecks?.riwayat_missing_anggota ?? 0}</b></span>
+                  <span>Orphan KTA: <b>{schemaDiag.orphanChecks?.keanggotaan_missing_anggota ?? 0}</b></span>
+                  <span>Orphan Desa: <b>{schemaDiag.orphanChecks?.riwayat_missing_desa ?? 0}</b></span>
+                  <span>Orphan Jabatan: <b>{schemaDiag.orphanChecks?.riwayat_missing_jabatan ?? 0}</b></span>
+                </div>
+              </div>
+            </div>
+
+            {Array.isArray(schemaDiag.recentApprovalLogs) && schemaDiag.recentApprovalLogs.length > 0 && (
+              <div className="border border-neutral-200 rounded-xl overflow-hidden">
+                <div className="px-3.5 py-2 bg-neutral-50 border-b border-neutral-200 text-xs font-bold text-neutral-800">
+                  Log Transaksi Approval Pendaftaran Terbaru
+                </div>
+                <div className="divide-y divide-neutral-100 max-h-44 overflow-y-auto text-[11px]">
+                  {schemaDiag.recentApprovalLogs.map((log: any) => (
+                    <div key={log.id} className="px-3.5 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold shrink-0 ${
+                            String(log.aksi || '').includes('ERROR')
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {log.aksi}
+                        </span>
+                        <span className="text-neutral-700 truncate" title={log.keterangan}>
+                          {log.keterangan}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10px] text-neutral-400 shrink-0">
+                        {log.timestamp ? new Date(log.timestamp).toLocaleString('id-ID') : '-'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* CRUD Database Table Explorer Section */}
       <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">

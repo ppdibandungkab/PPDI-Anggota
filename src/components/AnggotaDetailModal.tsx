@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, StatusAktifJabatan, StatusKTA } from '../types/ppdi';
-import { formatDateIndo, formatRupiah, formatNIPDDisplay } from '../utils/ppdiHelpers';
+import { formatDateIndo, formatRupiah, formatNIPDDisplay, safeFetchJson } from '../utils/ppdiHelpers';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
+import {
+  buildMemberVCard,
+  generateRawVCardQrDataUrl,
+  composeVCardQrCardPng,
+  buildSafeFileSlug,
+} from '../utils/vcardHelpers';
 import {
   X,
   User,
@@ -10,20 +16,35 @@ import {
   CreditCard,
   Wallet,
   FileText,
-  ClockAlert,
   Phone,
   Mail,
   MapPin,
-  Calendar,
-  Building,
-  CheckCircle,
   Plus,
-  ExternalLink,
-  Printer,
   Download,
   RefreshCw,
+  History,
+  QrCode,
+  Copy,
+  Check,
+  Clock,
+  ShieldCheck,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { exportMemberProfileToPDF } from '../utils/pdfProfileExport';
+
+interface MemberActivityItem {
+  id: string;
+  timestamp: string;
+  sortTime: number;
+  user_name: string;
+  user_role: string;
+  modul: string;
+  aksi: string;
+  deskripsi: string;
+  source: 'database' | 'local' | 'milestone';
+}
 
 interface AnggotaDetailModalProps {
   member: AnggotaFullDetail | null;
@@ -48,12 +69,192 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     updateRiwayatStatus,
     updateKTAStatus,
     updateKeanggotaanJabatan,
+    activityLogs,
     currentUser,
     hasPermission,
   } = usePPDI();
 
-  const [activeTab, setActiveTab] = useState<'bio' | 'karir' | 'kta' | 'iuran' | 'dokumen'>('bio');
+  const [activeTab, setActiveTab] = useState<'bio' | 'karir' | 'kta' | 'iuran' | 'dokumen' | 'aktivitas'>('bio');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  // Member Activity History state
+  const [serverActivityLogs, setServerActivityLogs] = useState<MemberActivityItem[]>([]);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityFilter, setActivityFilter] = useState<'all' | 'profil' | 'jabatan' | 'kta'>('all');
+
+  // vCard QR Code generator modal state
+  const [showQrPanel, setShowQrPanel] = useState(false);
+  const [qrRawDataUrl, setQrRawDataUrl] = useState<string>('');
+  const [vcardText, setVcardText] = useState<string>('');
+  const [isGeneratingQr, setIsGeneratingQr] = useState(false);
+  const [isDownloadingQrCard, setIsDownloadingQrCard] = useState(false);
+  const [showRawVcard, setShowRawVcard] = useState(false);
+  const [copiedVcard, setCopiedVcard] = useState(false);
+
+  const memberId = member?.anggota.id_anggota ? String(member.anggota.id_anggota) : '';
+  const memberNik = member?.anggota.nik ? String(member.anggota.nik) : '';
+
+  const parseTimestampMs = (raw?: string | null): number => {
+    if (!raw) return 0;
+    const direct = Date.parse(raw);
+    if (!Number.isNaN(direct)) return direct;
+    // Handle id-ID locale format like "19/11/2026, 07.42.10"
+    const m = String(raw).match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})[,\s]+(\d{1,2})[\.:](\d{2})(?:[\.:](\d{2}))?/);
+    if (m) {
+      const [, dd, mm, yyyy, hh, mi, ss] = m;
+      const dt = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(mi), Number(ss || 0));
+      return dt.getTime();
+    }
+    return 0;
+  };
+
+  const formatActivityTimestamp = (raw?: string | null): string => {
+    if (!raw) return '-';
+    const ms = parseTimestampMs(raw);
+    if (!ms) return raw;
+    return new Date(ms).toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const fetchMemberActivity = useCallback(async () => {
+    if (!memberId) return;
+    setIsLoadingActivity(true);
+    setActivityError(null);
+    try {
+      const url = `/api/anggota/${encodeURIComponent(memberId)}/activity${
+        memberNik ? `?nik=${encodeURIComponent(memberNik)}` : ''
+      }`;
+      const res = await safeFetchJson<{ logs?: any[] }>(url);
+      if (res.ok && res.data?.success !== false && Array.isArray(res.data?.logs)) {
+        const mapped: MemberActivityItem[] = res.data.logs.map((row: any) => ({
+          id: String(row.id || `db_${Math.random().toString(36).slice(2)}`),
+          timestamp: row.timestamp || new Date().toISOString(),
+          sortTime: parseTimestampMs(row.timestamp),
+          user_name: row.user_name || 'Administrator',
+          user_role: row.user_role || 'Admin',
+          modul: row.modul || 'Data Induk Anggota',
+          aksi: String(row.aksi || 'EDIT').toUpperCase(),
+          deskripsi: row.deskripsi || row.keterangan || '-',
+          source: 'database',
+        }));
+        setServerActivityLogs(mapped);
+      } else {
+        setServerActivityLogs([]);
+        if (res.error) setActivityError(res.error);
+      }
+    } catch (err: any) {
+      setActivityError(err?.message || 'Gagal memuat log aktivitas dari server');
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, [memberId, memberNik]);
+
+  // Reset modal sub-states when member changes or closes
+  useEffect(() => {
+    if (!isOpen || !member) {
+      setShowQrPanel(false);
+      setShowRawVcard(false);
+      setCopiedVcard(false);
+      setActionFeedback(null);
+      return;
+    }
+    setActiveTab('bio');
+    setActivityFilter('all');
+    setShowQrPanel(false);
+    setShowRawVcard(false);
+    setQrRawDataUrl('');
+    setVcardText('');
+    setNewDesa(member.jabatanTerkini?.id_desa || '32.04.05.2001');
+    setNewJabatan(member.jabatanTerkini?.id_jabatan || 2);
+  }, [isOpen, memberId]);
+
+  // Fetch activity logs whenever the user opens the Riwayat Aktivitas tab
+  useEffect(() => {
+    if (isOpen && member && activeTab === 'aktivitas') {
+      fetchMemberActivity();
+    }
+  }, [isOpen, member, activeTab, fetchMemberActivity]);
+
+  // Generate vCard & QR code whenever QR panel opens for current member
+  const handleOpenQrGenerator = useCallback(async () => {
+    if (!member) return;
+    setShowQrPanel(true);
+    setShowRawVcard(false);
+    setCopiedVcard(false);
+    setIsGeneratingQr(true);
+    try {
+      const vcard = buildMemberVCard(member);
+      setVcardText(vcard);
+      const dataUrl = await generateRawVCardQrDataUrl(vcard);
+      setQrRawDataUrl(dataUrl);
+    } catch (err: any) {
+      console.error('Error generating vCard QR code:', err);
+      setActionFeedback({
+        type: 'error',
+        message: 'Gagal membuat QR Code vCard: ' + (err?.message || 'Error'),
+      });
+    } finally {
+      setIsGeneratingQr(false);
+    }
+  }, [member]);
+
+  const triggerDownload = (href: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDownloadQrCard = async () => {
+    if (!member || !qrRawDataUrl) return;
+    setIsDownloadingQrCard(true);
+    try {
+      const cardDataUrl = await composeVCardQrCardPng(qrRawDataUrl, member);
+      const slug = buildSafeFileSlug(member.anggota.nama_lengkap);
+      triggerDownload(cardDataUrl, `QR_Kontak_${slug}.png`);
+    } catch (err: any) {
+      console.error('Error downloading QR card:', err);
+      setActionFeedback({
+        type: 'error',
+        message: 'Gagal mengunduh gambar QR Code.',
+      });
+    } finally {
+      setIsDownloadingQrCard(false);
+    }
+  };
+
+  const handleDownloadRawQr = () => {
+    if (!member || !qrRawDataUrl) return;
+    const slug = buildSafeFileSlug(member.anggota.nama_lengkap);
+    triggerDownload(qrRawDataUrl, `QR_Polos_${slug}.png`);
+  };
+
+  const handleDownloadVcfFile = () => {
+    if (!member || !vcardText) return;
+    const blob = new Blob([vcardText], { type: 'text/vcard;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const slug = buildSafeFileSlug(member.anggota.nama_lengkap);
+    triggerDownload(url, `Kontak_${slug}.vcf`);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleCopyVcard = async () => {
+    if (!vcardText) return;
+    try {
+      await navigator.clipboard.writeText(vcardText);
+      setCopiedVcard(true);
+      setTimeout(() => setCopiedVcard(false), 2000);
+    } catch (_) {}
+  };
 
   const handleDownloadPDF = () => {
     if (!member) return;
@@ -62,7 +263,10 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
       exportMemberProfileToPDF(member);
     } catch (err: any) {
       console.error('Error generating member profile PDF:', err);
-      alert('Gagal membuat dokumen PDF: ' + (err.message || 'Error'));
+      setActionFeedback({
+        type: 'error',
+        message: 'Gagal membuat dokumen PDF: ' + (err.message || 'Error'),
+      });
     } finally {
       setIsExportingPDF(false);
     }
@@ -77,22 +281,134 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   const [newTmt, setNewTmt] = useState('2026-03-15');
   const [newKet, setNewKet] = useState('');
 
+  // Combined member activity logs (MySQL DB logs + matching local session logs + record milestones)
+  const combinedMemberActivities = useMemo<MemberActivityItem[]>(() => {
+    if (!member) return [];
+
+    const idStr = String(member.anggota.id_anggota);
+    const nikStr = String(member.anggota.nik || '');
+    const namaUpper = (member.anggota.nama_lengkap || '').trim().toUpperCase();
+
+    const localMatched: MemberActivityItem[] = (activityLogs || [])
+      .filter((log) => {
+        if (log.target_id && String(log.target_id) === idStr) return true;
+        if (nikStr && nikStr.length >= 8 && log.deskripsi?.includes(nikStr)) return true;
+        if (log.target_nama && namaUpper && log.target_nama.trim().toUpperCase() === namaUpper) return true;
+        return false;
+      })
+      .map((log) => ({
+        id: log.id,
+        timestamp: log.timestamp,
+        sortTime: parseTimestampMs(log.timestamp),
+        user_name: log.user_name || 'Administrator',
+        user_role: String(log.user_role || 'Admin'),
+        modul: log.modul || 'Data Induk Anggota',
+        aksi: String(log.aksi || 'EDIT').toUpperCase(),
+        deskripsi: log.deskripsi || '-',
+        source: 'local' as const,
+      }));
+
+    // Merge server logs first, then non-duplicate local logs
+    const merged: MemberActivityItem[] = [...serverActivityLogs];
+    for (const loc of localMatched) {
+      const isDuplicate = merged.some(
+        (srv) =>
+          srv.aksi === loc.aksi &&
+          Math.abs(srv.sortTime - loc.sortTime) < 15000 &&
+          (srv.deskripsi.toLowerCase().includes(loc.deskripsi.slice(0, 28).toLowerCase()) ||
+            loc.deskripsi.toLowerCase().includes(srv.deskripsi.slice(0, 28).toLowerCase()))
+      );
+      if (!isDuplicate) {
+        merged.push(loc);
+      }
+    }
+
+    // Add foundational database record milestones (registration, SK appointments, KTA issuance)
+    // so members with historical records also have clear baseline traceability.
+    const milestones: MemberActivityItem[] = [];
+    if (member.anggota.created_at) {
+      milestones.push({
+        id: `ms_created_${idStr}`,
+        timestamp: member.anggota.created_at,
+        sortTime: parseTimestampMs(member.anggota.created_at),
+        user_name: 'Sistem PPDI',
+        user_role: 'Database',
+        modul: 'Data Induk Anggota',
+        aksi: 'TERCATAT',
+        deskripsi: `Data induk anggota "${member.anggota.nama_lengkap.toUpperCase()}" (NIK: ${member.anggota.nik}) mulai tercatat di basis data PPDI.`,
+        source: 'milestone',
+      });
+    }
+    if (member.keanggotaan?.tgl_bergabung) {
+      milestones.push({
+        id: `ms_kta_${member.keanggotaan.id_ppdi}`,
+        timestamp: member.keanggotaan.tgl_bergabung,
+        sortTime: parseTimestampMs(member.keanggotaan.tgl_bergabung),
+        user_name: 'Sistem E-KTA',
+        user_role: 'Keanggotaan',
+        modul: 'Keanggotaan & E-KTA',
+        aksi: 'TERCATAT',
+        deskripsi: `Keanggotaan PPDI tercatat dengan No. KTA ${member.keanggotaan.no_kta || '-'} (${member.keanggotaan.jabatan_pengurus || 'Anggota Biasa'}, Status: ${member.keanggotaan.status_kta}).`,
+        source: 'milestone',
+      });
+    }
+    const memberRwList = riwayatList.filter((r) => String(r.id_anggota) === idStr);
+    for (const rw of memberRwList) {
+      const jab = jabatanList.find((j) => Number(j.id_jabatan) === Number(rw.id_jabatan));
+      const d = desaList.find((x) => String(x.id_desa) === String(rw.id_desa));
+      const ts = rw.created_at || rw.tgl_sk_pengangkatan || rw.tmt_jabatan || '';
+      milestones.push({
+        id: `ms_rw_${rw.id_riwayat}`,
+        timestamp: ts,
+        sortTime: parseTimestampMs(ts),
+        user_name: 'Arsip SK Jabatan',
+        user_role: 'Rekam Jejak',
+        modul: 'Riwayat Jabatan & SK',
+        aksi: 'TERCATAT',
+        deskripsi: `Tercatat sebagai ${jab?.nama_jabatan || `Jabatan #${rw.id_jabatan}`} ${d ? `Desa ${d.nama_desa}` : ''} — No. SK: ${rw.no_sk_pengangkatan || '-'} (TMT: ${formatDateIndo(rw.tmt_jabatan)}, Status: ${rw.status_aktif}).`,
+        source: 'milestone',
+      });
+    }
+
+    const allItems = [...merged, ...milestones];
+    allItems.sort((a, b) => b.sortTime - a.sortTime);
+    return allItems;
+  }, [member, serverActivityLogs, activityLogs, riwayatList, jabatanList, desaList]);
+
+  const filteredMemberActivities = useMemo(() => {
+    if (activityFilter === 'all') return combinedMemberActivities;
+    return combinedMemberActivities.filter((item) => {
+      const mod = item.modul.toLowerCase();
+      const desc = item.deskripsi.toLowerCase();
+      if (activityFilter === 'profil') {
+        return mod.includes('profil') || mod.includes('data induk') || mod.includes('pendaftaran');
+      }
+      if (activityFilter === 'jabatan') {
+        return mod.includes('jabatan') || mod.includes('sk') || desc.includes('jabatan') || desc.includes('sk');
+      }
+      if (activityFilter === 'kta') {
+        return mod.includes('kta') || mod.includes('keanggotaan') || item.aksi === 'STATUS_KTA';
+      }
+      return true;
+    });
+  }, [combinedMemberActivities, activityFilter]);
+
   if (!isOpen || !member) return null;
 
   const memberRiwayats = riwayatList.filter((r) => r.id_anggota === member.anggota.id_anggota);
   const memberIurans = iuranList.filter((i) => i.id_anggota === member.anggota.id_anggota);
 
-  const handleCreateNewRiwayat = (e: React.FormEvent) => {
+  const handleCreateNewRiwayat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNoSk.trim()) return;
 
     // Set old active to Mutasi
     const oldActive = memberRiwayats.find((r) => r.status_aktif === 'Aktif');
     if (oldActive) {
-      updateRiwayatStatus(oldActive.id_riwayat, 'Mutasi');
+      await updateRiwayatStatus(oldActive.id_riwayat, 'Mutasi');
     }
 
-    addRiwayatJabatan({
+    await addRiwayatJabatan({
       id_anggota: member.anggota.id_anggota,
       id_desa: newDesa,
       id_jabatan: Number(newJabatan),
@@ -107,6 +423,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     setShowAddRiwayat(false);
     setNewNoSk('');
     setNewKet('');
+    fetchMemberActivity();
   };
 
   const fullNameWithTitles = (
@@ -147,6 +464,14 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
+              onClick={handleOpenQrGenerator}
+              title="Buat & Unduh QR Code Kontak (vCard) Anggota"
+              className="px-3 py-1.5 text-xs font-semibold text-neutral-800 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <QrCode className="w-3.5 h-3.5 text-emerald-700" />
+              <span>QR Kontak (vCard)</span>
+            </button>
+            <button
               onClick={handleDownloadPDF}
               disabled={isExportingPDF}
               title="Unduh Profil Resmi & Biodata Anggota Format PDF"
@@ -178,14 +503,38 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
           </div>
         </div>
 
+        {/* Inline Feedback Banner */}
+        {actionFeedback && (
+          <div
+            className={`px-6 py-2 text-xs flex items-center justify-between border-b ${
+              actionFeedback.type === 'error'
+                ? 'bg-red-50 text-red-800 border-red-200'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>{actionFeedback.message}</span>
+            </div>
+            <button
+              onClick={() => setActionFeedback(null)}
+              className="p-0.5 hover:opacity-75 cursor-pointer"
+              aria-label="Tutup pesan"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Tab Navigation */}
-        <div className="flex items-center gap-1 px-6 pt-2 border-b border-neutral-200 bg-white text-xs">
+        <div className="flex items-center gap-1 px-6 pt-2 border-b border-neutral-200 bg-white text-xs overflow-x-auto whitespace-nowrap">
           {[
             { id: 'bio', label: 'Biodata & Identitas', icon: User },
             { id: 'karir', label: `Rekam Jejak SK (${memberRiwayats.length})`, icon: Briefcase },
             { id: 'kta', label: 'Keanggotaan PPDI', icon: CreditCard },
             { id: 'iuran', label: `Histori Iuran (${memberIurans.length})`, icon: Wallet },
             { id: 'dokumen', label: 'e-Arsip Berkas SK', icon: FileText },
+            { id: 'aktivitas', label: 'Riwayat Aktivitas', icon: History },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -193,7 +542,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 font-medium border-b-2 cursor-pointer transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-2.5 font-medium border-b-2 cursor-pointer transition-colors shrink-0 ${
                   isActive
                     ? 'border-emerald-700 text-emerald-800 font-semibold'
                     : 'border-transparent text-neutral-500 hover:text-neutral-900'
@@ -253,9 +602,19 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                 </div>
 
                 <div className="p-4 rounded-xl border border-neutral-200 space-y-3">
-                  <h3 className="font-bold text-neutral-900 uppercase tracking-wider text-[11px] pb-1 border-b border-neutral-100">
-                    Kontak & Alamat Domisili
-                  </h3>
+                  <div className="flex items-center justify-between pb-1 border-b border-neutral-100">
+                    <h3 className="font-bold text-neutral-900 uppercase tracking-wider text-[11px]">
+                      Kontak & Alamat Domisili
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={handleOpenQrGenerator}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 hover:underline cursor-pointer"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Bagikan vCard QR</span>
+                    </button>
+                  </div>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Phone className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -497,9 +856,10 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                           <select
                             aria-label="Ubah Status Jabatan"
                             value={rw.status_aktif}
-                            onChange={(e) =>
-                              updateRiwayatStatus(rw.id_riwayat, e.target.value as StatusAktifJabatan)
-                            }
+                            onChange={async (e) => {
+                              await updateRiwayatStatus(rw.id_riwayat, e.target.value as StatusAktifJabatan);
+                              fetchMemberActivity();
+                            }}
                             className="text-[11px] bg-neutral-50 border border-neutral-200 rounded px-2 py-1"
                           >
                             <option value="Aktif">Aktif</option>
@@ -586,9 +946,10 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         <select
                           aria-label="Ubah Jabatan Pengurus PPDI"
                           value={member.keanggotaan?.jabatan_pengurus || 'Anggota Biasa'}
-                          onChange={(e) =>
-                            updateKeanggotaanJabatan(member.anggota.id_anggota, e.target.value)
-                          }
+                          onChange={async (e) => {
+                            await updateKeanggotaanJabatan(member.anggota.id_anggota, e.target.value);
+                            fetchMemberActivity();
+                          }}
                           className="text-xs bg-neutral-50 border border-neutral-300 rounded px-2 py-1 font-semibold text-neutral-900"
                         >
                           {(() => {
@@ -626,9 +987,10 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         <select
                           aria-label="Ubah Status KTA"
                           value={member.keanggotaan?.status_kta || 'Aktif'}
-                          onChange={(e) =>
-                            updateKTAStatus(member.anggota.id_anggota, e.target.value as StatusKTA)
-                          }
+                          onChange={async (e) => {
+                            await updateKTAStatus(member.anggota.id_anggota, e.target.value as StatusKTA);
+                            fetchMemberActivity();
+                          }}
                           className="text-xs bg-neutral-50 border border-neutral-300 rounded px-2 py-1"
                         >
                           <option value="Aktif">Aktif</option>
@@ -781,22 +1143,157 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               </div>
             </div>
           )}
+          {/* TAB 6: RIWAYAT AKTIVITAS ANGGOTA */}
+          {activeTab === 'aktivitas' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-200">
+                <div>
+                  <h3 className="font-bold text-neutral-900 flex items-center gap-1.5">
+                    <History className="w-4 h-4 text-emerald-700" />
+                    <span>Riwayat Aktivitas & Perubahan Data Anggota</span>
+                  </h3>
+                  <p className="text-[11px] text-neutral-500 mt-0.5">
+                    Log kronologis seluruh perubahan profil, mutasi jabatan/SK, dan pembaruan status keanggotaan
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    aria-label="Filter kategori aktivitas"
+                    value={activityFilter}
+                    onChange={(e) => setActivityFilter(e.target.value as any)}
+                    className="text-xs bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-neutral-700 font-medium"
+                  >
+                    <option value="all">Semua Aktivitas ({combinedMemberActivities.length})</option>
+                    <option value="profil">Perubahan Profil</option>
+                    <option value="jabatan">Jabatan & Mutasi SK</option>
+                    <option value="kta">Keanggotaan & E-KTA</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={fetchMemberActivity}
+                    disabled={isLoadingActivity}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingActivity ? 'animate-spin' : ''}`} />
+                    <span>Muat Ulang</span>
+                  </button>
+                </div>
+              </div>
+
+              {activityError && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Tidak dapat memuat log terbaru dari server ({activityError}). Menampilkan catatan sesi & arsip lokal.</span>
+                </div>
+              )}
+
+              {isLoadingActivity && filteredMemberActivities.length === 0 ? (
+                <div className="py-10 flex flex-col items-center justify-center text-neutral-500 gap-2">
+                  <RefreshCw className="w-5 h-5 animate-spin text-emerald-700" />
+                  <span>Mengambil riwayat aktivitas anggota...</span>
+                </div>
+              ) : filteredMemberActivities.length === 0 ? (
+                <div className="py-10 text-center border border-dashed border-neutral-300 rounded-xl bg-neutral-50 space-y-1">
+                  <History className="w-6 h-6 text-neutral-400 mx-auto" />
+                  <div className="font-semibold text-neutral-700">Belum ada catatan aktivitas untuk kategori ini</div>
+                  <div className="text-[11px] text-neutral-500">
+                    Setiap perubahan profil, status jabatan, mutasi SK, atau status KTA akan otomatis tercatat di sini.
+                  </div>
+                </div>
+              ) : (
+                <div className="relative pl-5 space-y-3 before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-neutral-200">
+                  {filteredMemberActivities.map((item) => {
+                    const badgeStyle =
+                      item.aksi === 'TAMBAH' || item.aksi === 'APPROVE'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : item.aksi === 'EDIT'
+                        ? 'bg-blue-50 text-blue-800 border-blue-200'
+                        : item.aksi === 'STATUS_KTA'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : item.aksi === 'HAPUS' || item.aksi === 'REJECT'
+                        ? 'bg-red-50 text-red-800 border-red-200'
+                        : 'bg-neutral-100 text-neutral-700 border-neutral-200';
+
+                    const dotColor =
+                      item.aksi === 'TAMBAH' || item.aksi === 'APPROVE'
+                        ? 'bg-emerald-600'
+                        : item.aksi === 'EDIT'
+                        ? 'bg-blue-600'
+                        : item.aksi === 'STATUS_KTA'
+                        ? 'bg-amber-500'
+                        : item.aksi === 'HAPUS' || item.aksi === 'REJECT'
+                        ? 'bg-red-600'
+                        : 'bg-neutral-400';
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="relative p-3.5 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50/70 transition-colors"
+                      >
+                        <span
+                          className={`absolute -left-[17px] top-4 w-2.5 h-2.5 rounded-full ring-4 ring-white ${dotColor}`}
+                        />
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2 py-0.5 rounded-sm font-bold text-[10px] border ${badgeStyle}`}>
+                              {item.aksi}
+                            </span>
+                            <span className="font-semibold text-neutral-800">{item.modul}</span>
+                            {item.source === 'milestone' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500">
+                                Arsip Data
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-neutral-500 font-mono">
+                            <Clock className="w-3 h-3 text-neutral-400" />
+                            <span>{formatActivityTimestamp(item.timestamp)}</span>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-neutral-700 leading-relaxed">{item.deskripsi}</p>
+
+                        <div className="mt-2 pt-2 border-t border-neutral-100 flex items-center justify-between text-[11px] text-neutral-500">
+                          <span className="flex items-center gap-1">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>
+                              Oleh: <strong className="text-neutral-700">{item.user_name}</strong> ({item.user_role.replace(/_/g, ' ')})
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-neutral-200 flex justify-between items-center bg-neutral-50 rounded-b-xl">
-          <button
-            onClick={handleDownloadPDF}
-            disabled={isExportingPDF}
-            className="px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-          >
-            {isExportingPDF ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-            ) : (
-              <FileText className="w-3.5 h-3.5 text-amber-300" />
-            )}
-            <span>{isExportingPDF ? 'Mencetak PDF...' : 'Cetak PDF Profil Resmi'}</span>
-          </button>
+        <div className="px-6 py-3 border-t border-neutral-200 flex justify-between items-center bg-neutral-50 rounded-b-xl gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isExportingPDF}
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+            >
+              {isExportingPDF ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <FileText className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isExportingPDF ? 'Mencetak PDF...' : 'Cetak PDF Profil Resmi'}</span>
+            </button>
+            <button
+              onClick={handleOpenQrGenerator}
+              className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-white hover:bg-emerald-50 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Generate QR Kontak</span>
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="px-4 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-200 hover:bg-neutral-300 rounded-lg cursor-pointer"
@@ -805,6 +1302,162 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* vCard QR Code Sub-Modal */}
+      {showQrPanel && (
+        <div
+          className="fixed inset-0 z-60 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowQrPanel(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-4 bg-emerald-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-emerald-800 border border-emerald-700">
+                  <QrCode className="w-4 h-4 text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold leading-tight">QR Code Kontak Anggota (vCard)</h3>
+                  <p className="text-[11px] text-emerald-200">
+                    Pindai dengan kamera ponsel untuk langsung menyimpan kontak
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQrPanel(false)}
+                className="p-1 text-emerald-200 hover:text-white rounded-lg cursor-pointer"
+                aria-label="Tutup modal QR Code"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
+              <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-xl bg-neutral-50 border border-neutral-200">
+                <div className="bg-white p-3 rounded-xl border border-neutral-200 shadow-xs shrink-0 flex items-center justify-center w-48 h-48">
+                  {isGeneratingQr || !qrRawDataUrl ? (
+                    <div className="flex flex-col items-center gap-2 text-neutral-400">
+                      <RefreshCw className="w-5 h-5 animate-spin text-emerald-700" />
+                      <span className="text-[11px]">Membuat QR...</span>
+                    </div>
+                  ) : (
+                    <img
+                      src={qrRawDataUrl}
+                      alt={`QR Code vCard ${fullNameWithTitles}`}
+                      className="w-44 h-44 object-contain"
+                    />
+                  )}
+                </div>
+
+                <div className="flex-1 space-y-2 text-left w-full">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700">
+                      Data Kontak dalam vCard 3.0
+                    </div>
+                    <div className="font-bold text-neutral-900 text-sm uppercase mt-0.5 leading-snug">
+                      {fullNameWithTitles}
+                    </div>
+                    <div className="text-[11px] text-neutral-600 mt-0.5">
+                      {member.jabatanRef?.nama_jabatan || 'Perangkat Desa'} · Desa {member.desa?.nama_desa || '-'}
+                    </div>
+                    <div className="text-[11px] text-neutral-500">
+                      Kec. {member.kecamatan?.nama_kecamatan || '-'}, Kab. Bandung
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-neutral-200 space-y-1 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-neutral-700">
+                      <Phone className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-mono">{member.anggota.no_hp_wa || '-'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-neutral-700">
+                      <Mail className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                      <span className="truncate">{member.anggota.email || '-'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-neutral-700">
+                      <CreditCard className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                      <span className="font-mono">{member.keanggotaan?.no_kta || 'KTA Pending'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Download Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadQrCard}
+                  disabled={!qrRawDataUrl || isDownloadingQrCard}
+                  className="px-3.5 py-2.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs disabled:opacity-50"
+                >
+                  {isDownloadingQrCard ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 text-amber-300" />
+                  )}
+                  <span>{isDownloadingQrCard ? 'Menyiapkan PNG...' : 'Unduh Kartu QR (PNG)'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadRawQr}
+                  disabled={!qrRawDataUrl}
+                  className="px-3.5 py-2.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <QrCode className="w-4 h-4 text-emerald-700" />
+                  <span>Unduh QR Polos (PNG)</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDownloadVcfFile}
+                  disabled={!vcardText}
+                  className="text-xs font-semibold text-neutral-700 hover:text-emerald-800 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh File Kontak (.vcf)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowRawVcard((prev) => !prev)}
+                  className="text-[11px] font-medium text-neutral-500 hover:text-neutral-800 inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <span>{showRawVcard ? 'Sembunyikan Isi vCard' : 'Lihat Isi vCard'}</span>
+                  {showRawVcard ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              {showRawVcard && (
+                <div className="rounded-xl border border-neutral-200 bg-neutral-900 text-neutral-100 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
+                      Payload vCard 3.0
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyVcard}
+                      className="inline-flex items-center gap-1 text-[11px] text-emerald-300 hover:text-emerald-200 cursor-pointer"
+                    >
+                      {copiedVcard ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedVcard ? 'Tersalin' : 'Salin'}</span>
+                    </button>
+                  </div>
+                  <pre className="text-[10px] font-mono whitespace-pre-wrap break-all leading-relaxed text-emerald-100">
+                    {vcardText}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

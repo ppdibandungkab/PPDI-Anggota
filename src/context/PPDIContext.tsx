@@ -38,6 +38,17 @@ import {
 import { decodeKtaToken } from '../utils/qrCrypto';
 import { checkUserPermission, sanitizeRolePermissions, PermissionAction } from '../utils/permissions';
 import {
+  readMemberBundleCache,
+  writeMemberBundleCache,
+  isMemberBundleCacheFresh,
+  invalidateMemberBundleCache,
+  readRefMasterCache,
+  writeRefMasterCache,
+  isRefMasterCacheFresh,
+  invalidateRefMasterCache,
+  clearAllMemberCaches,
+} from '../utils/memberCache';
+import {
   BrowserNotificationPermissionState,
   getBrowserNotificationPermission,
   requestBrowserNotificationPermission,
@@ -129,8 +140,10 @@ interface PPDIContextType {
   verifyIuran: (idIuran: string, newStatus: StatusVerifikasiIuran) => Promise<void>;
   switchUser: (userId: number) => void;
   resetAllData: () => void;
-  refreshDataFromMySQL: (options?: { silent?: boolean }) => Promise<void>;
+  refreshDataFromMySQL: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
   isSyncing: boolean;
+  memberCacheUpdatedAt: number | null;
+  invalidateMemberCache: () => void;
   
   // Authentication
   isAuthenticated: boolean;
@@ -376,29 +389,67 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (_) {}
   }, []);
 
+  const initialMemberCacheRef = useRef(readMemberBundleCache());
+  const initialRefCacheRef = useRef(readRefMasterCache());
+
+  const [memberCacheUpdatedAt, setMemberCacheUpdatedAt] = useState<number | null>(
+    () => initialMemberCacheRef.current?.updatedAt ?? null
+  );
+
   const [anggotaList, setAnggotaList] = useState<Anggota[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ANGGOTA);
-    return saved ? JSON.parse(saved) : INITIAL_ANGGOTA;
+    if (initialMemberCacheRef.current?.data.anggota.length) {
+      return initialMemberCacheRef.current.data.anggota;
+    }
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ANGGOTA);
+      return saved ? JSON.parse(saved) : INITIAL_ANGGOTA;
+    } catch (_) {
+      return INITIAL_ANGGOTA;
+    }
   });
 
   const [riwayatList, setRiwayatList] = useState<RiwayatJabatan[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.RIWAYAT);
-    return saved ? JSON.parse(saved) : INITIAL_RIWAYAT_JABATAN;
+    if (initialMemberCacheRef.current?.data.riwayat) {
+      return initialMemberCacheRef.current.data.riwayat;
+    }
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.RIWAYAT);
+      return saved ? JSON.parse(saved) : INITIAL_RIWAYAT_JABATAN;
+    } catch (_) {
+      return INITIAL_RIWAYAT_JABATAN;
+    }
   });
 
   const [keanggotaanList, setKeanggotaanList] = useState<KeanggotaanPPDI[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.KEANGGOTAAN);
-    return saved ? JSON.parse(saved) : INITIAL_KEANGGOTAAN_PPDI;
+    if (initialMemberCacheRef.current?.data.keanggotaan) {
+      return initialMemberCacheRef.current.data.keanggotaan;
+    }
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.KEANGGOTAAN);
+      return saved ? JSON.parse(saved) : INITIAL_KEANGGOTAAN_PPDI;
+    } catch (_) {
+      return INITIAL_KEANGGOTAAN_PPDI;
+    }
   });
 
   const [iuranList, setIuranList] = useState<IuranAnggota[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.IURAN);
-    return saved ? JSON.parse(saved) : INITIAL_IURAN;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.IURAN);
+      return saved ? JSON.parse(saved) : INITIAL_IURAN;
+    } catch (_) {
+      return INITIAL_IURAN;
+    }
   });
 
-  const [desaList, setDesaList] = useState<RefDesa[]>(REF_DESA);
-  const [kecamatanList, setKecamatanList] = useState<RefKecamatan[]>(REF_KECAMATAN);
-  const [jabatanList, setJabatanList] = useState<RefJabatan[]>(REF_JABATAN);
+  const [desaList, setDesaList] = useState<RefDesa[]>(
+    () => (initialRefCacheRef.current?.data.desa.length ? initialRefCacheRef.current.data.desa : REF_DESA)
+  );
+  const [kecamatanList, setKecamatanList] = useState<RefKecamatan[]>(
+    () => (initialRefCacheRef.current?.data.kecamatan.length ? initialRefCacheRef.current.data.kecamatan : REF_KECAMATAN)
+  );
+  const [jabatanList, setJabatanList] = useState<RefJabatan[]>(
+    () => (initialRefCacheRef.current?.data.jabatan.length ? initialRefCacheRef.current.data.jabatan : REF_JABATAN)
+  );
 
   const [userList, setUserList] = useState<UserAccount[]>(() => {
     const cachedUser = readCachedUserSession();
@@ -698,9 +749,16 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Fetch full live data from remote MySQL database (supports silent partial background mode)
-  const refreshDataFromMySQL = useCallback(async (options?: { silent?: boolean }) => {
+  const invalidateMemberCache = useCallback(() => {
+    invalidateMemberBundleCache();
+    invalidateRefMasterCache();
+    setMemberCacheUpdatedAt(null);
+  }, []);
+
+  // Fetch live data from remote MySQL database with TTL localStorage caching for rarely-changing member & ref data
+  const refreshDataFromMySQL = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     const isSilent = Boolean(options?.silent);
+    const shouldForce = Boolean(options?.force) || !isSilent;
 
     // Avoid disturbing focused forms/inputs or open password modal during background polling
     if (isSilent && (isUserActivelyEditingForm() || isChangePasswordOpenRef.current)) {
@@ -711,10 +769,17 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsSyncing(true);
     }
 
+    if (shouldForce) {
+      invalidateMemberBundleCache();
+    }
+
+    const skipRefFetch = !shouldForce && isRefMasterCacheFresh();
+    const skipMemberFetch = !shouldForce && isMemberBundleCacheFresh();
+
     try {
       const [refRes, angRes, iurRes, uRes, pendRes, setRes] = await Promise.allSettled([
-        safeFetchJson('/api/ref/all'),
-        safeFetchJson('/api/anggota'),
+        skipRefFetch ? Promise.resolve(null) : safeFetchJson('/api/ref/all'),
+        skipMemberFetch ? Promise.resolve(null) : safeFetchJson('/api/anggota'),
         safeFetchJson('/api/iuran'),
         safeFetchJson('/api/users'),
         safeFetchJson('/api/pendaftaran'),
@@ -739,21 +804,28 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       };
 
-      // 1. Process Master Wilayah & Jabatan
-      if (refRes.status === 'fulfilled' && refRes.value.ok && refRes.value.data?.success) {
-        if (Array.isArray(refRes.value.data.kecamatan)) {
-          updateIfChanged('kecamatan', refRes.value.data.kecamatan, setKecamatanList);
+      // 1. Process Master Wilayah & Jabatan (cached 60 min in localStorage)
+      if (refRes.status === 'fulfilled' && refRes.value && refRes.value.ok && refRes.value.data?.success) {
+        const nextKec = Array.isArray(refRes.value.data.kecamatan) ? refRes.value.data.kecamatan : [];
+        const nextDesa = Array.isArray(refRes.value.data.desa) ? refRes.value.data.desa : [];
+        const nextJab = Array.isArray(refRes.value.data.jabatan) ? refRes.value.data.jabatan : [];
+
+        if (nextKec.length > 0) {
+          updateIfChanged('kecamatan', nextKec, setKecamatanList);
         }
-        if (Array.isArray(refRes.value.data.desa)) {
-          updateIfChanged('desa', refRes.value.data.desa, setDesaList);
+        if (nextDesa.length > 0) {
+          updateIfChanged('desa', nextDesa, setDesaList);
         }
-        if (Array.isArray(refRes.value.data.jabatan)) {
-          updateIfChanged('jabatan', refRes.value.data.jabatan, setJabatanList);
+        if (nextJab.length > 0) {
+          updateIfChanged('jabatan', nextJab, setJabatanList);
+        }
+        if (nextKec.length > 0 && nextDesa.length > 0) {
+          writeRefMasterCache({ kecamatan: nextKec, desa: nextDesa, jabatan: nextJab });
         }
       }
 
-      // 2. Process Anggota, Riwayat, Keanggotaan
-      if (angRes.status === 'fulfilled' && angRes.value.ok && angRes.value.data?.success) {
+      // 2. Process Anggota, Riwayat, Keanggotaan (cached 15 min in localStorage)
+      if (angRes.status === 'fulfilled' && angRes.value && angRes.value.ok && angRes.value.data?.success) {
         const dbAnggota = (angRes.value.data.anggota || []).map((a: any) => ({
           ...a,
           id_anggota: String(a.id_anggota),
@@ -774,6 +846,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id_anggota: String(k.id_anggota),
         }));
         updateIfChanged('keanggotaan', dbKeanggotaan, setKeanggotaanList);
+
+        const ts = writeMemberBundleCache({
+          anggota: dbAnggota,
+          riwayat: dbRiwayat,
+          keanggotaan: dbKeanggotaan,
+        });
+        if (ts) {
+          setMemberCacheUpdatedAt(ts);
+        }
       }
 
       // 3. Process Iuran
@@ -1707,11 +1788,23 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sanitized = 'Anggota Istimewa';
     }
 
+    const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(idAnggota));
+    const prevRole = keanggotaanList.find((k) => String(k.id_anggota) === String(idAnggota))?.jabatan_pengurus || 'Anggota Biasa';
+
     setKeanggotaanList((prev) =>
       prev.map((k) =>
         String(k.id_anggota) === String(idAnggota) ? { ...k, jabatan_pengurus: sanitized } : k
       )
     );
+
+    addActivityLog({
+      aksi: 'EDIT',
+      modul: 'Keanggotaan & E-KTA',
+      target_id: String(idAnggota),
+      target_nama: memberRec?.nama_lengkap || String(idAnggota),
+      deskripsi: `Mengubah jabatan kepengurusan PPDI: ${prevRole} → ${sanitized}.`,
+    });
+
     try {
       await safeFetchJson(`/api/kta/${idAnggota}/jabatan-pengurus`, {
         method: 'PUT',
@@ -1766,6 +1859,17 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     setRiwayatList((prev) => [newRw, ...prev]);
 
+    const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(data.id_anggota));
+    const jabRec = jabatanList.find((j) => Number(j.id_jabatan) === Number(data.id_jabatan));
+    const desaRec = desaList.find((d) => String(d.id_desa) === String(data.id_desa));
+    addActivityLog({
+      aksi: 'TAMBAH',
+      modul: 'Riwayat Jabatan & SK',
+      target_id: String(data.id_anggota),
+      target_nama: memberRec?.nama_lengkap || String(data.id_anggota),
+      deskripsi: `Menambahkan SK/Mutasi jabatan baru: ${jabRec?.nama_jabatan || `Jabatan #${data.id_jabatan}`} di ${desaRec ? `Desa ${desaRec.nama_desa}` : data.id_desa} (No. SK: ${data.no_sk_pengangkatan || '-'}, TMT: ${data.tmt_jabatan || '-'}).`,
+    });
+
     try {
       await safeFetchJson('/api/riwayat', {
         method: 'POST',
@@ -1779,9 +1883,22 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateRiwayatJabatan = async (idRiwayat: string | number, updated: Partial<RiwayatJabatan>) => {
+    const prevRw = riwayatList.find((r) => String(r.id_riwayat) === String(idRiwayat));
     setRiwayatList((prev) =>
       prev.map((r) => (String(r.id_riwayat) === String(idRiwayat) ? { ...r, ...updated } : r))
     );
+
+    if (prevRw) {
+      const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(prevRw.id_anggota));
+      const jabRec = jabatanList.find((j) => Number(j.id_jabatan) === Number(updated.id_jabatan ?? prevRw.id_jabatan));
+      addActivityLog({
+        aksi: 'EDIT',
+        modul: 'Riwayat Jabatan & SK',
+        target_id: String(prevRw.id_anggota),
+        target_nama: memberRec?.nama_lengkap || String(prevRw.id_anggota),
+        deskripsi: `Memperbarui data SK/Jabatan ${jabRec?.nama_jabatan || 'Perangkat Desa'} (No. SK: ${updated.no_sk_pengangkatan || prevRw.no_sk_pengangkatan || '-'}).`,
+      });
+    }
 
     try {
       await safeFetchJson(`/api/riwayat/${idRiwayat}`, {
@@ -1796,7 +1913,21 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const deleteRiwayatJabatan = async (idRiwayat: string | number) => {
+    const prevRw = riwayatList.find((r) => String(r.id_riwayat) === String(idRiwayat));
     setRiwayatList((prev) => prev.filter((r) => String(r.id_riwayat) !== String(idRiwayat)));
+
+    if (prevRw) {
+      const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(prevRw.id_anggota));
+      const jabRec = jabatanList.find((j) => Number(j.id_jabatan) === Number(prevRw.id_jabatan));
+      addActivityLog({
+        aksi: 'HAPUS',
+        modul: 'Riwayat Jabatan & SK',
+        target_id: String(prevRw.id_anggota),
+        target_nama: memberRec?.nama_lengkap || String(prevRw.id_anggota),
+        deskripsi: `Menghapus riwayat jabatan ${jabRec?.nama_jabatan || 'Perangkat Desa'} (No. SK: ${prevRw.no_sk_pengangkatan || '-'}).`,
+      });
+    }
+
     try {
       await safeFetchJson(`/api/riwayat/${idRiwayat}`, { method: 'DELETE' });
       await refreshDataFromMySQL();
@@ -1806,9 +1937,22 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateRiwayatStatus = async (idRiwayat: string | number, newStatus: StatusAktifJabatan) => {
+    const prevRw = riwayatList.find((r) => String(r.id_riwayat) === String(idRiwayat));
     setRiwayatList((prev) =>
       prev.map((r) => (String(r.id_riwayat) === String(idRiwayat) ? { ...r, status_aktif: newStatus } : r))
     );
+
+    if (prevRw) {
+      const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(prevRw.id_anggota));
+      const jabRec = jabatanList.find((j) => Number(j.id_jabatan) === Number(prevRw.id_jabatan));
+      addActivityLog({
+        aksi: 'EDIT',
+        modul: 'Status Jabatan',
+        target_id: String(prevRw.id_anggota),
+        target_nama: memberRec?.nama_lengkap || String(prevRw.id_anggota),
+        deskripsi: `Mengubah status jabatan ${jabRec?.nama_jabatan || 'Perangkat Desa'} (SK: ${prevRw.no_sk_pengangkatan || '-'}): ${prevRw.status_aktif} → ${newStatus}.`,
+      });
+    }
 
     try {
       await safeFetchJson(`/api/riwayat/${idRiwayat}/status`, {
@@ -1823,15 +1967,19 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateKTAStatus = async (idAnggota: string | number, newStatus: StatusKTA) => {
+    const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(idAnggota));
+    const prevStatus = keanggotaanList.find((k) => String(k.id_anggota) === String(idAnggota))?.status_kta || '-';
+
     setKeanggotaanList((prev) =>
       prev.map((k) => (String(k.id_anggota) === String(idAnggota) ? { ...k, status_kta: newStatus } : k))
     );
 
     addActivityLog({
       aksi: 'STATUS_KTA',
-      modul: 'Status E-KTA',
+      modul: 'Keanggotaan & E-KTA',
       target_id: String(idAnggota),
-      deskripsi: `Memperbarui status E-KTA anggota ID ${idAnggota} menjadi "${newStatus}".`,
+      target_nama: memberRec?.nama_lengkap || String(idAnggota),
+      deskripsi: `Mengubah status keabsahan E-KTA: ${prevStatus} → ${newStatus}.`,
     });
 
     try {
@@ -2269,7 +2417,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(STORAGE_KEYS.KEANGGOTAAN);
     localStorage.removeItem(STORAGE_KEYS.IURAN);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
-    refreshDataFromMySQL();
+    clearAllMemberCaches();
+    setMemberCacheUpdatedAt(null);
+    refreshDataFromMySQL({ force: true });
   };
 
   const findMemberByKtaOrNik = (query: string): AnggotaFullDetail | null => {
@@ -2365,6 +2515,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resetAllData,
       refreshDataFromMySQL,
       isSyncing,
+      memberCacheUpdatedAt,
+      invalidateMemberCache,
       findMemberByKtaOrNik,
       isAuthenticated,
       login,
@@ -2418,6 +2570,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       appSettings,
       refreshDataFromMySQL,
       isSyncing,
+      memberCacheUpdatedAt,
+      invalidateMemberCache,
       isAuthenticated,
       dbStatus,
       isCheckingDb,

@@ -43,9 +43,7 @@ import {
   ShieldCheck,
   Zap,
   CalendarDays,
-  Database,
-  HardDrive,
-  RefreshCw,
+  Printer,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -114,6 +112,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     kecamatanList,
     desaList,
     iuranList,
+    activityLogs,
     setActiveTab,
     hasPermission,
     appSettings,
@@ -135,68 +134,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
   const [isQuickSkModalOpen, setIsQuickSkModalOpen] = useState<boolean>(false);
   const [reportBulan, setReportBulan] = useState<number>(() => new Date().getMonth() + 1);
   const [reportTahun, setReportTahun] = useState<number>(() => new Date().getFullYear());
-
-  // Database Backup Status State
-  const [backupLog, setBackupLog] = useState<{
-    timestamp: string;
-    filename: string;
-    fileSize: number;
-    status: 'SUCCESS' | 'ERROR' | string;
-    message: string;
-  } | null>(null);
-  const [backupFilesCount, setBackupFilesCount] = useState<number>(0);
-  const [isLoadingBackupStatus, setIsLoadingBackupStatus] = useState<boolean>(false);
-  const [isTriggeringBackup, setIsTriggeringBackup] = useState<boolean>(false);
-  const [backupActionMsg, setBackupActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const fetchBackupStatus = async () => {
-    try {
-      setIsLoadingBackupStatus(true);
-      const res = await fetch('/api/database/backup/status');
-      const data = await res.json();
-      if (data.success) {
-        setBackupLog(data.lastLog);
-        setBackupFilesCount(data.filesCount || 0);
-      }
-    } catch (err) {
-      console.error('Failed to fetch backup status:', err);
-    } finally {
-      setIsLoadingBackupStatus(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchBackupStatus();
-  }, []);
-
-  const handleTriggerBackupNow = async () => {
-    try {
-      setIsTriggeringBackup(true);
-      setBackupActionMsg(null);
-      const res = await fetch('/api/database/backup', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setBackupActionMsg({
-          type: 'success',
-          text: `Backup database berhasil dibuat! File: ${data.filename} (${(data.fileSize / 1024 / 1024).toFixed(2)} MB)`,
-        });
-        await fetchBackupStatus();
-        showActionToast('Backup Berhasil', 'Dump file database SQL harian berhasil dibuat dan tersimpan di server.');
-      } else {
-        setBackupActionMsg({
-          type: 'error',
-          text: data.error || data.message || 'Gagal memproses backup database',
-        });
-      }
-    } catch (err: any) {
-      setBackupActionMsg({
-        type: 'error',
-        text: err.message || 'Koneksi gagal saat memproses backup',
-      });
-    } finally {
-      setIsTriggeringBackup(false);
-    }
-  };
 
   const showActionToast = (title: string, message: string) => {
     setActionToast({ title, message });
@@ -525,8 +462,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
 
   const purnaTugasCount = visibleMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas').length;
 
-  // Handler untuk unduh data statistik wilayah format PDF langsung dari Dashboard
-  const handleExportRegionalStatisticsPDF = () => {
+  // Rekapitulasi Statistik Wilayah per Kecamatan (dipakai bersama untuk Ekspor PDF & Print Dashboard)
+  const wilayahStatRows = useMemo<WilayahStatRow[]>(() => {
     const cleanId = (id?: string | null) => (id ? String(id).replace(/\./g, '').trim() : '');
     const desaByKec: Record<string, Set<string>> = {};
     (desaList || []).forEach((d) => {
@@ -536,7 +473,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     });
 
     const totalCount = visibleMembers.length;
-    const rows: WilayahStatRow[] = (kecamatanList || [])
+    return (kecamatanList || [])
       .map((k) => {
         const kClean = cleanId(k.id_kecamatan);
         const kNameNorm = k.nama_kecamatan.toLowerCase().trim();
@@ -568,10 +505,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         };
       })
       .sort((a, b) => b.totalAnggota - a.totalAnggota);
+  }, [kecamatanList, desaList, visibleMembers]);
 
-    const avg = rows.length > 0 ? Number((totalCount / rows.length).toFixed(1)) : 0;
+  const recentActivitiesForPrint = useMemo(() => {
+    return (activityLogs || []).slice(0, 15);
+  }, [activityLogs]);
+
+  const recentRegistrationsForPrint = useMemo(() => {
+    return (scopedPendaftaran || []).slice(0, 10);
+  }, [scopedPendaftaran]);
+
+  const handlePrintDashboard = () => {
+    window.print();
+  };
+
+  // Handler untuk unduh data statistik wilayah format PDF langsung dari Dashboard
+  const handleExportRegionalStatisticsPDF = () => {
+    const totalCount = visibleMembers.length;
+    const avg = wilayahStatRows.length > 0 ? Number((totalCount / wilayahStatRows.length).toFixed(1)) : 0;
     const fileName = exportStatistikWilayahToPDF({
-      rows,
+      rows: wilayahStatRows,
       totalAnggotaKabupaten: totalCount,
       avgAnggotaPerKecamatan: avg,
       scopeLabel: roleScopeLabel,
@@ -630,7 +583,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="dashboard-print-root">
+      {/* ============================================================= */}
+      {/* TAMPILAN LAYAR INTERAKTIF (DISEMBUNYIKAN SAAT PRINT PDF)       */}
+      {/* ============================================================= */}
+      <div className="no-print space-y-4 sm:space-y-6">
       {/* Top Banner & Context */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3.5 sm:pb-4 border-b border-neutral-200 gap-3">
         <div>
@@ -645,6 +602,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePrintDashboard}
+            className="px-3 py-1.5 text-xs font-bold text-neutral-900 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Cetak Ringkasan Statistik Wilayah & Aktivitas Terkini ke PDF (Print)"
+          >
+            <Printer className="w-3.5 h-3.5 text-neutral-900" />
+            <span>Print Laporan</span>
+          </button>
           <button
             type="button"
             onClick={handleExportRegionalStatisticsPDF}
@@ -858,139 +824,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
                 <Download className="w-3.5 h-3.5 text-amber-300" />
                 <span>Unduh Laporan Bulanan</span>
               </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------------- */}
-      {/* PANEL STATUS LOG BACKUP DATABASE OTOMATIS HARIAN             */}
-      {/* ------------------------------------------------------------- */}
-      <section
-        aria-label="Status Backup Database"
-        className="bg-white border border-neutral-200 rounded-2xl p-3.5 sm:p-4.5 shadow-xs space-y-3.5"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-100">
-          <div className="flex items-start sm:items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
-                  Status Backup Database Otomatis Harian
-                </h2>
-                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-                  Auto-Scheduler Aktif
-                </span>
-                {backupLog?.status === 'SUCCESS' && (
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[10px] font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                    Dump Terakhir Sukses
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-neutral-500 mt-0.5 leading-relaxed">
-                Pencadangan harian otomatis skema &amp; seluruh data tabel MySQL/MariaDB ke server lokal dengan dump SQL aman.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={fetchBackupStatus}
-              disabled={isLoadingBackupStatus}
-              title="Perbarui status log backup"
-              className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingBackupStatus ? 'animate-spin text-blue-600' : ''}`} />
-            </button>
-            <button
-              type="button"
-              onClick={handleTriggerBackupNow}
-              disabled={isTriggeringBackup}
-              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
-            >
-              {isTriggeringBackup ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Mencadangkan...</span>
-                </>
-              ) : (
-                <>
-                  <HardDrive className="w-3.5 h-3.5" />
-                  <span>Backup Sekarang</span>
-                </>
-              )}
-            </button>
-            <a
-              href="/api/database/backup/download"
-              download
-              className="px-3 py-1.5 rounded-lg border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              title="Unduh file dump SQL terakhir langsung ke perangkat Anda"
-            >
-              <Download className="w-3.5 h-3.5 text-blue-600" />
-              <span>Unduh Dump SQL</span>
-            </a>
-          </div>
-        </div>
-
-        {backupActionMsg && (
-          <div
-            className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
-              backupActionMsg.type === 'success'
-                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                : 'bg-red-50 text-red-900 border-red-200'
-            }`}
-          >
-            <span>{backupActionMsg.text}</span>
-            <button
-              type="button"
-              onClick={() => setBackupActionMsg(null)}
-              className="text-neutral-400 hover:text-neutral-700 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
-            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Waktu Backup Terakhir</span>
-            <span className="text-xs sm:text-[13px] font-bold text-neutral-900 mt-1 block">
-              {backupLog?.timestamp
-                ? new Date(backupLog.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB'
-                : 'Belum Pernah'}
-            </span>
-          </div>
-
-          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
-            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">File Dump SQL</span>
-            <span className="text-xs sm:text-[13px] font-mono font-semibold text-neutral-900 mt-1 block truncate" title={backupLog?.filename || '-'}>
-              {backupLog?.filename || '-'}
-            </span>
-          </div>
-
-          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
-            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Ukuran File Dump</span>
-            <span className="text-xs sm:text-[13px] font-bold text-neutral-900 mt-1 block">
-              {backupLog?.fileSize
-                ? `${(backupLog.fileSize / 1024 / 1024).toFixed(2)} MB (${backupLog.fileSize.toLocaleString('id-ID')} bytes)`
-                : '-'}
-            </span>
-          </div>
-
-          <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
-            <span className="text-[11px] font-medium text-neutral-500 uppercase tracking-wider block">Total Arsip Tersimpan</span>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-xs sm:text-[13px] font-bold text-neutral-900">
-                {backupFilesCount} File SQL
-              </span>
-              <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                Tersinkron
-              </span>
             </div>
           </div>
         </div>
@@ -1902,6 +1735,271 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         onClose={() => setIsQuickSkModalOpen(false)}
         onNotify={(msg) => showActionToast('Verifikasi SK Diperbarui', msg)}
       />
+      </div>
+
+      {/* ============================================================= */}
+      {/* LAPORAN PRINT-FRIENDLY PDF (HANYA MUNCUL SAAT @MEDIA PRINT)    */}
+      {/* ============================================================= */}
+      <article className="hidden print:block dashboard-print-report">
+        {/* Kop Laporan Resmi */}
+        <header className="pb-3 mb-4 border-b-2 border-[#064E3B] flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={appSettings?.logoUrl || '/logo_kabupaten_bandung.svg'}
+              alt="Logo PPDI"
+              className="w-12 h-12 object-contain shrink-0"
+            />
+            <div>
+              <div className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#064E3B]">
+                {appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}
+              </div>
+              <h1 className="text-base font-extrabold text-neutral-950 uppercase tracking-tight leading-tight">
+                Laporan Ringkasan Statistik Wilayah &amp; Aktivitas Terkini
+              </h1>
+              <p className="text-[10px] text-neutral-600 mt-0.5">
+                Cakupan Data: <b>{roleScopeLabel}</b> &middot; Dicetak oleh: <b>{currentUser?.nama || 'Administrator'}</b>
+              </p>
+            </div>
+          </div>
+          <div className="text-right text-[10px] font-mono text-neutral-600 shrink-0">
+            <div className="font-bold text-neutral-900">TANGGAL CETAK</div>
+            <div>
+              {new Date().toLocaleString('id-ID', {
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}{' '}
+              WIB
+            </div>
+          </div>
+        </header>
+
+        {/* 1. Ringkasan Metrik Eksekutif */}
+        <section className="dashboard-print-section">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
+            I. Ringkasan Indikator Utama Keanggotaan
+          </h2>
+          <div className="grid grid-cols-4 gap-2.5">
+            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
+              <div className="text-[9px] font-bold uppercase text-neutral-500">Total Perangkat Terdata</div>
+              <div className="text-lg font-extrabold text-neutral-950 font-mono mt-0.5">{totalAnggota}</div>
+              <div className="text-[9px] text-neutral-600 mt-0.5">
+                {visibleMembers.filter((m) => m.jabatanTerkini?.status_aktif === 'Aktif').length} Aktif &middot; {purnaTugasCount} Purna
+              </div>
+            </div>
+            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
+              <div className="text-[9px] font-bold uppercase text-neutral-500">E-KTA Diterbitkan</div>
+              <div className="text-lg font-extrabold text-[#064E3B] font-mono mt-0.5">
+                {ktaAktifCount} <span className="text-xs font-bold">({ktaPercentage}%)</span>
+              </div>
+              <div className="text-[9px] text-neutral-600 mt-0.5">{ktaPendingCount} Menunggu Validasi</div>
+            </div>
+            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
+              <div className="text-[9px] font-bold uppercase text-neutral-500">Kas Iuran Terkumpul</div>
+              <div className="text-sm font-extrabold text-neutral-950 font-mono mt-1">
+                {formatRupiah(totalIuranTerkumpul)}
+              </div>
+              <div className="text-[9px] text-neutral-600 mt-0.5">{pendingIuranCount} Verifikasi Pending</div>
+            </div>
+            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
+              <div className="text-[9px] font-bold uppercase text-neutral-500">Purna Tugas (&lt;18 Bln)</div>
+              <div className="text-lg font-extrabold text-amber-800 font-mono mt-0.5">
+                {retirement18MonthsMembers.length}
+              </div>
+              <div className="text-[9px] text-neutral-600 mt-0.5">
+                {retirementBreakdown.kritis.length} Kritis (&le;6 Bln) &middot; {pendingApprovalCount} Antrean Reg.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 2. Ringkasan Statistik Wilayah per Kecamatan */}
+        <section className="mb-4">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
+            II. Rekapitulasi Statistik Wilayah Per Kecamatan ({wilayahStatRows.length} Kecamatan)
+          </h2>
+          <table className="dashboard-print-table">
+            <thead>
+              <tr>
+                <th className="w-8 text-center">No</th>
+                <th className="text-left">Kecamatan</th>
+                <th className="text-center">Desa Terdata</th>
+                <th className="text-right">Total Anggota</th>
+                <th className="text-center">L / P</th>
+                <th className="text-right">E-KTA Aktif</th>
+                <th className="text-right">Pending</th>
+                <th className="text-right">Porsi (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wilayahStatRows.map((row, index) => (
+                <tr key={row.id_kecamatan} className={index % 2 === 1 ? 'bg-neutral-50' : ''}>
+                  <td className="text-center font-mono">{index + 1}</td>
+                  <td className="font-semibold">{row.nama_kecamatan}</td>
+                  <td className="text-center font-mono">
+                    {row.desaWithMembers} / {row.totalDesa}
+                  </td>
+                  <td className="text-right font-mono font-bold">{row.totalAnggota}</td>
+                  <td className="text-center font-mono">
+                    {row.lakiLaki} / {row.perempuan}
+                  </td>
+                  <td className="text-right font-mono">{row.ktaAktif}</td>
+                  <td className="text-right font-mono">{row.ktaPending}</td>
+                  <td className="text-right font-mono">{row.persentaseTotal.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-emerald-50 font-bold">
+                <td colSpan={3} className="text-right uppercase">
+                  Total Keseluruhan
+                </td>
+                <td className="text-right font-mono">{totalAnggota}</td>
+                <td className="text-center font-mono">
+                  {wilayahStatRows.reduce((s, r) => s + r.lakiLaki, 0)} /{' '}
+                  {wilayahStatRows.reduce((s, r) => s + r.perempuan, 0)}
+                </td>
+                <td className="text-right font-mono">{ktaAktifCount}</td>
+                <td className="text-right font-mono">{ktaPendingCount}</td>
+                <td className="text-right font-mono">100.0%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </section>
+
+        {/* 3. Ringkasan Distribusi Jabatan & Masa Kerja */}
+        <section className="dashboard-print-section">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
+            III. Ringkasan Sebaran Jabatan &amp; Masa Kerja Perangkat Desa
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] font-bold text-neutral-700 mb-1">Distribusi Jabatan Teratas</div>
+              <table className="dashboard-print-table">
+                <thead>
+                  <tr>
+                    <th className="text-left">Jabatan</th>
+                    <th className="text-right w-20">Jumlah</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jabatanChartData.slice(0, 8).map((item) => (
+                    <tr key={item.nama}>
+                      <td>{item.nama}</td>
+                      <td className="text-right font-mono font-bold">{item.jumlah}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold text-neutral-700 mb-1">Komposisi Masa Kerja</div>
+              <table className="dashboard-print-table">
+                <thead>
+                  <tr>
+                    <th className="text-left">Rentang Masa Kerja</th>
+                    <th className="text-right w-20">Jumlah</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {masaKerjaChartData.map((item) => (
+                    <tr key={item.kategori}>
+                      <td>{item.kategori}</td>
+                      <td className="text-right font-mono font-bold">{item.jumlah}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Aktivitas Terkini Sistem & Pendaftaran */}
+        <section className="dashboard-print-section">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
+            IV. Log Aktivitas Terkini &amp; Pendaftaran Terbaru
+          </h2>
+          {recentActivitiesForPrint.length > 0 ? (
+            <table className="dashboard-print-table">
+              <thead>
+                <tr>
+                  <th className="text-left w-28">Waktu</th>
+                  <th className="text-left w-28">Pengguna</th>
+                  <th className="text-left w-28">Modul / Aksi</th>
+                  <th className="text-left">Deskripsi Aktivitas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentActivitiesForPrint.map((log) => (
+                  <tr key={log.id}>
+                    <td className="font-mono text-[8pt]">
+                      {new Date(log.timestamp).toLocaleString('id-ID', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="font-semibold">{log.user_name}</td>
+                    <td>
+                      <div className="font-bold">{log.aksi}</div>
+                      <div className="text-[8pt] text-neutral-600">{log.modul}</div>
+                    </td>
+                    <td>
+                      {log.target_nama ? <span className="font-semibold">{log.target_nama}: </span> : null}
+                      {log.deskripsi}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : recentRegistrationsForPrint.length > 0 ? (
+            <table className="dashboard-print-table">
+              <thead>
+                <tr>
+                  <th className="text-left w-28">Tanggal</th>
+                  <th className="text-left">Nama Perangkat Desa</th>
+                  <th className="text-left">Wilayah</th>
+                  <th className="text-center w-24">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRegistrationsForPrint.map((reg) => (
+                  <tr key={reg.id_pendaftaran}>
+                    <td className="font-mono text-[8pt]">
+                      {reg.tgl_pendaftaran ? formatDateIndo(String(reg.tgl_pendaftaran).slice(0, 10)) : '-'}
+                    </td>
+                    <td className="font-semibold">{reg.nama_lengkap}</td>
+                    <td>
+                      {reg.nama_desa || reg.id_desa}, Kec. {reg.nama_kecamatan || reg.id_kecamatan}
+                    </td>
+                    <td className="text-center font-bold">{reg.status_approval}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-[10px] text-neutral-500 italic">Belum terdapat catatan aktivitas terkini pada sesi ini.</p>
+          )}
+        </section>
+
+        {/* Footer Pengesahan */}
+        <footer className="dashboard-print-card mt-5 pt-3 border-t border-neutral-300 flex items-end justify-between text-[9.5px] text-neutral-700">
+          <div>
+            <div className="font-bold text-neutral-900">{appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}</div>
+            <div>Dokumen ini dicetak langsung melalui Dashboard Sistem Informasi Keanggotaan PPDI.</div>
+          </div>
+          <div className="text-center min-w-[180px]">
+            <div>Kabupaten Bandung, {formatDateIndo(new Date().toISOString().slice(0, 10))}</div>
+            <div className="mt-10 border-t border-neutral-800 pt-1 font-bold text-neutral-900">
+              {currentUser?.nama || 'Administrator PPDI'}
+            </div>
+          </div>
+        </footer>
+      </article>
     </div>
   );
 };
