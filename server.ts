@@ -2058,7 +2058,7 @@ app.post('/api/auth/login', async (req, res) => {
         if (!storedPass || storedPass !== cleanReqPass) {
           return res.status(401).json({
             success: false,
-            message: 'Password yang Anda masukkan salah (MySQL). Silakan periksa kembali password akun Anda.',
+            message: 'Password yang Anda masukkan salah. Silakan periksa kembali password akun Anda.',
           });
         }
 
