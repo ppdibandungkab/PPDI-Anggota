@@ -2,12 +2,12 @@
 
 namespace App\Models;
 
-use App\Traits\FormatsNipd;
+use App\Traits\NipdFormatter;
 use Illuminate\Database\Eloquent\Model;
 
 class Anggota extends Model
 {
-    use FormatsNipd;
+    use NipdFormatter;
 
     protected $table = 'anggota';
     protected $primaryKey = 'id_anggota';
@@ -45,8 +45,8 @@ class Anggota extends Model
 
     /**
      * Menjaga konsistensi timestamp awal: saat record baru dibuat,
-     * created_at diisi otomatis, sedangkan updated_at dapat dibiarkan NULL
-     * sampai terjadi pembaruan profil/data pertama jika diperlukan.
+     * created_at diisi otomatis, sedangkan updated_at dibiarkan NULL
+     * sampai terjadi pembaruan profil/data pertama.
      */
     protected function updateTimestamps(): void
     {

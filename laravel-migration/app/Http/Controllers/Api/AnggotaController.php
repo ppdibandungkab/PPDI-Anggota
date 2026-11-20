@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Exceptions\KtaConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAnggotaRequest;
+use App\Http\Resources\AnggotaResource;
 use App\Services\ActivityLoggerService;
 use App\Services\KtaGeneratorService;
 use App\Services\PpdiHelperService;
@@ -97,15 +98,9 @@ class AnggotaController extends Controller
                 FROM keanggotaan_ppdi
             ");
 
-            $formattedAnggota = array_map(function ($row) {
-                $row->nipd = NipdFormatter::normalize($row->nipd ?? null) ?? $row->nipd;
-                $row->nipd_formatted = NipdFormatter::format($row->nipd ?? null);
-                return $row;
-            }, $anggotaRows);
-
             return response()->json([
                 'success'     => true,
-                'anggota'     => $formattedAnggota,
+                'anggota'     => AnggotaResource::collection($anggotaRows)->resolve(),
                 'riwayat'     => $riwayatRows,
                 'keanggotaan' => $ktaRows,
             ]);

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\KtaConflictException;
+use App\Models\Anggota;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
@@ -16,9 +17,45 @@ class KtaGeneratorService
      */
 
     /**
+     * Menghasilkan nomor KTA unik berikutnya secara sekuensial untuk sebuah kecamatan
+     * menggunakan DB::transaction() + Anggota::where(...)->lockForUpdate().
+     *
+     * Dapat dipanggil cukup dengan 1 argumen:
+     *   $service->generateForKecamatan('32.04.05');
+     * atau lengkap dengan kode desa / custom KTA:
+     *   $service->generateForKecamatan('32.04.05', '32.04.05.2001');
+     *
+     * @return array{noKta: string, kodeKecamatan: string, kodeDesa: string, nomorUrut: int}
+     *
+     * @throws KtaConflictException
+     */
+    public function generateForKecamatan(
+        string $kodeKecamatan,
+        string $kodeDesa = '2001',
+        ?string $customKta = null
+    ): array {
+        return $this->executeWithUniqueRetry(
+            fn () => $this->generateNextForKecamatan($kodeKecamatan, $kodeDesa, $customKta)
+        );
+    }
+
+    /**
+     * Alias kompatibel untuk generateForKecamatan().
+     *
+     * @return array{noKta: string, kodeKecamatan: string, kodeDesa: string, nomorUrut: int}
+     */
+    public function generate(
+        string $idKecamatan,
+        string $idDesa = '2001',
+        ?string $customKta = null
+    ): array {
+        return $this->generateForKecamatan($idKecamatan, $idDesa, $customKta);
+    }
+
+    /**
      * Membungkus operasi pembuatan anggota + generate KTA dalam DB::transaction()
      * dengan retry otomatis saat terjadi bentrok UNIQUE constraint (MySQL 1062)
-     * akibat request paralel (concurrent requests).
+     * akibat concurrent requests.
      *
      * @template T
      * @param  callable(): T  $callback
@@ -37,7 +74,7 @@ class KtaGeneratorService
             } catch (QueryException $e) {
                 if ($this->isKtaUniqueConstraintViolation($e)) {
                     if ($attempt < $maxAttempts) {
-                        usleep(50_000 * $attempt); // Backoff 50ms, 100ms sebelum retry lockForUpdate
+                        usleep(50_000 * $attempt);
                         continue;
                     }
 
@@ -54,10 +91,9 @@ class KtaGeneratorService
     }
 
     /**
-     * Menghasilkan nomor KTA berikutnya yang unik per kecamatan menggunakan
-     * pessimistic locking (SELECT ... FOR UPDATE via lockForUpdate()).
-     *
-     * WAJIB dipanggil di dalam DB::transaction() yang aktif.
+     * Membaca nomor urut terakhir kecamatan menggunakan Eloquent
+     * Anggota::where(...)->lockForUpdate() di dalam DB::transaction() yang aktif
+     * dan menghitung nomor KTA berikutnya (+1).
      *
      * @return array{noKta: string, kodeKecamatan: string, kodeDesa: string, nomorUrut: int}
      *
@@ -65,7 +101,7 @@ class KtaGeneratorService
      */
     public function generateNextForKecamatan(
         string $idKecamatan,
-        string $idDesa,
+        string $idDesa = '2001',
         ?string $customKta = null
     ): array {
         $cleanKec = trim(str_replace('.', '', $idKecamatan));
@@ -80,7 +116,6 @@ class KtaGeneratorService
 
         $fullKecCode = "32.04.{$kecCode}";
 
-        // Jika admin memasukkan Nomor KTA manual, kunci & cek keunikannya lebih dulu
         if ($customKta !== null && trim($customKta) !== '') {
             $customTrimmed = trim($customKta);
             if ($this->ktaExistsWithLock($customTrimmed)) {
@@ -101,12 +136,9 @@ class KtaGeneratorService
             ];
         }
 
-        // Kunci baris kecamatan terkait pada tabel anggota (SELECT ... FOR UPDATE)
-        $maxUrut = $this->resolveNextSequenceWithLock($fullKecCode, $kecCode);
-        $nextUrut = max(1, $maxUrut);
+        $nextUrut = max(1, $this->resolveNextSequenceWithLock($fullKecCode, $kecCode));
         $candidateKta = sprintf('32.04.%s.%s.%04d', $kecCode, $desaCode, $nextUrut);
 
-        // Safeguard ganda: pastikan tidak bentrok di tabel anggota maupun keanggotaan_ppdi
         $guard = 0;
         while ($this->ktaExistsWithLock($candidateKta)) {
             $guard++;
@@ -129,7 +161,8 @@ class KtaGeneratorService
     }
 
     /**
-     * Membaca nomor urut terakhir pada kecamatan dengan lockForUpdate().
+     * Menggunakan Anggota::where(...)->lockForUpdate() untuk membaca nomor urut terakhir
+     * kecamatan secara aman dari race condition, lalu mengembalikan nomor urut + 1.
      */
     private function resolveNextSequenceWithLock(string $fullKecCode, string $kecCode): int
     {
@@ -137,28 +170,30 @@ class KtaGeneratorService
         $maxPpdi = 0;
 
         try {
-            $lockedAnggota = DB::table('anggota')
-                ->whereIn('kode_kecamatan', [$fullKecCode, $kecCode, "3204{$kecCode}"])
+            $lastAnggota = Anggota::where(function ($query) use ($fullKecCode, $kecCode) {
+                $query->where('kode_kecamatan', $fullKecCode)
+                    ->orWhere('kode_kecamatan', $kecCode)
+                    ->orWhere('kode_kecamatan', "3204{$kecCode}");
+            })
                 ->orderByDesc('nomor_urut')
                 ->lockForUpdate()
                 ->first(['nomor_urut']);
 
-            if ($lockedAnggota && !empty($lockedAnggota->nomor_urut)) {
-                $maxAnggota = (int) $lockedAnggota->nomor_urut;
+            if ($lastAnggota && !empty($lastAnggota->nomor_urut)) {
+                $maxAnggota = (int) $lastAnggota->nomor_urut;
             }
         } catch (\Throwable) {
-            // Lanjutkan fallback ke tabel keanggotaan_ppdi bila kolom kode_kecamatan/nomor_urut belum ada
         }
 
         try {
-            $lockedPpdi = DB::table('keanggotaan_ppdi')
+            $lastPpdi = DB::table('keanggotaan_ppdi')
                 ->where('no_kta', 'like', "32.04.{$kecCode}.%")
                 ->orderByRaw("CAST(SUBSTRING_INDEX(no_kta, '.', -1) AS UNSIGNED) DESC")
                 ->lockForUpdate()
                 ->first(['no_kta']);
 
-            if ($lockedPpdi && !empty($lockedPpdi->no_kta)) {
-                $parts = explode('.', (string) $lockedPpdi->no_kta);
+            if ($lastPpdi && !empty($lastPpdi->no_kta)) {
+                $parts = explode('.', (string) $lastPpdi->no_kta);
                 if (count($parts) >= 5 && is_numeric($parts[4])) {
                     $maxPpdi = (int) $parts[4];
                 }
@@ -175,8 +210,7 @@ class KtaGeneratorService
         $inPpdi = false;
 
         try {
-            $inAnggota = DB::table('anggota')
-                ->where('no_kta', $candidateKta)
+            $inAnggota = Anggota::where('no_kta', $candidateKta)
                 ->lockForUpdate()
                 ->exists();
         } catch (\Throwable) {
