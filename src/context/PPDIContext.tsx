@@ -29,7 +29,15 @@ import {
   INITIAL_IURAN,
   INITIAL_USERS,
 } from '../data/initialData';
-import { buildFullMember, generateNextKTA, safeFetchJson, updateFaviconAndTitle } from '../utils/ppdiHelpers';
+import {
+  buildFullMember,
+  generateNextKTA,
+  safeFetchJson,
+  updateFaviconAndTitle,
+  getAuthToken,
+  setAuthToken,
+  clearAuthSessionStorage,
+} from '../utils/ppdiHelpers';
 import {
   PRIMARY_DEFAULT_PASSWORD,
   isKnownDefaultPassword,
@@ -1398,6 +1406,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       localStorage.setItem('ppdi_current_user_id', String(currentUser.id_user));
       localStorage.setItem('ppdi_current_user_role', currentUser.role);
+      localStorage.setItem('ppdi_current_user_name', currentUser.nama || currentUser.username || '');
       if (isAuthenticated && (hasLoadedUsersFromServer || initialDbCheckDone)) {
         persistUserSessionSnapshot(currentUser);
       }
@@ -2299,6 +2308,15 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return [...prev, loggedUser];
         });
         persistUserSessionSnapshot(loggedUser);
+        // Sinkronisasi token Bearer (Laravel) & header konteks pengguna sebelum refresh data
+        if (typeof data.token === 'string' && data.token.trim()) {
+          setAuthToken(data.token);
+        }
+        try {
+          localStorage.setItem('ppdi_current_user_id', String(loggedUser.id_user));
+          localStorage.setItem('ppdi_current_user_role', loggedUser.role);
+          localStorage.setItem('ppdi_current_user_name', loggedUser.nama || loggedUser.username || '');
+        } catch (_) {}
         setHasLoadedUsersFromServer(true);
 
         setIsAuthenticated(true);
@@ -2394,9 +2412,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    // Informasikan backend (Laravel / Express) secara non-blocking jika token sesi aktif
+    if (getAuthToken()) {
+      void safeFetchJson('/api/auth/logout', { method: 'POST' });
+    }
     setIsAuthenticated(false);
     knownPendingPendaftaranIdsRef.current = null;
     knownPendingUserIdRef.current = null;
+    clearAuthSessionStorage();
     localStorage.removeItem(STORAGE_KEYS.AUTH);
     localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
     localStorage.removeItem(STORAGE_KEYS.USER_SESSION);

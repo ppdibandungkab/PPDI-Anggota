@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveApiUrl } from './ppdiHelpers';
 
 /**
  * High-definition vector SVG avatar for Male (Laki-laki)
@@ -181,7 +182,15 @@ export function getPhotoUrl(foto?: string | null, gender?: string | null): strin
     return '/logo_kabupaten_bandung.svg';
   }
 
-  if (clean.startsWith('data:') || clean.startsWith('/')) {
+  if (clean.startsWith('data:')) {
+    return clean;
+  }
+
+  if (clean.startsWith('/uploads/') || clean.startsWith('/api/')) {
+    return resolveApiUrl(clean);
+  }
+
+  if (clean.startsWith('/')) {
     return clean;
   }
 
@@ -192,10 +201,10 @@ export function getPhotoUrl(foto?: string | null, gender?: string | null): strin
     if (clean.includes('/api/proxy-image')) {
       return clean;
     }
-    return `/api/proxy-image?url=${encodeURIComponent(clean)}`;
+    return resolveApiUrl(`/api/proxy-image?url=${encodeURIComponent(clean)}`);
   }
 
-  return `/uploads/foto/${clean}`;
+  return resolveApiUrl(`/uploads/foto/${clean}`);
 }
 
 /**
@@ -209,12 +218,17 @@ export function getSkFileUrl(fileSk?: string | null): string {
   if (
     clean.startsWith('http://') ||
     clean.startsWith('https://') ||
-    clean.startsWith('data:') ||
-    clean.startsWith('/')
+    clean.startsWith('data:')
   ) {
     return clean;
   }
-  return `/uploads/sk/${clean}`;
+  if (clean.startsWith('/uploads/') || clean.startsWith('/api/')) {
+    return resolveApiUrl(clean);
+  }
+  if (clean.startsWith('/')) {
+    return clean;
+  }
+  return resolveApiUrl(`/uploads/sk/${clean}`);
 }
 
 /**

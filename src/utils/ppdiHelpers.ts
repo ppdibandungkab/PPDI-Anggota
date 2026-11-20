@@ -369,15 +369,18 @@ export function formatNIPDDisplay(nipd?: string | null): string {
   return trimmed;
 }
 
-// Storage key for user-configured API Base URL
+// Storage keys for API Base URL & Auth Session/Token
 const API_BASE_URL_KEY = 'ppdi_custom_api_url';
+const AUTH_TOKEN_KEY = 'ppdi_auth_token';
 
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
   const stored = localStorage.getItem(API_BASE_URL_KEY);
   if (stored) return stored.replace(/\/+$/, '');
   const envUrl = (import.meta as any).env?.VITE_API_URL;
-  if (envUrl) return envUrl.replace(/\/+$/, '');
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
   return '';
 }
 
@@ -391,64 +394,140 @@ export function setApiBaseUrl(url: string): void {
   }
 }
 
-/**
- * Safe fetch wrapper that handles HTML responses, network errors, and JSON parse failures.
- * Prevents "Unexpected token '<', '<!doctype '... is not valid JSON" errors completely.
- * Automatically tries http://localhost:3000 if frontend is served on a different port (e.g. Vite, Live Server, XAMPP).
- */
-export async function safeFetchJson<T = any>(
-  input: RequestInfo | URL,
-  init?: RequestInit
-): Promise<{ ok: boolean; status: number; data: T & { success?: boolean; message?: string; error?: string }; error?: string }> {
-  let targetUrl: string = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : (input as Request).url);
-  const baseUrl = getApiBaseUrl();
+export function shouldSendCredentials(): boolean {
+  const raw = String((import.meta as any).env?.VITE_API_WITH_CREDENTIALS || '').trim().toLowerCase();
+  return raw === 'true' || raw === '1';
+}
 
-  // If relative path starting with '/' and baseUrl is set, prepend it
-  if (baseUrl && targetUrl.startsWith('/')) {
-    targetUrl = `${baseUrl}${targetUrl}`;
+export function getAuthToken(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return (localStorage.getItem(AUTH_TOKEN_KEY) || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+export function setAuthToken(token?: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const clean = (token || '').trim();
+    if (clean) {
+      localStorage.setItem(AUTH_TOKEN_KEY, clean);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch (_) {}
+}
+
+export function clearAuthSessionStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem('ppdi_current_user_id');
+    localStorage.removeItem('ppdi_current_user_role');
+    localStorage.removeItem('ppdi_current_user_name');
+  } catch (_) {}
+}
+
+/**
+ * Resolves a relative API/asset path against VITE_API_URL / custom API base URL.
+ * Returns the original path unchanged when running single-domain (baseUrl === '').
+ */
+export function resolveApiUrl(path: string): string {
+  if (!path) return path;
+  if (/^https?:\/\//i.test(path) || path.startsWith('data:') || path.startsWith('blob:')) {
+    return path;
+  }
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) return path;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}${normalizedPath}`;
+}
+
+/**
+ * Builds standard JSON + Auth headers compatible with both Laravel (Bearer / Sanctum / X-Requested-With)
+ * and Express (x-user-id / x-user-role / x-user-name).
+ */
+export function buildApiAuthHeaders(extraHeaders?: HeadersInit): Headers {
+  const headers = new Headers(extraHeaders || {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+  if (!headers.has('X-Requested-With')) {
+    headers.set('X-Requested-With', 'XMLHttpRequest');
   }
 
-  const isHtml = (str: string) => {
-    const s = str.trim();
-    return s.startsWith('<!DOCTYPE') || s.startsWith('<!doctype') || s.startsWith('<html') || s.startsWith('<');
-  };
-
-  // Automatically inject active user auth context headers for server-side permission checks
-  const headers = new Headers(init?.headers || {});
   if (typeof localStorage !== 'undefined') {
+    const token = getAuthToken();
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
     const curUserId = localStorage.getItem('ppdi_current_user_id');
     const curUserRole = localStorage.getItem('ppdi_current_user_role');
+    const curUserName = localStorage.getItem('ppdi_current_user_name');
     if (curUserId && !headers.has('x-user-id')) {
       headers.set('x-user-id', curUserId);
     }
     if (curUserRole && !headers.has('x-user-role')) {
       headers.set('x-user-role', curUserRole);
     }
+    if (curUserName && !headers.has('x-user-name')) {
+      headers.set('x-user-name', curUserName);
+    }
   }
+
+  return headers;
+}
+
+/**
+ * Safe fetch wrapper that handles HTML responses, network errors, Laravel Bearer/CSRF headers,
+ * and JSON parse failures without altering calling components or UI state.
+ */
+export async function safeFetchJson<T = any>(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<{ ok: boolean; status: number; data: T & { success?: boolean; message?: string; error?: string }; error?: string }> {
+  const rawUrl: string = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : (input as Request).url);
+  const baseUrl = getApiBaseUrl();
+  const targetUrl = baseUrl && rawUrl.startsWith('/') ? `${baseUrl}${rawUrl}` : rawUrl;
+
+  const isHtml = (str: string) => {
+    const s = str.trim();
+    return s.startsWith('<!DOCTYPE') || s.startsWith('<!doctype') || s.startsWith('<html') || s.startsWith('<');
+  };
+
+  const isLocalDevHost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  const headers = buildApiAuthHeaders(init?.headers);
+  const credentialsMode: RequestCredentials =
+    init?.credentials ?? (shouldSendCredentials() ? 'include' : 'same-origin');
+
   const secureInit: RequestInit = {
     ...init,
     headers,
+    credentials: credentialsMode,
   };
 
   try {
     let res = await fetch(targetUrl, secureInit);
     let text = await res.text();
 
-    // Auto-probe fallback:
-    // If relative request to /api/... returned 404 or HTML, AND user is on a different port than 3000 (e.g. 5173, 4173, 80, 8080)
+    // Auto-probe local port 3000 ONLY during localhost development when no VITE_API_URL is configured
     if (
       (res.status === 404 || isHtml(text)) &&
-      typeof window !== 'undefined' &&
+      isLocalDevHost &&
       !baseUrl &&
       targetUrl.startsWith('/api') &&
       window.location.port !== '3000'
     ) {
       const probeUrl = `${window.location.protocol}//${window.location.hostname}:3000${targetUrl}`;
       try {
-        const probeRes = await fetch(probeUrl, init);
+        const probeRes = await fetch(probeUrl, secureInit);
         const probeText = await probeRes.text();
         if (probeRes.ok && !isHtml(probeText)) {
-          // Port 3000 backend is active! Automatically register it as active API base URL
           const detectedBase = `${window.location.protocol}//${window.location.hostname}:3000`;
           setApiBaseUrl(detectedBase);
           res = probeRes;
@@ -463,18 +542,20 @@ export async function safeFetchJson<T = any>(
       return { ok: res.ok, status: res.status, data: { success: res.ok } as any };
     }
 
-    // Check if the response returned an HTML document instead of JSON
     const trimmed = text.trim();
     if (isHtml(trimmed)) {
       const isNotFound = res.status === 404;
       const isGatewayError = res.status === 502 || res.status === 503 || res.status === 504;
+      const backendHint = baseUrl
+        ? `backend API (${baseUrl})`
+        : 'server backend API (Laravel / Node.js)';
       let errorMsg = `Server mengembalikan halaman HTML (Status ${res.status}).`;
       if (isNotFound) {
-        errorMsg = `Endpoint API tidak ditemukan (404 HTML). Server backend Node.js (server.js) belum dijalankan di port 3000 atau rute /api belum di-proxy oleh web server lokal. Solusi: Jalankan "npm start" atau "node server.js" di terminal, lalu buka http://localhost:3000 di browser.`;
+        errorMsg = `Endpoint API tidak ditemukan (404 HTML). Pastikan ${backendHint} aktif dan konfigurasi rute /api pada web server (.htaccess / Nginx) sudah benar.`;
       } else if (isGatewayError) {
-        errorMsg = `Server backend tidak dapat dijangkau (Gateway Error ${res.status}). Pastikan service Node.js sedang berjalan di port 3000.`;
+        errorMsg = `Server backend tidak dapat dijangkau (Gateway Error ${res.status}). Pastikan layanan PHP-FPM / backend aktif.`;
       } else {
-        errorMsg = `Server mengembalikan halaman web (HTML, status ${res.status}) bukannya data JSON. Pastikan aplikasi Node.js (server.js) berjalan di port 3000.`;
+        errorMsg = `Server mengembalikan halaman HTML (Status ${res.status}) bukannya JSON. Periksa konfigurasi VITE_API_URL dan header Accept: application/json pada ${backendHint}.`;
       }
       return {
         ok: false,
@@ -486,6 +567,14 @@ export async function safeFetchJson<T = any>(
 
     try {
       const data = JSON.parse(text);
+      // Clear expired/invalid Bearer token automatically on 401 from non-login endpoints
+      if (
+        res.status === 401 &&
+        !rawUrl.includes('/api/auth/login') &&
+        (data?.error === 'TOKEN_EXPIRED' || data?.error === 'UNAUTHENTICATED')
+      ) {
+        setAuthToken(null);
+      }
       return { ok: res.ok, status: res.status, data };
     } catch (parseErr: any) {
       const errorMsg = `Format respons dari server tidak valid JSON: ${parseErr.message}`;
@@ -497,16 +586,15 @@ export async function safeFetchJson<T = any>(
       };
     }
   } catch (netErr: any) {
-    // If network error occurred on relative path and we're not on port 3000, attempt probe
     if (
-      typeof window !== 'undefined' &&
+      isLocalDevHost &&
       !baseUrl &&
       targetUrl.startsWith('/api') &&
       window.location.port !== '3000'
     ) {
       const probeUrl = `${window.location.protocol}//${window.location.hostname}:3000${targetUrl}`;
       try {
-        const probeRes = await fetch(probeUrl, init);
+        const probeRes = await fetch(probeUrl, secureInit);
         const probeText = await probeRes.text();
         if (probeRes.ok && !isHtml(probeText)) {
           const detectedBase = `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -520,7 +608,9 @@ export async function safeFetchJson<T = any>(
     const rawError = netErr.message || 'Koneksi jaringan ke server gagal';
     const isFetchFailed = String(rawError).toLowerCase().includes('failed to fetch');
     const friendlyError = isFetchFailed
-      ? 'Server backend Node.js (port 3000) tidak dapat dijangkau dari browser. Pastikan service "server.js" telah aktif via "npm start" atau URL backend telah dikonfigurasi.'
+      ? baseUrl
+        ? `Server backend (${baseUrl}) tidak dapat dijangkau dari browser. Periksa status server Laravel, SSL, dan konfigurasi CORS.`
+        : 'Server backend API tidak dapat dijangkau dari browser. Pastikan layanan backend aktif atau konfigurasi VITE_API_URL sudah benar.'
       : rawError;
 
     return {

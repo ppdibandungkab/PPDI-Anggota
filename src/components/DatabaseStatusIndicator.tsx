@@ -16,6 +16,7 @@ import {
   X,
   ExternalLink,
 } from 'lucide-react';
+import { resolveApiUrl, buildApiAuthHeaders, shouldSendCredentials } from '../utils/ppdiHelpers';
 
 export interface DiagnosticData {
   success: boolean;
@@ -81,8 +82,9 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      const res = await fetch('/api/diagnostic', {
-        headers: { Accept: 'application/json' },
+      const res = await fetch(resolveApiUrl('/api/diagnostic'), {
+        headers: buildApiAuthHeaders({ Accept: 'application/json' }),
+        credentials: shouldSendCredentials() ? 'include' : 'same-origin',
         signal: controller.signal,
       });
       clearTimeout(timeoutId);

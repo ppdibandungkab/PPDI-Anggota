@@ -3,6 +3,7 @@ import { usePPDI } from '../context/PPDIContext';
 import { X, CheckCircle, AlertCircle, Image as ImageIcon, FileText, Loader2, Calendar } from 'lucide-react';
 import { SignatureCanvas } from './SignatureCanvas';
 import { isValidPdfFile, isPdfDataUrl } from '../utils/fileHelpers';
+import { resolveApiUrl, buildApiAuthHeaders, shouldSendCredentials } from '../utils/ppdiHelpers';
 
 interface PublicRegistrationFormProps {
   isOpen: boolean;
@@ -293,8 +294,12 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       });
 
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/upload', true);
+      xhr.open('POST', resolveApiUrl('/api/upload'), true);
+      xhr.withCredentials = shouldSendCredentials();
       xhr.setRequestHeader('Content-Type', 'application/json');
+      buildApiAuthHeaders().forEach((value, key) => {
+        xhr.setRequestHeader(key, value);
+      });
 
       xhr.upload.onprogress = (evt) => {
         if (evt.lengthComputable && evt.total > 0) {
