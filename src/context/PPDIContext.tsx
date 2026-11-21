@@ -2421,12 +2421,26 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sanitizedSettings.rolePermissions = sanitizeRolePermissions(newSettings.rolePermissions);
     }
     const merged = { ...appSettings, ...sanitizedSettings };
+    const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (currentUser?.role) {
+      reqHeaders['x-user-role'] = currentUser.role;
+    }
+
     try {
-      const res = await safeFetchJson('/api/settings', {
+      let res = await safeFetchJson('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: reqHeaders,
         body: JSON.stringify(merged),
       });
+
+      if (!res.ok && (res.status === 404 || res.status === 405)) {
+        res = await safeFetchJson('/api/settings', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify(merged),
+        });
+      }
+
       if (res.ok && res.data?.success) {
         const persistedSettings: AppSettings = res.data.settings
           ? { ...DEFAULT_SETTINGS, ...merged, ...res.data.settings }
@@ -2458,12 +2472,42 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     chairman_greeting?: string;
     remove_photo?: boolean;
   }) => {
+    const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (currentUser?.role) {
+      reqHeaders['x-user-role'] = currentUser.role;
+    }
+
     try {
-      const res = await safeFetchJson('/api/settings/chairman', {
+      let res = await safeFetchJson('/api/settings/chairman', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: reqHeaders,
         body: JSON.stringify(payload),
       });
+
+      // Fallback if proxy/older backend blocks PUT or has not reloaded /api/settings/chairman yet
+      if (!res.ok && (res.status === 404 || res.status === 405)) {
+        res = await safeFetchJson('/api/settings/chairman', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (!res.ok && (res.status === 404 || res.status === 405)) {
+        const mergedFallback = {
+          ...appSettings,
+          chairman_name: payload.chairman_name ?? appSettings.chairman_name,
+          chairman_title: payload.chairman_title ?? appSettings.chairman_title,
+          chairman_photo: payload.remove_photo ? '' : (payload.chairman_photo ?? appSettings.chairman_photo),
+          chairman_greeting: payload.chairman_greeting ?? appSettings.chairman_greeting,
+        };
+        res = await safeFetchJson('/api/settings', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify(mergedFallback),
+        });
+      }
+
       if (res.ok && res.data?.success) {
         const chairmanData = res.data.data || res.data.settings || {};
         setAppSettings((prev) => {
