@@ -74,9 +74,13 @@ Route::post('/upload', [UploadController::class, 'store']);
 Route::get('/uploads/list', [UploadController::class, 'list']);
 Route::delete('/uploads/{folder}/{fileName}', [UploadController::class, 'destroy']);
 
-// Pengaturan Aplikasi
+// Pengaturan Aplikasi & Sambutan Ketua PPDI
 Route::get('/settings', [SettingsController::class, 'index']);
-Route::post('/settings', [SettingsController::class, 'save']);
+Route::post('/settings', [SettingsController::class, 'save'])->middleware('perm:settings-app,edit');
+Route::put('/settings', [SettingsController::class, 'save'])->middleware('perm:settings-app,edit');
+Route::get('/settings/chairman', [SettingsController::class, 'getChairman']);
+Route::put('/settings/chairman', [SettingsController::class, 'updateChairman'])->middleware('perm:settings-app,edit');
+Route::post('/settings/chairman', [SettingsController::class, 'updateChairman'])->middleware('perm:settings-app,edit');
 
 // Database Views (Pelaporan & Rekapitulasi)
 Route::prefix('views')->group(function () {

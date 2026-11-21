@@ -306,12 +306,14 @@ const FOTO_DIR = path.join(UPLOADS_ROOT, 'foto');
 const SK_DIR = path.join(UPLOADS_ROOT, 'sk');
 const TTD_DIR = path.join(UPLOADS_ROOT, 'ttd');
 const REGULASI_DIR = path.join(UPLOADS_ROOT, 'regulasi');
+const CHAIRMAN_DIR = path.join(UPLOADS_ROOT, 'chairman');
 
 try {
   fs.mkdirSync(FOTO_DIR, { recursive: true });
   fs.mkdirSync(SK_DIR, { recursive: true });
   fs.mkdirSync(TTD_DIR, { recursive: true });
   fs.mkdirSync(REGULASI_DIR, { recursive: true });
+  fs.mkdirSync(CHAIRMAN_DIR, { recursive: true });
 } catch (e) {
   console.error('Failed to create upload directories:', e);
 }
@@ -4926,6 +4928,102 @@ const DEFAULT_WHATSAPP_SETTINGS = {
   countryCode: '62',
 };
 
+const MAX_CHAIRMAN_PHOTO_BYTES = 2 * 1024 * 1024; // 2 MB
+
+function detectVerifiedImageExt(buffer: Buffer): { ext: '.jpg' | '.png' | '.webp'; mime: string } | null {
+  if (!buffer || buffer.length < 12) return null;
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { ext: '.jpg', mime: 'image/jpeg' };
+  }
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return { ext: '.png', mime: 'image/png' };
+  }
+  // WEBP: RIFF....WEBP
+  if (
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return { ext: '.webp', mime: 'image/webp' };
+  }
+  return null;
+}
+
+function saveChairmanPhotoBase64(dataUrl: string): { url: string; fileName: string; sizeBytes: number; mimeType: string } {
+  const trimmed = dataUrl.trim();
+  const match = trimmed.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!match) {
+    throw new Error('Format foto Ketua tidak valid. Hanya gambar JPG, PNG, atau WEBP yang diperbolehkan.');
+  }
+
+  const base64Body = match[2].replace(/\s+/g, '');
+  const buffer = Buffer.from(base64Body, 'base64');
+  if (buffer.length === 0) {
+    throw new Error('Data gambar foto Ketua kosong atau rusak.');
+  }
+  if (buffer.length > MAX_CHAIRMAN_PHOTO_BYTES) {
+    throw new Error('Ukuran file foto Ketua melebihi batas maksimal 2 MB.');
+  }
+
+  const verified = detectVerifiedImageExt(buffer);
+  if (!verified) {
+    throw new Error('Isi file bukan gambar JPG, PNG, atau WEBP yang valid.');
+  }
+
+  fs.mkdirSync(CHAIRMAN_DIR, { recursive: true });
+  const randHex = crypto.randomBytes(4).toString('hex');
+  const finalFileName = `chairman_${Date.now()}_${randHex}${verified.ext}`;
+  const resolvedPath = path.resolve(CHAIRMAN_DIR, finalFileName);
+  if (!resolvedPath.startsWith(CHAIRMAN_DIR + path.sep)) {
+    throw new Error('Path penyimpanan foto tidak valid.');
+  }
+
+  fs.writeFileSync(resolvedPath, buffer);
+
+  return {
+    url: `/uploads/chairman/${finalFileName}`,
+    fileName: finalFileName,
+    sizeBytes: buffer.length,
+    mimeType: verified.mime,
+  };
+}
+
+function resolveIncomingChairmanPhoto(rawValue: unknown): string {
+  if (rawValue === null || rawValue === undefined) return '';
+  const str = String(rawValue).trim();
+  if (!str) return '';
+
+  if (str.startsWith('data:')) {
+    const saved = saveChairmanPhotoBase64(str);
+    return saved.url;
+  }
+
+  // Allow safe relative upload paths without traversal
+  if (str.startsWith('/uploads/') && !str.includes('..') && !str.includes('\\')) {
+    return str;
+  }
+
+  // Allow explicit http(s) URLs only
+  try {
+    const parsed = new URL(str);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return str;
+    }
+  } catch (_) {}
+
+  throw new Error('URL atau format foto Ketua tidak valid. Gunakan unggahan JPG/PNG/WEBP atau URL http(s).');
+}
+
 const DEFAULT_SETTINGS = {
   appName: 'PPDI KABUPATEN BANDUNG',
   appSubtitle: 'SISTEM INFORMASI DATABASE & E-KTA PERANGKAT DESA',
@@ -4938,6 +5036,10 @@ const DEFAULT_SETTINGS = {
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
   syncIntervalSeconds: 60,
+  chairman_name: 'Ketua PPDI Kabupaten Bandung',
+  chairman_title: 'Ketua Pengurus Daerah PPDI Kabupaten Bandung',
+  chairman_photo: '',
+  chairman_greeting: '',
   rolePermissions: DEFAULT_ROLE_PERMISSIONS,
   whatsappSettings: DEFAULT_WHATSAPP_SETTINGS,
 };
@@ -4947,10 +5049,28 @@ function mergeSettingsWithDefaults(data: any): any {
   const sanitizedLogo = cleanData?.logoUrl && String(cleanData.logoUrl).includes('wikimedia.org')
     ? '/logo_kabupaten_bandung.svg'
     : (cleanData?.logoUrl || DEFAULT_SETTINGS.logoUrl);
+
+  const chairmanName =
+    typeof cleanData?.chairman_name === 'string' && cleanData.chairman_name.trim().length > 0
+      ? cleanData.chairman_name.trim()
+      : DEFAULT_SETTINGS.chairman_name;
+  const chairmanTitle =
+    typeof cleanData?.chairman_title === 'string' && cleanData.chairman_title.trim().length > 0
+      ? cleanData.chairman_title.trim()
+      : DEFAULT_SETTINGS.chairman_title;
+  const chairmanPhoto =
+    typeof cleanData?.chairman_photo === 'string' ? cleanData.chairman_photo.trim() : DEFAULT_SETTINGS.chairman_photo;
+  const chairmanGreeting =
+    typeof cleanData?.chairman_greeting === 'string' ? cleanData.chairman_greeting : DEFAULT_SETTINGS.chairman_greeting;
+
   return {
     ...DEFAULT_SETTINGS,
     ...cleanData,
     logoUrl: sanitizedLogo,
+    chairman_name: chairmanName,
+    chairman_title: chairmanTitle,
+    chairman_photo: chairmanPhoto,
+    chairman_greeting: chairmanGreeting,
     rolePermissions: (cleanData?.rolePermissions && Object.keys(cleanData.rolePermissions).length > 0)
       ? cleanData.rolePermissions
       : DEFAULT_ROLE_PERMISSIONS,
@@ -5026,7 +5146,7 @@ app.get('/api/settings', async (_req, res) => {
   return res.json({ success: true, settings });
 });
 
-app.post('/api/settings', async (req, res) => {
+async function handleSaveSettings(req: express.Request, res: express.Response) {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toString().trim();
   const isUpdatingRoles = req.body && req.body.rolePermissions !== undefined && req.body.appName === undefined && req.body.whatsappSettings === undefined;
   const isUpdatingWhatsapp = req.body && req.body.whatsappSettings !== undefined && req.body.appName === undefined && req.body.rolePermissions === undefined;
@@ -5046,13 +5166,67 @@ app.post('/api/settings', async (req, res) => {
 
   try {
     const existing = await readSettingsFromDbOrDisk();
+    const incomingBody: Record<string, any> = { ...(req.body || {}) };
+
+    // Validate and process Chairman Greeting fields if included in request
+    if (incomingBody.chairman_name !== undefined) {
+      const nameStr = String(incomingBody.chairman_name ?? '').trim();
+      if (nameStr.length > 150) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nama Ketua maksimal 150 karakter.',
+        });
+      }
+      incomingBody.chairman_name = nameStr || DEFAULT_SETTINGS.chairman_name;
+    }
+
+    if (incomingBody.chairman_title !== undefined) {
+      const titleStr = String(incomingBody.chairman_title ?? '').trim();
+      if (titleStr.length > 200) {
+        return res.status(400).json({
+          success: false,
+          message: 'Jabatan Ketua maksimal 200 karakter.',
+        });
+      }
+      incomingBody.chairman_title = titleStr || DEFAULT_SETTINGS.chairman_title;
+    }
+
+    if (incomingBody.chairman_greeting !== undefined) {
+      const greetingStr = String(incomingBody.chairman_greeting ?? '');
+      if (greetingStr.length > 10000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Kata-kata sambutan Ketua maksimal 10.000 karakter.',
+        });
+      }
+      incomingBody.chairman_greeting = greetingStr;
+    }
+
+    // Handle optional chairman_photo_base64 alias or chairman_photo base64 upload
+    const rawChairmanPhoto =
+      incomingBody.chairman_photo_base64 !== undefined
+        ? incomingBody.chairman_photo_base64
+        : incomingBody.chairman_photo;
+    delete incomingBody.chairman_photo_base64;
+
+    if (rawChairmanPhoto !== undefined) {
+      try {
+        incomingBody.chairman_photo = resolveIncomingChairmanPhoto(rawChairmanPhoto);
+      } catch (photoErr: any) {
+        return res.status(400).json({
+          success: false,
+          message: photoErr?.message || 'Validasi foto Ketua gagal.',
+        });
+      }
+    }
+
     const newSettings = mergeSettingsWithDefaults({
       ...existing,
-      ...req.body,
+      ...incomingBody,
       whatsappSettings: {
         ...DEFAULT_WHATSAPP_SETTINGS,
         ...(existing.whatsappSettings || {}),
-        ...(req.body?.whatsappSettings || {}),
+        ...(incomingBody?.whatsappSettings || {}),
       },
     });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(newSettings, null, 2), 'utf-8');
@@ -5062,9 +5236,117 @@ app.post('/api/settings', async (req, res) => {
     }
     return res.json({ success: true, message: 'Pengaturan aplikasi berhasil disimpan', settings: newSettings });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
+  }
+}
+
+app.post('/api/settings', handleSaveSettings);
+app.put('/api/settings', handleSaveSettings);
+
+// Public endpoint: GET /api/settings/chairman (untuk halaman depan tanpa login)
+app.get('/api/settings/chairman', async (_req, res) => {
+  try {
+    const settings = await readSettingsFromDbOrDisk();
+    const chairman = {
+      chairman_name: settings.chairman_name || DEFAULT_SETTINGS.chairman_name,
+      chairman_title: settings.chairman_title || DEFAULT_SETTINGS.chairman_title,
+      chairman_photo: settings.chairman_photo || '',
+      chairman_greeting: settings.chairman_greeting || '',
+    };
+    return res.json({
+      success: true,
+      data: chairman,
+      settings: chairman,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Gagal memuat sambutan Ketua PPDI',
+      message: 'Gagal memuat data sambutan Ketua PPDI.',
+    });
   }
 });
+
+// Protected endpoint: PUT /api/settings/chairman (khusus admin)
+async function handleUpdateChairmanSettings(req: express.Request, res: express.Response) {
+  try {
+    const existing = await readSettingsFromDbOrDisk();
+    const body = req.body || {};
+    const updates: Record<string, any> = {};
+
+    if (body.chairman_name !== undefined) {
+      const nameStr = String(body.chairman_name ?? '').trim();
+      if (nameStr.length > 150) {
+        return res.status(400).json({ success: false, message: 'Nama Ketua maksimal 150 karakter.' });
+      }
+      updates.chairman_name = nameStr || DEFAULT_SETTINGS.chairman_name;
+    }
+
+    if (body.chairman_title !== undefined) {
+      const titleStr = String(body.chairman_title ?? '').trim();
+      if (titleStr.length > 200) {
+        return res.status(400).json({ success: false, message: 'Jabatan Ketua maksimal 200 karakter.' });
+      }
+      updates.chairman_title = titleStr || DEFAULT_SETTINGS.chairman_title;
+    }
+
+    if (body.chairman_greeting !== undefined) {
+      const greetingStr = String(body.chairman_greeting ?? '');
+      if (greetingStr.length > 10000) {
+        return res.status(400).json({ success: false, message: 'Kata-kata sambutan Ketua maksimal 10.000 karakter.' });
+      }
+      updates.chairman_greeting = greetingStr;
+    }
+
+    const removePhoto = body.remove_photo === true || body.remove_photo === 'true' || body.remove_photo === 1;
+    const rawPhoto =
+      body.chairman_photo_base64 !== undefined ? body.chairman_photo_base64 : body.chairman_photo;
+
+    if (removePhoto) {
+      updates.chairman_photo = '';
+    } else if (rawPhoto !== undefined) {
+      try {
+        updates.chairman_photo = resolveIncomingChairmanPhoto(rawPhoto);
+      } catch (photoErr: any) {
+        return res.status(400).json({
+          success: false,
+          message: photoErr?.message || 'Validasi foto Ketua gagal.',
+        });
+      }
+    }
+
+    const newSettings = mergeSettingsWithDefaults({
+      ...existing,
+      ...updates,
+    });
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(newSettings, null, 2), 'utf-8');
+    await saveSettingsToDb(newSettings);
+
+    const chairman = {
+      chairman_name: newSettings.chairman_name,
+      chairman_title: newSettings.chairman_title,
+      chairman_photo: newSettings.chairman_photo,
+      chairman_greeting: newSettings.chairman_greeting,
+    };
+
+    return res.json({
+      success: true,
+      message: 'Sambutan Ketua PPDI Kabupaten Bandung berhasil disimpan',
+      data: chairman,
+      settings: chairman,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Gagal menyimpan sambutan Ketua PPDI',
+      message: err?.message || 'Gagal menyimpan sambutan Ketua PPDI.',
+    });
+  }
+}
+
+app.put('/api/settings/chairman', requirePermission('settings-app', 'edit'), handleUpdateChairmanSettings);
+app.post('/api/settings/chairman', requirePermission('settings-app', 'edit'), handleUpdateChairmanSettings);
 
 // ====================================================================
 // 9.2. WHATSAPP GATEWAY, DB TABLES & FONNTE WEBHOOK INTEGRATION

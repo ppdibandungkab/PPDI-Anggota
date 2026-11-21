@@ -120,7 +120,18 @@ interface PPDIContextType {
 
   // App Settings (Logo, Login Background, Branding)
   appSettings: AppSettings;
-  updateAppSettings: (newSettings: Partial<AppSettings>) => Promise<{ success: boolean; message: string }>;
+  updateAppSettings: (newSettings: Partial<AppSettings>) => Promise<{ success: boolean; message: string; settings?: AppSettings }>;
+  updateChairmanSettings: (payload: {
+    chairman_name?: string;
+    chairman_title?: string;
+    chairman_photo?: string;
+    chairman_greeting?: string;
+    remove_photo?: boolean;
+  }) => Promise<{
+    success: boolean;
+    message: string;
+    data?: Pick<AppSettings, 'chairman_name' | 'chairman_title' | 'chairman_photo' | 'chairman_greeting'>;
+  }>;
 
   // Actions
   addAnggotaWithJobAndKta: (
@@ -409,6 +420,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   loginBackgroundImage: '',
   loginOverlayOpacity: '0.4',
   syncIntervalSeconds: 60,
+  chairman_name: 'Ketua PPDI Kabupaten Bandung',
+  chairman_title: 'Ketua Pengurus Daerah PPDI Kabupaten Bandung',
+  chairman_photo: '',
+  chairman_greeting: '',
   rolePermissions: DEFAULT_ROLE_PERMISSIONS,
   whatsappSettings: {
     enabled: false,
@@ -1317,8 +1332,64 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
 
+    const loadPublicSettings = async () => {
+      try {
+        const [setRes, chairmanRes] = await Promise.allSettled([
+          safeFetchJson('/api/settings'),
+          safeFetchJson('/api/settings/chairman'),
+        ]);
+        if (!isMounted) return;
+
+        const incomingSettings =
+          setRes.status === 'fulfilled' && setRes.value.ok && setRes.value.data?.success && setRes.value.data?.settings
+            ? setRes.value.data.settings
+            : {};
+
+        const incomingChairman =
+          chairmanRes.status === 'fulfilled' &&
+          chairmanRes.value.ok &&
+          chairmanRes.value.data?.success &&
+          (chairmanRes.value.data?.data || chairmanRes.value.data?.settings)
+            ? chairmanRes.value.data.data || chairmanRes.value.data.settings
+            : {};
+
+        const incoming = { ...incomingSettings, ...incomingChairman };
+        if (Object.keys(incoming).length === 0) return;
+
+        const sanitizedLogo =
+          incoming.logoUrl && String(incoming.logoUrl).includes('wikimedia.org')
+            ? '/logo_kabupaten_bandung.svg'
+            : incoming.logoUrl || DEFAULT_SETTINGS.logoUrl;
+        setAppSettings((prev) => {
+          const nextSettings: AppSettings = {
+            ...DEFAULT_SETTINGS,
+            ...prev,
+            ...incoming,
+            logoUrl: sanitizedLogo,
+            rolePermissions:
+              incoming.rolePermissions && Object.keys(incoming.rolePermissions).length > 0
+                ? incoming.rolePermissions
+                : prev.rolePermissions && Object.keys(prev.rolePermissions).length > 0
+                ? prev.rolePermissions
+                : DEFAULT_ROLE_PERMISSIONS,
+            whatsappSettings: {
+              ...DEFAULT_SETTINGS.whatsappSettings!,
+              ...(prev.whatsappSettings || {}),
+              ...(incoming.whatsappSettings || {}),
+            },
+          };
+          if (JSON.stringify(prev) === JSON.stringify(nextSettings)) return prev;
+          try {
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+          } catch (_) {}
+          return nextSettings;
+        });
+      } catch (_) {}
+    };
+
     const runStartupCheck = async () => {
       console.log('[PPDI] Memicu cek koneksi database MySQL saat pertama membuka website...');
+      void loadPublicSettings();
       const statusRes = await checkDbStatus();
       if (isMounted) {
         if (statusRes && statusRes.success) {
@@ -2350,17 +2421,80 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sanitizedSettings.rolePermissions = sanitizeRolePermissions(newSettings.rolePermissions);
     }
     const merged = { ...appSettings, ...sanitizedSettings };
-    setAppSettings(merged);
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
     try {
       const res = await safeFetchJson('/api/settings', {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(merged),
       });
-      return res.data;
+      if (res.ok && res.data?.success) {
+        const persistedSettings: AppSettings = res.data.settings
+          ? { ...DEFAULT_SETTINGS, ...merged, ...res.data.settings }
+          : merged;
+        setAppSettings(persistedSettings);
+        try {
+          localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(persistedSettings));
+        } catch (_) {}
+        return {
+          success: true,
+          message: res.data.message || 'Pengaturan aplikasi berhasil disimpan',
+          settings: persistedSettings,
+        };
+      }
+      return {
+        success: false,
+        message: res.data?.message || res.data?.error || 'Gagal menyimpan pengaturan aplikasi',
+      };
     } catch (err: any) {
-      return { success: false, message: err.message };
+      return { success: false, message: err?.message || 'Gagal menghubungi server saat menyimpan pengaturan' };
+    }
+  };
+
+  // Dedicated Chairman Greeting Settings Action (PUT /api/settings/chairman)
+  const updateChairmanSettings = async (payload: {
+    chairman_name?: string;
+    chairman_title?: string;
+    chairman_photo?: string;
+    chairman_greeting?: string;
+    remove_photo?: boolean;
+  }) => {
+    try {
+      const res = await safeFetchJson('/api/settings/chairman', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok && res.data?.success) {
+        const chairmanData = res.data.data || res.data.settings || {};
+        setAppSettings((prev) => {
+          const nextSettings: AppSettings = {
+            ...DEFAULT_SETTINGS,
+            ...prev,
+            chairman_name: chairmanData.chairman_name ?? prev.chairman_name,
+            chairman_title: chairmanData.chairman_title ?? prev.chairman_title,
+            chairman_photo: chairmanData.chairman_photo ?? prev.chairman_photo,
+            chairman_greeting: chairmanData.chairman_greeting ?? prev.chairman_greeting,
+          };
+          try {
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+          } catch (_) {}
+          return nextSettings;
+        });
+        return {
+          success: true,
+          message: res.data.message || 'Sambutan Ketua PPDI Kabupaten Bandung berhasil disimpan',
+          data: chairmanData,
+        };
+      }
+      return {
+        success: false,
+        message: res.data?.message || res.data?.error || 'Gagal menyimpan sambutan Ketua PPDI',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.message || 'Gagal menghubungi server saat menyimpan sambutan Ketua PPDI',
+      };
     }
   };
 
@@ -2622,6 +2756,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       closeChangePasswordModal,
       appSettings,
       updateAppSettings,
+      updateChairmanSettings,
       addAnggotaWithJobAndKta,
       batchImportAnggota,
       bulkGenerateNipd,

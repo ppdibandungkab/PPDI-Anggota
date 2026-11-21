@@ -25,6 +25,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { DbConnectionModal } from './DbConnectionModal';
+import { ChairmanGreetingCard } from './ChairmanGreetingCard';
 
 interface LoginFormProps {
   onOpenPublicVerify: () => void;
@@ -355,7 +356,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       />
 
       <div
-        className="w-full max-w-[1200px] grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-16 items-center relative z-10"
+        className="w-full max-w-[1200px] grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-12 items-start relative z-10"
       >
         {/* Startup Alert Banner if Disconnected in Hosting */}
         {dbAlertVisible && !dbStatus?.success && !isCheckingDb && (
@@ -510,8 +511,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({
             )}
           </div>
 
+          {/* Sambutan Ketua PPDI (Mobile: tampil rapi di bagian atas sebelum daftar konten lainnya) */}
+          <div className="lg:hidden mt-6 mb-5">
+            <ChairmanGreetingCard
+              chairmanName={appSettings?.chairman_name}
+              chairmanTitle={appSettings?.chairman_title}
+              chairmanPhoto={appSettings?.chairman_photo}
+              chairmanGreeting={appSettings?.chairman_greeting}
+            />
+          </div>
+
           {/* RINGKASAN CEPAT (QUICK STATS) */}
-        <div className="col-span-1 lg:col-span-2 mb-2 animate-in fade-in slide-in-from-top-3 duration-300">
+        <div className="col-span-1 lg:col-span-2 mb-2 mt-6 lg:mt-8 animate-in fade-in slide-in-from-top-3 duration-300">
           <div className="flex items-center justify-between mb-2.5 px-1">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -708,8 +719,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Pustaka Regulasi Terbaru (Publik) */}
-        <div className="w-full self-start">
+        {/* Right Column: Sambutan Ketua PPDI (Paling Atas) & Pustaka Regulasi Publik */}
+        <div className="w-full self-start space-y-5">
+          {/* Desktop Top-Right: Sambutan Ketua PPDI Kabupaten Bandung */}
+          <div className="hidden lg:block">
+            <ChairmanGreetingCard
+              chairmanName={appSettings?.chairman_name}
+              chairmanTitle={appSettings?.chairman_title}
+              chairmanPhoto={appSettings?.chairman_photo}
+              chairmanGreeting={appSettings?.chairman_greeting}
+            />
+          </div>
+
           <div className="bg-black/35 backdrop-blur-md rounded-xl border border-white/15 p-4 text-white shadow-xl">
             <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/10">
               <div className="flex items-center gap-2 min-w-0">

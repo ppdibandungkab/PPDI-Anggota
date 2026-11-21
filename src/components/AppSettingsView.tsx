@@ -6,6 +6,7 @@ import {
   Image,
   Upload,
   CheckCircle,
+  AlertCircle,
   Save,
   RotateCcw,
   Sliders,
@@ -13,10 +14,17 @@ import {
   Eye,
   Sparkles,
   CreditCard,
+  Quote,
+  User,
+  Trash2,
 } from 'lucide-react';
+import { ChairmanGreetingCard } from './ChairmanGreetingCard';
+
+const ALLOWED_CHAIRMAN_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+const MAX_CHAIRMAN_PHOTO_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export const AppSettingsView: React.FC = () => {
-  const { appSettings, updateAppSettings, hasPermission } = usePPDI();
+  const { appSettings, updateAppSettings, updateChairmanSettings, hasPermission } = usePPDI();
   const canEdit = hasPermission('settings-app', 'edit');
 
   const resolveInitialOpacity = () => {
@@ -24,6 +32,8 @@ export const AppSettingsView: React.FC = () => {
     if (typeof appSettings?.watermarkOpacityFront === 'number') return appSettings.watermarkOpacityFront;
     return 0.09;
   };
+
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'chairman'>('general');
 
   const [appName, setAppName] = useState(appSettings?.appName || 'PPDI KABUPATEN BANDUNG');
   const [appSubtitle, setAppSubtitle] = useState(
@@ -38,6 +48,16 @@ export const AppSettingsView: React.FC = () => {
   const [syncInterval, setSyncInterval] = useState(String(appSettings?.syncIntervalSeconds || 60));
   const [watermarkLogoUrl, setWatermarkLogoUrl] = useState(appSettings?.watermarkLogoUrl || '');
   const [watermarkOpacity, setWatermarkOpacity] = useState<number>(resolveInitialOpacity);
+
+  // Sambutan Ketua PPDI Kabupaten Bandung
+  const [chairmanName, setChairmanName] = useState(
+    appSettings?.chairman_name || 'Ketua PPDI Kabupaten Bandung'
+  );
+  const [chairmanTitle, setChairmanTitle] = useState(
+    appSettings?.chairman_title || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung'
+  );
+  const [chairmanPhoto, setChairmanPhoto] = useState(appSettings?.chairman_photo || '');
+  const [chairmanGreeting, setChairmanGreeting] = useState(appSettings?.chairman_greeting || '');
 
   const isDirtyRef = useRef(false);
   const lastSyncedSignatureRef = useRef('');
@@ -62,6 +82,10 @@ export const AppSettingsView: React.FC = () => {
       syncIntervalSeconds: appSettings.syncIntervalSeconds || 60,
       watermarkLogoUrl: appSettings.watermarkLogoUrl || '',
       watermarkOpacity: incomingOpacity,
+      chairman_name: appSettings.chairman_name || 'Ketua PPDI Kabupaten Bandung',
+      chairman_title: appSettings.chairman_title || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung',
+      chairman_photo: appSettings.chairman_photo || '',
+      chairman_greeting: appSettings.chairman_greeting || '',
     });
 
     const isFocusedInsideForm =
@@ -82,23 +106,30 @@ export const AppSettingsView: React.FC = () => {
     setSyncInterval(String(appSettings.syncIntervalSeconds || 60));
     setWatermarkLogoUrl(appSettings.watermarkLogoUrl || '');
     setWatermarkOpacity(incomingOpacity);
+    setChairmanName(appSettings.chairman_name || 'Ketua PPDI Kabupaten Bandung');
+    setChairmanTitle(appSettings.chairman_title || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung');
+    setChairmanPhoto(appSettings.chairman_photo || '');
+    setChairmanGreeting(appSettings.chairman_greeting || '');
   }, [appSettings]);
 
   const [saving, setSaving] = useState(false);
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const watermarkInputRef = useRef<HTMLInputElement>(null);
+  const chairmanPhotoInputRef = useRef<HTMLInputElement>(null);
 
   // Handle Logo File Upload
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('Ukuran berkas logo maksimal 2 MB');
+        setErrorBanner('Ukuran berkas logo maksimal 2 MB.');
         return;
       }
+      setErrorBanner(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -115,9 +146,10 @@ export const AppSettingsView: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran gambar latar maksimal 5 MB');
+        setErrorBanner('Ukuran gambar latar maksimal 5 MB.');
         return;
       }
+      setErrorBanner(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -135,9 +167,10 @@ export const AppSettingsView: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('Ukuran berkas logo watermark maksimal 2 MB');
+        setErrorBanner('Ukuran berkas logo watermark maksimal 2 MB.');
         return;
       }
+      setErrorBanner(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -147,6 +180,39 @@ export const AppSettingsView: React.FC = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Handle Chairman Photo Upload (JPG, PNG, WEBP, max 2 MB)
+  const handleChairmanPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const validType =
+      ALLOWED_CHAIRMAN_IMAGE_TYPES.includes(file.type.toLowerCase()) ||
+      ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+
+    if (!validType) {
+      setErrorBanner('Format foto Ketua tidak didukung. Gunakan file JPG, PNG, atau WEBP.');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > MAX_CHAIRMAN_PHOTO_BYTES) {
+      setErrorBanner('Ukuran foto Ketua terlalu besar. Batas maksimal adalah 2 MB.');
+      e.target.value = '';
+      return;
+    }
+
+    setErrorBanner(null);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        isDirtyRef.current = true;
+        setChairmanPhoto(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const effectiveWatermarkPreviewLogo =
@@ -159,12 +225,40 @@ export const AppSettingsView: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setSavedSuccess(false);
+    setSavedSuccess(null);
+    setErrorBanner(null);
 
     const normalizedOpacity = Math.round(Math.min(1, Math.max(0, watermarkOpacity)) * 100) / 100;
 
     try {
-      await updateAppSettings({
+      if (activeSettingsTab === 'chairman') {
+        const result = await updateChairmanSettings({
+          chairman_name: chairmanName.trim() || 'Ketua PPDI Kabupaten Bandung',
+          chairman_title: chairmanTitle.trim() || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung',
+          chairman_photo: chairmanPhoto.trim(),
+          chairman_greeting: chairmanGreeting,
+          remove_photo: chairmanPhoto.trim() === '',
+        });
+
+        if (!result?.success) {
+          setErrorBanner(result?.message || 'Gagal menyimpan sambutan Ketua PPDI. Silakan periksa kembali isian Anda.');
+          return;
+        }
+
+        if (result.data) {
+          setChairmanPhoto(result.data.chairman_photo || '');
+          setChairmanName(result.data.chairman_name || 'Ketua PPDI Kabupaten Bandung');
+          setChairmanTitle(result.data.chairman_title || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung');
+          setChairmanGreeting(result.data.chairman_greeting || '');
+        }
+
+        isDirtyRef.current = false;
+        setSavedSuccess('Sambutan Ketua PPDI Kabupaten Bandung berhasil disimpan dan langsung tampil di halaman depan publik!');
+        setTimeout(() => setSavedSuccess(null), 5000);
+        return;
+      }
+
+      const result = await updateAppSettings({
         appName: appName.trim().toUpperCase(),
         appSubtitle: appSubtitle.trim(),
         logoUrl: logoUrl.trim(),
@@ -176,13 +270,29 @@ export const AppSettingsView: React.FC = () => {
         loginBackgroundImage: loginBackgroundImage.trim(),
         loginOverlayOpacity,
         syncIntervalSeconds: Number(syncInterval) || 60,
+        chairman_name: chairmanName.trim() || 'Ketua PPDI Kabupaten Bandung',
+        chairman_title: chairmanTitle.trim() || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung',
+        chairman_photo: chairmanPhoto.trim(),
+        chairman_greeting: chairmanGreeting,
       });
 
+      if (!result?.success) {
+        setErrorBanner(result?.message || 'Gagal menyimpan pengaturan aplikasi. Silakan periksa kembali isian Anda.');
+        return;
+      }
+
+      if (result.settings) {
+        setChairmanPhoto(result.settings.chairman_photo || '');
+        setChairmanName(result.settings.chairman_name || 'Ketua PPDI Kabupaten Bandung');
+        setChairmanTitle(result.settings.chairman_title || 'Ketua Pengurus Daerah PPDI Kabupaten Bandung');
+        setChairmanGreeting(result.settings.chairman_greeting || '');
+      }
+
       isDirtyRef.current = false;
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 4000);
+      setSavedSuccess('Pengaturan aplikasi berhasil disimpan dan langsung diterapkan ke seluruh sistem!');
+      setTimeout(() => setSavedSuccess(null), 5000);
     } catch (err: any) {
-      alert('Gagal menyimpan pengaturan: ' + err.message);
+      setErrorBanner('Gagal menyimpan pengaturan: ' + (err?.message || 'Kesalahan jaringan'));
     } finally {
       setSaving(false);
     }
@@ -198,17 +308,66 @@ export const AppSettingsView: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Setting & Kustomisasi Aplikasi</h1>
           </div>
           <p className="text-emerald-100 text-xs sm:text-sm mt-1">
-            Konfigurasi Logo Resmi, Latar Belakang Halaman Login, Branding Organisasi, dan Sinkronisasi Database.
+            Konfigurasi Logo Resmi, Latar Belakang Halaman Login, Sambutan Ketua PPDI, Branding Organisasi, dan Sinkronisasi Database.
           </p>
         </div>
       </div>
 
+      {/* Section Navigation Tabs */}
+      <div className="bg-white border border-neutral-200 rounded-xl p-1.5 shadow-xs flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveSettingsTab('general');
+            setErrorBanner(null);
+          }}
+          className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            activeSettingsTab === 'general'
+              ? 'bg-[#064E3B] text-white shadow-xs'
+              : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          <span>Identitas, Logo & Tampilan</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveSettingsTab('chairman');
+            setErrorBanner(null);
+          }}
+          className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            activeSettingsTab === 'chairman'
+              ? 'bg-[#064E3B] text-white shadow-xs'
+              : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100'
+          }`}
+        >
+          <Quote className="w-4 h-4 text-amber-400" />
+          <span>Sambutan Ketua PPDI</span>
+        </button>
+      </div>
+
       {savedSuccess && (
-        <div className="p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs sm:text-sm rounded-xl flex items-center gap-2 shadow-xs">
+        <div className="p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs sm:text-sm rounded-xl flex items-center gap-2.5 shadow-xs">
           <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-          <span className="font-semibold">
-            Pengaturan aplikasi (Logo & Latar Belakang Login) berhasil disimpan dan langsung diterapkan ke seluruh sistem!
-          </span>
+          <span className="font-semibold">{savedSuccess}</span>
+        </div>
+      )}
+
+      {errorBanner && (
+        <div className="p-4 bg-red-50 border border-red-300 text-red-900 text-xs sm:text-sm rounded-xl flex items-center justify-between gap-2.5 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+            <span className="font-semibold">{errorBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorBanner(null)}
+            className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 cursor-pointer"
+          >
+            Tutup
+          </button>
         </div>
       )}
 
@@ -220,6 +379,194 @@ export const AppSettingsView: React.FC = () => {
         }}
         className="space-y-6"
       >
+        {activeSettingsTab === 'chairman' ? (
+          /* ============================================================== */
+          /* TAB KHUSUS: SAMBUTAN KETUA PPDI KABUPATEN BANDUNG              */
+          /* ============================================================== */
+          <div className="space-y-6">
+            <div className="bg-white border border-neutral-200 rounded-xl p-6 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-100 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#064E3B] shrink-0">
+                    <Quote className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-800">
+                      Sambutan Ketua PPDI Kabupaten Bandung
+                    </h2>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      Ditampilkan di halaman depan (Publik) pada posisi sebelah kanan paling atas tanpa memerlukan login.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md self-start sm:self-center">
+                  Halaman Publik · Kanan Atas
+                </span>
+              </div>
+
+              {/* Photo Upload + Preview */}
+              <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 items-start">
+                <div className="flex flex-col items-center p-5 bg-neutral-50 border border-neutral-200 rounded-xl text-center">
+                  <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide mb-3">
+                    Foto Ketua PPDI
+                  </span>
+                  <div className="w-28 h-28 rounded-full bg-white border-2 border-[#064E3B]/30 ring-2 ring-amber-400/50 ring-offset-2 flex items-center justify-center overflow-hidden shadow-sm">
+                    {chairmanPhoto ? (
+                      <img
+                        src={chairmanPhoto}
+                        alt={chairmanName || 'Foto Ketua PPDI'}
+                        className="w-full h-full object-cover object-top"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center text-neutral-400">
+                        <User className="w-10 h-10 text-[#064E3B]/60" />
+                        <span className="text-[10px] mt-1 font-mono text-neutral-500">Belum Ada Foto</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <input
+                    ref={chairmanPhotoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleChairmanPhotoChange}
+                    className="hidden"
+                  />
+
+                  <div className="mt-4 flex flex-col gap-2 w-full">
+                    <button
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => chairmanPhotoInputRef.current?.click()}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-amber-300" />
+                      <span>{chairmanPhoto ? 'Ganti Foto' : 'Unggah Foto'}</span>
+                    </button>
+
+                    {chairmanPhoto && (
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => {
+                          isDirtyRef.current = true;
+                          setChairmanPhoto('');
+                        }}
+                        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Hapus Foto</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-neutral-500 mt-3 leading-relaxed">
+                    Format: <strong>JPG, PNG, WEBP</strong> · Maks. <strong>2 MB</strong>. Disarankan foto potret resmi rasio 1:1.
+                  </p>
+                </div>
+
+                {/* Text Fields: Name, Title, Greeting */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 uppercase mb-1.5">
+                        Nama Ketua PPDI
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={150}
+                        disabled={!canEdit}
+                        value={chairmanName}
+                        onChange={(e) => {
+                          isDirtyRef.current = true;
+                          setChairmanName(e.target.value);
+                        }}
+                        placeholder="Contoh: H. Ahmad Suryana, S.IP."
+                        className="w-full p-2.5 border border-neutral-300 rounded-lg text-xs font-semibold text-neutral-900 focus:ring-2 focus:ring-[#064E3B] outline-none disabled:bg-neutral-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 uppercase mb-1.5">
+                        Jabatan
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={200}
+                        disabled={!canEdit}
+                        value={chairmanTitle}
+                        onChange={(e) => {
+                          isDirtyRef.current = true;
+                          setChairmanTitle(e.target.value);
+                        }}
+                        placeholder="Ketua Pengurus Daerah PPDI Kabupaten Bandung"
+                        className="w-full p-2.5 border border-neutral-300 rounded-lg text-xs text-neutral-900 focus:ring-2 focus:ring-[#064E3B] outline-none disabled:bg-neutral-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold text-neutral-700 uppercase">
+                        Kata-Kata Sambutan Ketua
+                      </label>
+                      <span className="text-[11px] font-mono text-neutral-500 tabular-nums">
+                        {chairmanGreeting.length.toLocaleString('id-ID')} / 10.000 karakter
+                      </span>
+                    </div>
+                    <textarea
+                      rows={8}
+                      maxLength={10000}
+                      disabled={!canEdit}
+                      value={chairmanGreeting}
+                      onChange={(e) => {
+                        isDirtyRef.current = true;
+                        setChairmanGreeting(e.target.value);
+                      }}
+                      placeholder={
+                        "Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nTulis pesan sambutan resmi Ketua PPDI Kabupaten Bandung untuk seluruh perangkat desa dan masyarakat Kabupaten Bandung..."
+                      }
+                      className="w-full p-3 border border-neutral-300 rounded-lg text-xs sm:text-sm leading-relaxed text-neutral-900 focus:ring-2 focus:ring-[#064E3B] outline-none resize-y disabled:bg-neutral-100"
+                    />
+                    <p className="text-[11px] text-neutral-500 mt-1.5">
+                      Tekan <kbd className="px-1 py-0.5 bg-neutral-100 border border-neutral-200 rounded text-[10px]">Enter</kbd> untuk membuat paragraf baru. Jika sambutan cukup panjang, tombol <strong>&ldquo;Baca Selengkapnya&rdquo;</strong> akan muncul otomatis di halaman publik.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Public Preview */}
+            <div className="bg-white border border-neutral-200 rounded-xl p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-[#064E3B]" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-800">
+                    Pratinjau Kartu di Halaman Depan (Publik)
+                  </h3>
+                </div>
+                <span className="text-[11px] font-mono text-neutral-500">Simulasi Kolom Kanan Atas (420px)</span>
+              </div>
+
+              <div
+                className="rounded-xl p-5 sm:p-6 flex justify-center"
+                style={{
+                  background: 'radial-gradient(circle at top left, #064E3B 0%, #052e23 55%, #031712 100%)',
+                }}
+              >
+                <div className="w-full max-w-[420px]">
+                  <ChairmanGreetingCard
+                    chairmanName={chairmanName}
+                    chairmanTitle={chairmanTitle}
+                    chairmanPhoto={chairmanPhoto}
+                    chairmanGreeting={chairmanGreeting}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* ============================================================== */}
         {/* SECTION 1: PENGATURAN LOGO APLIKASI */}
         {/* ============================================================== */}
@@ -853,6 +1200,8 @@ export const AppSettingsView: React.FC = () => {
             </div>
           </div>
         </div>
+          </>
+        )}
 
         {/* Submit Actions */}
         <div className="flex items-center justify-end gap-3 pt-2">
@@ -863,7 +1212,13 @@ export const AppSettingsView: React.FC = () => {
               className="flex items-center gap-2 px-8 py-3 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4 text-amber-300" />
-              <span>{saving ? 'Menyimpan Pengaturan...' : 'Simpan Seluruh Pengaturan'}</span>
+              <span>
+                {saving
+                  ? 'Menyimpan Perubahan...'
+                  : activeSettingsTab === 'chairman'
+                  ? 'Simpan Perubahan'
+                  : 'Simpan Seluruh Pengaturan'}
+              </span>
             </button>
           ) : (
             <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs font-medium">

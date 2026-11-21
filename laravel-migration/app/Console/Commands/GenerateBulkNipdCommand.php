@@ -10,14 +10,15 @@ use Illuminate\Support\Facades\DB;
  * Artisan command untuk Generate Massal NIPD 28 digit menggunakan NipdGeneratorService.
  *
  * Contoh penggunaan:
- *   php artisan ppdi:generate-nipd --dry-run
- *   php artisan ppdi:generate-nipd --kecamatan=32.04.05 --dry-run
- *   php artisan ppdi:generate-nipd --kecamatan=320405 --mode=non_standard --force
- *   php artisan ppdi:generate-nipd --kecamatan=32.04.05 --default-kades-periode=1
+ *   php artisan nipd:generate-all
+ *   php artisan nipd:generate-all --dry-run
+ *   php artisan nipd:generate-all --kecamatan=32.04.05 --dry-run
+ *   php artisan nipd:generate-all --kecamatan=320405 --mode=non_standard --force
+ *   php artisan nipd:generate-all --kecamatan=32.04.05 --default-kades-periode=1
  */
 class GenerateBulkNipdCommand extends Command
 {
-    protected $signature = 'ppdi:generate-nipd
+    protected $signature = 'nipd:generate-all
         {--kecamatan= : Filter kode/ID kecamatan (contoh: 32.04.05 atau 320405)}
         {--desa= : Filter kode/ID desa (contoh: 32.04.05.2001 atau 3204052001)}
         {--jabatan= : Filter ID jabatan (1..10)}
@@ -26,6 +27,9 @@ class GenerateBulkNipdCommand extends Command
         {--dry-run : Simulasi pratinjau tanpa menulis perubahan ke database}
         {--force : Lewati konfirmasi interaktif saat menyimpan ke database}
         {--limit-preview=25 : Maksimal baris pratinjau yang ditampilkan di tabel terminal}';
+
+    /** @var array<int, string> */
+    protected $aliases = ['ppdi:generate-nipd'];
 
     protected $description = 'Generate & standarisasi massal NIPD 28 digit anggota PPDI menggunakan NipdGeneratorService (mendukung filter per kecamatan)';
 

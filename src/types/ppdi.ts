@@ -372,6 +372,10 @@ export interface AppSettings {
   loginBackgroundImage?: string;
   loginOverlayOpacity?: string;
   syncIntervalSeconds: number;
+  chairman_name?: string;
+  chairman_title?: string;
+  chairman_photo?: string;
+  chairman_greeting?: string;
   rolePermissions?: RoleConfig;
   whatsappSettings?: WhatsAppSettings;
 }
