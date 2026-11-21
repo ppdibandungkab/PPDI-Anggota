@@ -8,6 +8,7 @@ use App\Http\Requests\StoreAnggotaRequest;
 use App\Http\Resources\AnggotaResource;
 use App\Services\ActivityLoggerService;
 use App\Services\KtaGeneratorService;
+use App\Services\NipdGeneratorService;
 use App\Services\PpdiHelperService;
 use App\Support\NipdFormatter;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ use Illuminate\Support\Facades\DB;
 class AnggotaController extends Controller
 {
     public function __construct(
-        private readonly KtaGeneratorService $ktaGenerator
+        private readonly KtaGeneratorService $ktaGenerator,
+        private readonly NipdGeneratorService $nipdGenerator
     ) {}
     /**
      * GET /api/anggota
@@ -553,6 +555,62 @@ class AnggotaController extends Controller
             'errors'   => $errors,
             'message'  => "Import selesai: {$inserted} berhasil disimpan, {$skipped} dilewati.",
         ]);
+    }
+
+    /**
+     * POST /api/anggota/bulk-generate-nipd
+     * Generate Massal NIPD 28 digit (mendukung dryRun simulasi maupun eksekusi DB::transaction).
+     */
+    public function bulkGenerateNipd(Request $request)
+    {
+        try {
+            $result = $this->nipdGenerator->generateBatch([
+                'mode'                  => $request->input('mode', 'non_standard'),
+                'member_ids'            => $request->input('memberIds', $request->input('member_ids', [])),
+                'id_kecamatan'          => $request->input('id_kecamatan'),
+                'id_desa'               => $request->input('id_desa'),
+                'id_jabatan'            => $request->input('id_jabatan'),
+                'default_kades_periode' => $request->input('defaultKadesPeriode', $request->input('default_kades_periode')),
+                'dry_run'               => (bool) $request->input('dryRun', $request->input('dry_run', false)),
+            ]);
+
+            $summary = $result['summary'];
+
+            if (!$result['dry_run'] && $summary['updated'] > 0) {
+                ActivityLoggerService::logMemberActivity($request, [
+                    'idAnggota'  => 'BULK_NIPD',
+                    'targetNama' => 'Generate Massal NIPD',
+                    'modul'      => 'Data Induk Anggota',
+                    'aksi'       => 'EDIT',
+                    'keterangan' => "Generate Massal NIPD selesai (mode={$result['mode']}): {$summary['updated']} diperbarui, {$summary['unchanged']} sudah sesuai, {$summary['skipped']} dilewati dari {$summary['total_scanned']} anggota.",
+                ]);
+            }
+
+            $msg = $result['dry_run']
+                ? "Simulasi selesai: {$summary['eligible']} anggota siap diperbarui, {$summary['unchanged']} sudah sesuai, {$summary['skipped']} dilewati."
+                : "Generate Massal NIPD selesai: {$summary['updated']} anggota berhasil diperbarui, {$summary['unchanged']} sudah sesuai, {$summary['skipped']} dilewati.";
+
+            return response()->json([
+                'success' => true,
+                'dryRun'  => $result['dry_run'],
+                'mode'    => $result['mode'],
+                'summary' => [
+                    'totalScanned' => $summary['total_scanned'],
+                    'eligible'     => $summary['eligible'],
+                    'updated'      => $summary['updated'],
+                    'unchanged'    => $summary['unchanged'],
+                    'skipped'      => $summary['skipped'],
+                ],
+                'items'   => $result['items'],
+                'message' => $msg,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

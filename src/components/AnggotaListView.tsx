@@ -40,11 +40,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Printer,
+  Hash,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 import { QrLabelPrintModal } from './QrLabelPrintModal';
 import { BulkKtaExportModal } from './BulkKtaExportModal';
 import { BulkWhatsAppModal } from './BulkWhatsAppModal';
+import { BulkGenerateNipdModal } from './BulkGenerateNipdModal';
 import { PermissionGate } from './PermissionGate';
 
 interface AnggotaListViewProps {
@@ -97,6 +99,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [isQrLabelModalOpen, setIsQrLabelModalOpen] = useState(false);
   const [isBulkKtaModalOpen, setIsBulkKtaModalOpen] = useState(false);
   const [isBulkWaModalOpen, setIsBulkWaModalOpen] = useState(false);
+  const [isBulkNipdModalOpen, setIsBulkNipdModalOpen] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
 
   // WhatsApp Notification Dispatch Modal State
@@ -309,6 +312,11 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           }
           return;
         }
+        if (isBulkNipdModalOpen) {
+          e.preventDefault();
+          setIsBulkNipdModalOpen(false);
+          return;
+        }
         if (isBulkWaModalOpen) {
           e.preventDefault();
           setIsBulkWaModalOpen(false);
@@ -338,6 +346,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
       const anyInternalModalOpen = Boolean(
         waModalMember ||
           memberToDelete ||
+          isBulkNipdModalOpen ||
           isBulkWaModalOpen ||
           isBulkKtaModalOpen ||
           isQrLabelModalOpen ||
@@ -387,6 +396,7 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
     isSendingWa,
     memberToDelete,
     isDeleting,
+    isBulkNipdModalOpen,
     isBulkWaModalOpen,
     isBulkKtaModalOpen,
     isQrLabelModalOpen,
@@ -617,6 +627,21 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
               <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
               <span>
                 Kirim WA Massal
+                {selectedMembersList.length > 0 ? ` (${selectedMembersList.length})` : ''}
+              </span>
+            </button>
+          </PermissionGate>
+
+          <PermissionGate module="anggota" action="edit">
+            <button
+              type="button"
+              onClick={() => setIsBulkNipdModalOpen(true)}
+              title="Generate & standarisasi massal NIPD 28 digit sesuai aturan resmi Kepala Desa, Perangkat Desa, dan Staf"
+              className="px-3 py-1.5 text-xs font-bold text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Hash className="w-3.5 h-3.5 text-emerald-800" />
+              <span>
+                Generate NIPD Massal
                 {selectedMembersList.length > 0 ? ` (${selectedMembersList.length})` : ''}
               </span>
             </button>
@@ -964,6 +989,16 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             >
               Kosongkan Pilihan
             </button>
+            <PermissionGate module="anggota" action="edit">
+              <button
+                type="button"
+                onClick={() => setIsBulkNipdModalOpen(true)}
+                className="px-3.5 py-1.5 text-xs font-bold text-emerald-950 bg-emerald-200 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Hash className="w-3.5 h-3.5" />
+                <span>Generate NIPD ({selectedMembersList.length})</span>
+              </button>
+            </PermissionGate>
             <button
               type="button"
               onClick={() => setIsBulkWaModalOpen(true)}
@@ -1743,6 +1778,21 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             failedCount === 0
               ? `Notifikasi WhatsApp massal berhasil dikirim ke ${sentCount} anggota melalui Fonnte.`
               : `Pengiriman WhatsApp massal selesai: ${sentCount} berhasil, ${failedCount} gagal.`,
+        });
+      }}
+    />
+
+    <BulkGenerateNipdModal
+      isOpen={isBulkNipdModalOpen}
+      onClose={() => setIsBulkNipdModalOpen(false)}
+      selectedMembers={selectedMembersList}
+      initialKecamatan={filterKecamatan}
+      initialDesa={filterDesa}
+      initialJabatan={filterJabatan}
+      onComplete={({ updated, unchanged, skipped }) => {
+        setToastMessage({
+          type: 'success',
+          text: `Generate Massal NIPD selesai: ${updated} NIPD diperbarui, ${unchanged} sudah sesuai, ${skipped} dilewati.`,
         });
       }}
     />

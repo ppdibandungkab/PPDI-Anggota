@@ -43,6 +43,7 @@ Route::get('/anggota/{id}/activity', [AnggotaController::class, 'activity']);
 Route::post('/anggota', [AnggotaController::class, 'store'])->middleware('perm:anggota,add');
 Route::post('/anggota/store', [AnggotaController::class, 'store'])->middleware('perm:anggota,add');
 Route::post('/anggota/batch-import', [AnggotaController::class, 'batchImport'])->middleware('perm:anggota,add');
+Route::post('/anggota/bulk-generate-nipd', [AnggotaController::class, 'bulkGenerateNipd'])->middleware('perm:anggota,edit');
 Route::put('/anggota/{id}', [AnggotaController::class, 'update'])->middleware('perm:anggota,edit');
 Route::delete('/anggota/{id}', [AnggotaController::class, 'destroy'])->middleware('perm:anggota,delete');
 

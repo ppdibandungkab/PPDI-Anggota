@@ -137,6 +137,42 @@ interface PPDIContextType {
     jabatanPengurus?: string
   ) => Promise<{ success: boolean; newId?: string; noKta: string }>;
   batchImportAnggota: (items: any[]) => Promise<{ success: boolean; insertedCount: number; skippedCount: number; skipped: any[]; message: string }>;
+  bulkGenerateNipd: (options: {
+    mode?: 'only_empty' | 'non_standard' | 'all';
+    memberIds?: Array<string | number>;
+    id_kecamatan?: string;
+    id_desa?: string;
+    id_jabatan?: string | number;
+    defaultKadesPeriode?: 1 | 2 | 3 | null;
+    dryRun?: boolean;
+  }) => Promise<{
+    success: boolean;
+    dryRun: boolean;
+    mode: string;
+    summary: {
+      totalScanned: number;
+      eligible: number;
+      updated: number;
+      unchanged: number;
+      skipped: number;
+    };
+    items: Array<{
+      id_anggota: number;
+      nik: string;
+      nama_lengkap: string;
+      id_jabatan: number | null;
+      nama_jabatan: string;
+      periode: number | null;
+      nama_desa: string;
+      nama_kecamatan: string;
+      old_nipd: string;
+      new_nipd: string | null;
+      new_nipd_formatted: string | null;
+      status: 'will_update' | 'updated' | 'unchanged' | 'skipped';
+      reason: string;
+    }>;
+    message: string;
+  }>;
   updateAnggota: (id: string | number, updated: Partial<Anggota>, jabatanPengurus?: string) => Promise<void>;
   updateKeanggotaanJabatan: (idAnggota: string | number, jabatanPengurus: string) => Promise<void>;
   deleteAnggota: (id: string | number) => Promise<{ success: boolean; message: string }>;
@@ -1746,6 +1782,44 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const bulkGenerateNipd = async (options: {
+    mode?: 'only_empty' | 'non_standard' | 'all';
+    memberIds?: Array<string | number>;
+    id_kecamatan?: string;
+    id_desa?: string;
+    id_jabatan?: string | number;
+    defaultKadesPeriode?: 1 | 2 | 3 | null;
+    dryRun?: boolean;
+  }) => {
+    try {
+      const res = await safeFetchJson('/api/anggota/bulk-generate-nipd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options),
+      });
+      const json = res.data;
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || json.error || res.error || 'Gagal menjalankan Generate Massal NIPD');
+      }
+
+      if (!options.dryRun && (json.summary?.updated || 0) > 0) {
+        addActivityLog({
+          aksi: 'EDIT',
+          modul: 'Data Induk Anggota',
+          target_id: 'BULK_NIPD',
+          target_nama: 'Generate Massal NIPD',
+          deskripsi: json.message || `Berhasil memperbarui NIPD massal untuk ${json.summary.updated} anggota.`,
+        });
+        await refreshDataFromMySQL({ force: true });
+      }
+
+      return json;
+    } catch (err: any) {
+      console.error('Bulk generate NIPD error:', err);
+      throw err;
+    }
+  };
+
   const updateAnggota = async (id: string | number, updated: Partial<Anggota>, jabatanPengurus?: string) => {
     const formattedUpdated: Partial<Anggota> = { ...updated };
     if (updated.nama_lengkap) {
@@ -2550,6 +2624,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateAppSettings,
       addAnggotaWithJobAndKta,
       batchImportAnggota,
+      bulkGenerateNipd,
       updateAnggota,
       updateKeanggotaanJabatan,
       deleteAnggota,

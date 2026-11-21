@@ -2668,6 +2668,323 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
   }
 });
 
+// Helper to format 28-digit NIPD with spaces matching NipdFormatter (8-6-1-3-10)
+function formatServerNipdDisplay(nipd: string): string {
+  const digits = String(nipd || '').replace(/\D/g, '');
+  if (digits.length === 28) {
+    return `${digits.slice(0, 8)} ${digits.slice(8, 14)} ${digits.slice(14, 15)} ${digits.slice(15, 18)} ${digits.slice(18, 28)}`;
+  }
+  return nipd;
+}
+
+// Bulk Generate NIPD 28 Digit (Simulasi dryRun maupun Eksekusi Transaksional)
+app.post('/api/anggota/bulk-generate-nipd', requirePermission('anggota', 'edit'), async (req, res) => {
+  const rawMode = String(req.body?.mode || 'non_standard');
+  const mode: 'only_empty' | 'non_standard' | 'all' =
+    rawMode === 'only_empty' || rawMode === 'all' ? rawMode : 'non_standard';
+  const dryRun = Boolean(req.body?.dryRun ?? req.body?.dry_run ?? false);
+  const rawMemberIds = Array.isArray(req.body?.memberIds)
+    ? req.body.memberIds
+    : Array.isArray(req.body?.member_ids)
+      ? req.body.member_ids
+      : [];
+  const memberIds: number[] = rawMemberIds
+    .map((v: any) => isValidInt32Id(v))
+    .filter((v: number | null): v is number => v !== null);
+
+  const idKecamatan = String(req.body?.id_kecamatan || '').trim();
+  const idDesa = String(req.body?.id_desa || '').trim();
+  const rawIdJabatan = req.body?.id_jabatan;
+  const idJabatan =
+    rawIdJabatan !== undefined &&
+    rawIdJabatan !== null &&
+    String(rawIdJabatan).trim() !== '' &&
+    String(rawIdJabatan).toLowerCase() !== 'all'
+      ? Number(rawIdJabatan)
+      : null;
+
+  const rawDefaultKadesPeriode = req.body?.defaultKadesPeriode ?? req.body?.default_kades_periode;
+  const parsedDefaultPeriode =
+    rawDefaultKadesPeriode !== undefined &&
+    rawDefaultKadesPeriode !== null &&
+    String(rawDefaultKadesPeriode).trim() !== ''
+      ? Number(rawDefaultKadesPeriode)
+      : null;
+  const defaultKadesPeriode =
+    parsedDefaultPeriode !== null &&
+    Number.isInteger(parsedDefaultPeriode) &&
+    parsedDefaultPeriode >= 1 &&
+    parsedDefaultPeriode <= 3
+      ? parsedDefaultPeriode
+      : null;
+
+  let conn;
+  try {
+    if (!pool) throw new Error('Koneksi database pool belum siap');
+    conn = await pool.getConnection();
+    await ensureSignatureColumns(conn);
+
+    const whereClauses: string[] = [];
+    const params: any[] = [];
+
+    if (memberIds.length > 0) {
+      whereClauses.push(`a.id_anggota IN (${memberIds.map(() => '?').join(',')})`);
+      params.push(...memberIds);
+    }
+
+    if (idDesa && idDesa.toLowerCase() !== 'all') {
+      const cleanDesa = idDesa.replace(/\./g, '');
+      whereClauses.push(`(r.id_desa = ? OR REPLACE(r.id_desa, '.', '') = ?)`);
+      params.push(idDesa, cleanDesa);
+    } else if (idKecamatan && idKecamatan.toLowerCase() !== 'all') {
+      const cleanKec = idKecamatan.replace(/\./g, '');
+      whereClauses.push(`(d.id_kecamatan = ? OR REPLACE(d.id_kecamatan, '.', '') = ? OR REPLACE(r.id_desa, '.', '') LIKE CONCAT(?, '%'))`);
+      params.push(idKecamatan, cleanKec, cleanKec);
+    }
+
+    if (idJabatan !== null && !Number.isNaN(idJabatan)) {
+      whereClauses.push('r.id_jabatan = ?');
+      params.push(idJabatan);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const [rows]: [any[], any] = await conn.query(
+      `SELECT
+        a.id_anggota,
+        a.nik,
+        a.nipd,
+        a.nama_lengkap,
+        DATE_FORMAT(a.tanggal_lahir, '%Y-%m-%d') AS tanggal_lahir,
+        a.jenis_kelamin,
+        r.id_riwayat,
+        r.id_desa,
+        r.id_jabatan,
+        r.periode,
+        DATE_FORMAT(r.tmt_jabatan, '%Y-%m-%d') AS tmt_jabatan,
+        j.nama_jabatan,
+        j.kategori_jabatan,
+        d.nama_desa,
+        d.id_kecamatan,
+        k.nama_kecamatan
+      FROM anggota a
+      LEFT JOIN riwayat_jabatan r ON r.id_riwayat = (
+        SELECT r2.id_riwayat
+        FROM riwayat_jabatan r2
+        WHERE r2.id_anggota = a.id_anggota
+        ORDER BY (r2.status_aktif = 'Aktif') DESC, r2.tmt_jabatan DESC, r2.id_riwayat DESC
+        LIMIT 1
+      )
+      LEFT JOIN ref_jabatan j ON j.id_jabatan = r.id_jabatan
+      LEFT JOIN ref_desa d ON d.id_desa = r.id_desa
+      LEFT JOIN ref_kecamatan k ON k.id_kecamatan = d.id_kecamatan
+      ${whereSql}
+      ORDER BY a.id_anggota ASC`,
+      params
+    );
+
+    const totalScanned = rows.length;
+    let eligible = 0;
+    let updated = 0;
+    let unchanged = 0;
+    let skipped = 0;
+    const items: any[] = [];
+    const pendingUpdates: Array<{
+      id_anggota: number;
+      id_riwayat: number;
+      new_nipd: string;
+      backfill_periode: number | null;
+    }> = [];
+
+    for (const row of rows) {
+      const currentNipdRaw = String(row.nipd || '').trim();
+      const currentNipdDigits = currentNipdRaw.replace(/\D/g, '');
+      const isCurrentValid28 = currentNipdDigits.length === 28;
+
+      if (!row.id_riwayat || !row.id_jabatan || !row.id_desa) {
+        skipped++;
+        items.push({
+          id_anggota: Number(row.id_anggota),
+          nik: String(row.nik || ''),
+          nama_lengkap: String(row.nama_lengkap || ''),
+          id_jabatan: row.id_jabatan ? Number(row.id_jabatan) : null,
+          nama_jabatan: row.nama_jabatan || '-',
+          periode: row.periode !== null && row.periode !== undefined ? Number(row.periode) : null,
+          nama_desa: row.nama_desa || '-',
+          nama_kecamatan: row.nama_kecamatan || '-',
+          old_nipd: currentNipdRaw,
+          new_nipd: null,
+          new_nipd_formatted: null,
+          status: 'skipped',
+          reason: 'Riwayat jabatan atau desa penempatan belum lengkap.',
+        });
+        continue;
+      }
+
+      const jId = Number(row.id_jabatan);
+      let effectivePeriode: number | null =
+        row.periode !== null && row.periode !== undefined ? Number(row.periode) : null;
+      let needBackfillPeriode = false;
+
+      if (jId === ID_JABATAN_KEPALA_DESA) {
+        const pCheck = validateAndNormalizePeriode(jId, effectivePeriode);
+        if (!pCheck.valid) {
+          if (defaultKadesPeriode !== null) {
+            effectivePeriode = defaultKadesPeriode;
+            needBackfillPeriode = true;
+          } else {
+            skipped++;
+            items.push({
+              id_anggota: Number(row.id_anggota),
+              nik: String(row.nik || ''),
+              nama_lengkap: String(row.nama_lengkap || ''),
+              id_jabatan: jId,
+              nama_jabatan: row.nama_jabatan || 'Kepala Desa',
+              periode: null,
+              nama_desa: row.nama_desa || '-',
+              nama_kecamatan: row.nama_kecamatan || '-',
+              old_nipd: currentNipdRaw,
+              new_nipd: null,
+              new_nipd_formatted: null,
+              status: 'skipped',
+              reason: 'Kepala Desa belum memiliki nilai periode (1/2/3). Isi periode pada riwayat jabatan atau aktifkan periode bawaan.',
+            });
+            continue;
+          }
+        } else {
+          effectivePeriode = pCheck.value;
+        }
+      } else {
+        effectivePeriode = null;
+      }
+
+      const newNipd = generateServerNIPD({
+        tanggal_lahir: row.tanggal_lahir,
+        tmt_jabatan: row.tmt_jabatan,
+        jenis_kelamin: row.jenis_kelamin || 'L',
+        id_jabatan: jId,
+        nama_jabatan: row.nama_jabatan,
+        kategori_jabatan: row.kategori_jabatan,
+        periode: effectivePeriode,
+        id_kecamatan: row.id_kecamatan,
+        id_desa: row.id_desa,
+      });
+
+      const shouldUpdate =
+        mode === 'only_empty'
+          ? !isCurrentValid28
+          : mode === 'non_standard'
+            ? !isCurrentValid28 || currentNipdDigits !== newNipd || currentNipdRaw !== newNipd
+            : true;
+
+      if (!shouldUpdate) {
+        unchanged++;
+        items.push({
+          id_anggota: Number(row.id_anggota),
+          nik: String(row.nik || ''),
+          nama_lengkap: String(row.nama_lengkap || ''),
+          id_jabatan: jId,
+          nama_jabatan: row.nama_jabatan || '-',
+          periode: effectivePeriode,
+          nama_desa: row.nama_desa || '-',
+          nama_kecamatan: row.nama_kecamatan || '-',
+          old_nipd: currentNipdRaw,
+          new_nipd: newNipd,
+          new_nipd_formatted: formatServerNipdDisplay(newNipd),
+          status: 'unchanged',
+          reason: 'NIPD sudah sesuai ketentuan 28 digit terbaru.',
+        });
+        continue;
+      }
+
+      eligible++;
+      pendingUpdates.push({
+        id_anggota: Number(row.id_anggota),
+        id_riwayat: Number(row.id_riwayat),
+        new_nipd: newNipd,
+        backfill_periode: needBackfillPeriode ? effectivePeriode : null,
+      });
+
+      items.push({
+        id_anggota: Number(row.id_anggota),
+        nik: String(row.nik || ''),
+        nama_lengkap: String(row.nama_lengkap || ''),
+        id_jabatan: jId,
+        nama_jabatan: row.nama_jabatan || '-',
+        periode: effectivePeriode,
+        nama_desa: row.nama_desa || '-',
+        nama_kecamatan: row.nama_kecamatan || '-',
+        old_nipd: currentNipdRaw,
+        new_nipd: newNipd,
+        new_nipd_formatted: formatServerNipdDisplay(newNipd),
+        status: dryRun ? 'will_update' : 'updated',
+        reason: needBackfillPeriode
+          ? `NIPD diperbarui + periode Kepala Desa ditetapkan ke-${effectivePeriode}.`
+          : !isCurrentValid28
+            ? 'NIPD kosong / belum 28 digit.'
+            : 'Penyesuaian ke aturan NIPD 28 digit terbaru.',
+      });
+    }
+
+    if (!dryRun && pendingUpdates.length > 0) {
+      await conn.beginTransaction();
+      for (const upd of pendingUpdates) {
+        await conn.query('UPDATE anggota SET nipd = ? WHERE id_anggota = ?', [
+          upd.new_nipd,
+          upd.id_anggota,
+        ]);
+        if (upd.backfill_periode !== null) {
+          await conn.query('UPDATE riwayat_jabatan SET periode = ? WHERE id_riwayat = ?', [
+            upd.backfill_periode,
+            upd.id_riwayat,
+          ]);
+        }
+        updated++;
+      }
+      await conn.commit();
+
+      await logMemberActivity(req, {
+        idAnggota: 'BULK_NIPD',
+        targetNama: 'Generate Massal NIPD',
+        modul: 'Data Induk Anggota',
+        aksi: 'EDIT',
+        keterangan: `Generate Massal NIPD selesai (mode=${mode}): ${updated} diperbarui, ${unchanged} sudah sesuai, ${skipped} dilewati dari ${totalScanned} anggota.`,
+      });
+    }
+
+    conn.release();
+
+    const message = dryRun
+      ? `Simulasi selesai: ${eligible} anggota siap diperbarui, ${unchanged} sudah sesuai, ${skipped} dilewati.`
+      : `Generate Massal NIPD selesai: ${updated} anggota berhasil diperbarui, ${unchanged} sudah sesuai, ${skipped} dilewati.`;
+
+    return res.json({
+      success: true,
+      dryRun,
+      mode,
+      summary: {
+        totalScanned,
+        eligible,
+        updated,
+        unchanged,
+        skipped,
+      },
+      items,
+      message,
+    });
+  } catch (err: any) {
+    if (conn) {
+      try { await conn.rollback(); } catch (_) {}
+      conn.release();
+    }
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Gagal menjalankan Generate Massal NIPD',
+      error: err.message,
+    });
+  }
+});
+
 // Update Member with Unique NIK check
 app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, res) => {
   const { id } = req.params;
