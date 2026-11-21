@@ -88,22 +88,27 @@ class NipdGeneratorService
      * @param  string|DateTimeInterface|null  $birthDate        Tanggal lahir (YYYY-MM-DD / DateTime)
      * @param  string|DateTimeInterface|null  $appointmentDate  Tanggal pengangkatan / TMT jabatan (YYYY-MM-DD / DateTime)
      * @param  string                         $gender           Jenis kelamin ('L'/'P'/'Laki-laki'/'Perempuan'/'1'/'2')
-     * @param  string|null                    $userType         'kepala_desa' | 'perangkat_desa' | 'staf_perangkat_desa' (opsional, otomatis dideteksi dari $jabatanInfo)
-     * @param  array{
+     * @param  string|null                    $userType         'Kepala Desa' | 'Perangkat' | 'Staf' (opsional, otomatis dideteksi dari $jabatanId)
+     * @param  int|array{
      *     id_jabatan?: int|string|null,
      *     nama_jabatan?: string|null,
      *     kategori_jabatan?: string|null,
      *     periode?: int|string|null,
      *     kode_jabatan?: int|string|null
-     * } $jabatanInfo
-     * @param  array{
+     * }|null $jabatanId                                        ID jabatan (int) atau array metadata jabatan
+     * @param  string|array{
+     *     provinsi?: string|null,
+     *     kabupaten?: string|null,
+     *     kecamatan?: string|null,
+     *     desa?: string|null,
      *     kode_provinsi?: string|null,
      *     kode_kabupaten?: string|null,
      *     kode_kecamatan?: string|null,
      *     kode_desa?: string|null,
      *     id_kecamatan?: string|null,
      *     id_desa?: string|null
-     * } $adminCodes
+     * } $locationCodes                                         Kode wilayah 10 digit (string), array [prov, kab, kec, desa], atau associative array
+     * @param  int|null                       $periode          Periodisasi Kepala Desa (1, 2, atau 3) — wajib bagi Kepala Desa
      * @param  bool                           $strictPeriode    Jika true, melempar InvalidArgumentException saat Kepala Desa tidak memiliki periode 1/2/3
      */
     public function generate(
@@ -111,10 +116,23 @@ class NipdGeneratorService
         string|DateTimeInterface|null $appointmentDate,
         string $gender,
         ?string $userType = null,
-        array $jabatanInfo = [],
-        array $adminCodes = [],
+        int|array|null $jabatanId = null,
+        string|array $locationCodes = [],
+        ?int $periode = null,
         bool $strictPeriode = false
     ): string {
+        $jabatanInfo = is_array($jabatanId)
+            ? $jabatanId
+            : ($jabatanId !== null ? ['id_jabatan' => $jabatanId] : []);
+
+        if ($periode !== null) {
+            $jabatanInfo['periode'] = $periode;
+        }
+
+        $normalizedLocationCodes = is_array($locationCodes)
+            ? $locationCodes
+            : ['id_desa' => $locationCodes];
+
         // a. 8 digit pertama: Tahun, Bulan, Tanggal Lahir (YYYYMMDD)
         $lahirStr = $this->formatBirthDateSegment($birthDate);
 
@@ -129,7 +147,7 @@ class NipdGeneratorService
         [$unsurCode, $subCode] = $this->resolveUnsurAndSubCode($resolvedType, $jabatanInfo, $strictPeriode);
 
         // f. 10 digit terakhir: 2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa
-        $wilayahCode = $this->formatAdministrativeCode($adminCodes);
+        $wilayahCode = $this->formatAdministrativeCode($normalizedLocationCodes);
 
         $nipd = "{$lahirStr}{$tmtStr}{$jkCode}{$unsurCode}{$subCode}{$wilayahCode}";
 
@@ -148,8 +166,9 @@ class NipdGeneratorService
         string|DateTimeInterface|null $appointmentDate,
         string $gender,
         ?string $userType = null,
-        array $jabatanInfo = [],
-        array $adminCodes = [],
+        int|array|null $jabatanId = null,
+        string|array $locationCodes = [],
+        ?int $periode = null,
         bool $strictPeriode = false
     ): string {
         $raw = $this->generate(
@@ -157,8 +176,9 @@ class NipdGeneratorService
             $appointmentDate,
             $gender,
             $userType,
-            $jabatanInfo,
-            $adminCodes,
+            $jabatanId,
+            $locationCodes,
+            $periode,
             $strictPeriode
         );
 
@@ -170,26 +190,32 @@ class NipdGeneratorService
      */
     public function generateFromArray(array $params, bool $strictPeriode = false): string
     {
+        $rawPeriode = $params['periode'] ?? null;
+        $parsedPeriode = ($rawPeriode !== null && $rawPeriode !== '' && is_numeric($rawPeriode))
+            ? (int) $rawPeriode
+            : null;
+
         return $this->generate(
             birthDate: $params['tanggal_lahir'] ?? ($params['birth_date'] ?? null),
             appointmentDate: $params['tmt_jabatan'] ?? ($params['appointment_date'] ?? null),
             gender: (string) ($params['jenis_kelamin'] ?? ($params['gender'] ?? 'L')),
             userType: isset($params['user_type']) ? (string) $params['user_type'] : null,
-            jabatanInfo: [
+            jabatanId: [
                 'id_jabatan'       => $params['id_jabatan'] ?? null,
                 'nama_jabatan'     => $params['nama_jabatan'] ?? null,
                 'kategori_jabatan' => $params['kategori_jabatan'] ?? null,
-                'periode'          => $params['periode'] ?? null,
+                'periode'          => $parsedPeriode,
                 'kode_jabatan'     => $params['kode_jabatan'] ?? null,
             ],
-            adminCodes: [
-                'kode_provinsi'  => $params['kode_provinsi'] ?? null,
-                'kode_kabupaten' => $params['kode_kabupaten'] ?? null,
-                'kode_kecamatan' => $params['kode_kecamatan'] ?? null,
-                'kode_desa'      => $params['kode_desa'] ?? null,
+            locationCodes: [
+                'provinsi'       => $params['provinsi'] ?? ($params['kode_provinsi'] ?? null),
+                'kabupaten'      => $params['kabupaten'] ?? ($params['kode_kabupaten'] ?? null),
+                'kecamatan'      => $params['kecamatan'] ?? ($params['kode_kecamatan'] ?? null),
+                'desa'           => $params['desa'] ?? ($params['kode_desa'] ?? null),
                 'id_kecamatan'   => $params['id_kecamatan'] ?? null,
                 'id_desa'        => $params['id_desa'] ?? null,
             ],
+            periode: $parsedPeriode,
             strictPeriode: $strictPeriode
         );
     }
@@ -595,12 +621,26 @@ class NipdGeneratorService
         return ['02', '2'];
     }
 
-    private function formatAdministrativeCode(array $adminCodes): string
+    private function formatAdministrativeCode(array $locationCodes): string
     {
-        $cleanProv = (string) preg_replace('/[^0-9]/', '', (string) ($adminCodes['kode_provinsi'] ?? ''));
-        $cleanKab = (string) preg_replace('/[^0-9]/', '', (string) ($adminCodes['kode_kabupaten'] ?? ''));
-        $cleanKec = (string) preg_replace('/[^0-9]/', '', (string) ($adminCodes['kode_kecamatan'] ?? ($adminCodes['id_kecamatan'] ?? '')));
-        $cleanDesa = (string) preg_replace('/[^0-9]/', '', (string) ($adminCodes['kode_desa'] ?? ($adminCodes['id_desa'] ?? '')));
+        $lowerMap = [];
+        foreach ($locationCodes as $key => $val) {
+            if (is_string($key)) {
+                $lowerMap[strtolower(trim($key))] = $val;
+            }
+        }
+
+        $isPositionalList = array_is_list($locationCodes) && count($locationCodes) >= 4;
+
+        $rawProv = $lowerMap['provinsi'] ?? $lowerMap['kode_provinsi'] ?? ($isPositionalList ? $locationCodes[0] : '');
+        $rawKab = $lowerMap['kabupaten'] ?? $lowerMap['kode_kabupaten'] ?? ($isPositionalList ? $locationCodes[1] : '');
+        $rawKec = $lowerMap['kecamatan'] ?? $lowerMap['kode_kecamatan'] ?? $lowerMap['id_kecamatan'] ?? ($isPositionalList ? $locationCodes[2] : '');
+        $rawDesa = $lowerMap['desa'] ?? $lowerMap['kode_desa'] ?? $lowerMap['id_desa'] ?? ($isPositionalList ? $locationCodes[3] : '');
+
+        $cleanProv = (string) preg_replace('/[^0-9]/', '', (string) $rawProv);
+        $cleanKab = (string) preg_replace('/[^0-9]/', '', (string) $rawKab);
+        $cleanKec = (string) preg_replace('/[^0-9]/', '', (string) $rawKec);
+        $cleanDesa = (string) preg_replace('/[^0-9]/', '', (string) $rawDesa);
 
         // 2 digit Provinsi
         if (strlen($cleanProv) >= 2) {

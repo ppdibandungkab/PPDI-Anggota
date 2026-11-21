@@ -59,6 +59,7 @@ return new class extends Migration
                     'Sekretariat',
                     'Pelaksana Teknis',
                     'Pelaksana Kewilayahan',
+                    'Staf Desa',
                     'Kepala Desa',
                 ]);
 

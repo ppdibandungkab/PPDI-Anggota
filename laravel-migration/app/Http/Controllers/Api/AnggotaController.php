@@ -567,8 +567,8 @@ class AnggotaController extends Controller
             $result = $this->nipdGenerator->generateBatch([
                 'mode'                  => $request->input('mode', 'non_standard'),
                 'member_ids'            => $request->input('memberIds', $request->input('member_ids', [])),
-                'id_kecamatan'          => $request->input('id_kecamatan'),
-                'id_desa'               => $request->input('id_desa'),
+                'id_kecamatan'          => $request->input('id_kecamatan', $request->input('kode_kecamatan')),
+                'id_desa'               => $request->input('id_desa', $request->input('kode_desa')),
                 'id_jabatan'            => $request->input('id_jabatan'),
                 'default_kades_periode' => $request->input('defaultKadesPeriode', $request->input('default_kades_periode')),
                 'dry_run'               => (bool) $request->input('dryRun', $request->input('dry_run', false)),
