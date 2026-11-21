@@ -34,12 +34,63 @@ class PpdiHelperService
         return $num;
     }
 
+    public const ID_JABATAN_KEPALA_DESA = 10;
+    public const ID_JABATAN_STAF_PERANGKAT_DESA = 9;
+
     /**
-     * Exact parity with server.ts generateServerNIPD():
-     * Format: [YYYYMMDD lahir][YYYYMM tmt][jkCode 1|2][02][jabCode 1..4][3204 + kec2 + desa4]
+     * Memvalidasi & menormalkan kolom `periode` (INT 11):
+     * - id_jabatan === 10 (Kepala Desa): wajib bernilai 1, 2, atau 3
+     * - id_jabatan lainnya: selalu null
+     *
+     * @return array{valid: bool, value: ?int, message?: string}
+     */
+    public static function validateAndNormalizePeriode(mixed $idJabatan, mixed $rawPeriode): array
+    {
+        $jId = (int) ($idJabatan ?? 0);
+        if ($jId !== self::ID_JABATAN_KEPALA_DESA) {
+            return ['valid' => true, 'value' => null];
+        }
+
+        if ($rawPeriode === null || trim((string) $rawPeriode) === '') {
+            return [
+                'valid'   => false,
+                'value'   => null,
+                'message' => 'Field periode wajib diisi (1, 2, atau 3) untuk jabatan Kepala Desa (id_jabatan = 10).',
+            ];
+        }
+
+        if (!is_numeric($rawPeriode) || (int) $rawPeriode != $rawPeriode) {
+            return [
+                'valid'   => false,
+                'value'   => null,
+                'message' => 'Field periode Kepala Desa hanya boleh bernilai 1 (periode pertama), 2 (periode kedua), atau 3 (periode ketiga).',
+            ];
+        }
+
+        $parsed = (int) $rawPeriode;
+        if ($parsed < 1 || $parsed > 3) {
+            return [
+                'valid'   => false,
+                'value'   => null,
+                'message' => 'Field periode Kepala Desa hanya boleh bernilai 1 (periode pertama), 2 (periode kedua), atau 3 (periode ketiga).',
+            ];
+        }
+
+        return ['valid' => true, 'value' => $parsed];
+    }
+
+    /**
+     * Exact parity with server.ts generateServerNIPD() (28 digit):
+     * 1. Kepala Desa (id_jabatan = 10):
+     *    [YYYYMMDD lahir][YYYYMM tmt][jk 1|2][01][periode 1|2|3][10-digit wilayah]
+     * 2. Perangkat Desa (id_jabatan = 1..8):
+     *    [YYYYMMDD lahir][YYYYMM tmt][jk 1|2][02][1=Sekdes|2=Kasi|3=Kaur|4=Kewilayahan][10-digit wilayah]
+     * 3. Staf Perangkat Desa (id_jabatan = 9):
+     *    [YYYYMMDD lahir][YYYYMM tmt][jk 1|2][03][1][10-digit wilayah]
      */
     public static function generateServerNIPD(array $params): string
     {
+        // a. 8 digit pertama: Tahun, Bulan, Tanggal Lahir (YYYYMMDD)
         $lahirStr = '19900101';
         if (!empty($params['tanggal_lahir'])) {
             $clean = preg_replace('/[^0-9]/', '', (string) $params['tanggal_lahir']);
@@ -50,6 +101,7 @@ class PpdiHelperService
             }
         }
 
+        // b. 6 digit berikutnya: Tahun & Bulan Pengangkatan/Pelantikan (YYYYMM)
         $tmtStr = '202001';
         if (!empty($params['tmt_jabatan'])) {
             $cleanTmt = preg_replace('/[^0-9]/', '', (string) $params['tmt_jabatan']);
@@ -60,45 +112,99 @@ class PpdiHelperService
             }
         }
 
+        // c. 1 digit berikutnya: Jenis Kelamin (1 = Laki-laki, 2 = Perempuan)
         $jk = strtoupper((string) ($params['jenis_kelamin'] ?? 'L'));
         $jkCode = ($jk === 'P' || $jk === 'PEREMPUAN') ? '2' : '1';
-        $devCode = '02';
 
-        $jId = (int) ($params['id_jabatan'] ?? 2);
-        $jabCode = match ($jId) {
-            1 => '1',
-            2 => '2',
-            3 => '3',
-            4 => '4',
-            default => '2',
-        };
+        // d & e. 2 digit kode unsur + 1 digit kode periodisasi/jabatan
+        $jId = (int) ($params['id_jabatan'] ?? 0);
+        $namaLower = strtolower((string) ($params['nama_jabatan'] ?? ''));
+        $katLower = strtolower((string) ($params['kategori_jabatan'] ?? ''));
+
+        $isKepalaDesa = $jId === self::ID_JABATAN_KEPALA_DESA
+            || $katLower === 'kepala desa'
+            || str_contains($namaLower, 'kepala desa')
+            || str_contains($namaLower, 'kades');
+
+        $isStafPerangkatDesa = !$isKepalaDesa && (
+            $jId === self::ID_JABATAN_STAF_PERANGKAT_DESA
+            || $katLower === 'staf desa'
+            || str_contains($namaLower, 'staf')
+        );
+
+        if ($isKepalaDesa) {
+            // 1. Kepala Desa: 01 + waktu periodisasi (1, 2, atau 3)
+            $devCode = '01';
+            $parsedPeriode = (int) ($params['periode'] ?? 1);
+            $subCode = ($parsedPeriode >= 1 && $parsedPeriode <= 3) ? (string) $parsedPeriode : '1';
+        } elseif ($isStafPerangkatDesa) {
+            // 3. Staf Perangkat Desa: 03 + 1
+            $devCode = '03';
+            $subCode = '1';
+        } else {
+            // 2. Perangkat Desa: 02 + Kode Jabatan (1=Sekdes, 2=Kasi, 3=Kaur, 4=Kewilayahan)
+            $devCode = '02';
+            if ($jId === 1 || str_contains($namaLower, 'sekretaris desa') || str_contains($namaLower, 'sekdes')) {
+                $subCode = '1';
+            } elseif (
+                in_array($jId, [2, 3, 4], true)
+                || $katLower === 'pelaksana teknis'
+                || str_contains($namaLower, 'kepala seksi')
+                || str_contains($namaLower, 'kasi')
+            ) {
+                $subCode = '2';
+            } elseif (
+                in_array($jId, [5, 6, 7], true)
+                || str_contains($namaLower, 'kepala urusan')
+                || str_contains($namaLower, 'kaur')
+            ) {
+                $subCode = '3';
+            } elseif (
+                $jId === 8
+                || $katLower === 'pelaksana kewilayahan'
+                || str_contains($namaLower, 'kepala dusun')
+                || str_contains($namaLower, 'kadus')
+                || str_contains($namaLower, 'kewilayahan')
+            ) {
+                $subCode = '4';
+            } else {
+                $subCode = '2';
+            }
+        }
+
+        // f. 10 digit terakhir: 2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa
+        $cleanDesa = !empty($params['id_desa']) ? (string) preg_replace('/[^0-9]/', '', (string) $params['id_desa']) : '';
+        $cleanKec = !empty($params['id_kecamatan']) ? (string) preg_replace('/[^0-9]/', '', (string) $params['id_kecamatan']) : '';
+
+        $provKabCode = '3204';
+        if (strlen($cleanDesa) >= 10) {
+            $provKabCode = substr($cleanDesa, 0, 4);
+        } elseif (strlen($cleanKec) >= 6) {
+            $provKabCode = substr($cleanKec, 0, 4);
+        }
 
         $kecCode = '01';
-        if (!empty($params['id_kecamatan'])) {
-            $cleanKec = trim(str_replace('.', '', (string) $params['id_kecamatan']));
-            if (strlen($cleanKec) >= 6) {
-                $kecCode = substr($cleanKec, 4, 2);
-            } elseif (strlen($cleanKec) >= 2) {
-                $kecCode = substr($cleanKec, -2);
-            } else {
-                $kecCode = str_pad($cleanKec, 2, '0', STR_PAD_LEFT);
-            }
+        if (strlen($cleanKec) >= 6) {
+            $kecCode = substr($cleanKec, 4, 2);
+        } elseif (strlen($cleanDesa) >= 10) {
+            $kecCode = substr($cleanDesa, 4, 2);
+        } elseif (strlen($cleanKec) >= 2) {
+            $kecCode = substr($cleanKec, -2);
+        } elseif (strlen($cleanKec) === 1) {
+            $kecCode = str_pad($cleanKec, 2, '0', STR_PAD_LEFT);
         }
 
         $desaCode = '0001';
-        if (!empty($params['id_desa'])) {
-            $cleanDesa = trim(str_replace('.', '', (string) $params['id_desa']));
-            if (strlen($cleanDesa) >= 10) {
-                $desaCode = substr($cleanDesa, 6, 4);
-            } elseif (strlen($cleanDesa) >= 4) {
-                $desaCode = substr($cleanDesa, -4);
-            } else {
-                $desaCode = str_pad($cleanDesa, 4, '0', STR_PAD_LEFT);
-            }
+        if (strlen($cleanDesa) >= 10) {
+            $desaCode = substr($cleanDesa, 6, 4);
+        } elseif (strlen($cleanDesa) >= 4) {
+            $desaCode = substr($cleanDesa, -4);
+        } elseif (strlen($cleanDesa) > 0) {
+            $desaCode = str_pad($cleanDesa, 4, '0', STR_PAD_LEFT);
         }
 
-        $wilayahCode = "3204{$kecCode}{$desaCode}";
-        return "{$lahirStr}{$tmtStr}{$jkCode}{$devCode}{$jabCode}{$wilayahCode}";
+        $wilayahCode = "{$provKabCode}{$kecCode}{$desaCode}";
+        return "{$lahirStr}{$tmtStr}{$jkCode}{$devCode}{$subCode}{$wilayahCode}";
     }
 
     /**

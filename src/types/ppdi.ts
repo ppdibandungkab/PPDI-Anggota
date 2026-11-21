@@ -62,6 +62,7 @@ export interface RiwayatJabatan {
   id_anggota: string | number;
   id_desa: string;
   id_jabatan: number;
+  periode?: number | null; // Wajib diisi (1, 2, 3) bagi id_jabatan 10 (Kepala Desa); null untuk lainnya
   no_sk_pengangkatan: string;
   tgl_sk_pengangkatan: string; // YYYY-MM-DD
   tmt_jabatan: string; // YYYY-MM-DD
@@ -144,6 +145,7 @@ export interface PendaftaranPerangkatDesa {
   id_kecamatan: string;
   id_desa: string;
   id_jabatan: number;
+  periode?: number | null; // Wajib diisi (1, 2, 3) bagi id_jabatan 10 (Kepala Desa); null untuk lainnya
   no_sk_pengangkatan?: string;
   tgl_sk_pengangkatan?: string;
   tmt_jabatan?: string;

@@ -145,6 +145,18 @@ class PendaftaranController extends Controller
                 }
             }
 
+            $validJabatanId = PpdiHelperService::resolveJabatanId($data['id_jabatan'] ?? 1);
+            $periodeCheck = PpdiHelperService::validateAndNormalizePeriode(
+                $validJabatanId,
+                $data['periode'] ?? null
+            );
+            if (!$periodeCheck['valid']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $periodeCheck['message'],
+                ], 400);
+            }
+
             $idPendaftaran = (int) DB::table('pendaftaran_perangkat_desa')->insertGetId([
                 'nik'                 => $cleanNik,
                 'nama_lengkap'        => strtoupper(trim((string) $data['nama_lengkap'])),
@@ -161,7 +173,8 @@ class PendaftaranController extends Controller
                 'status_pernikahan'   => ($data['status_pernikahan'] ?? null) ?: 'Kawin',
                 'id_kecamatan'        => $cleanKecId,
                 'id_desa'             => $validDesaId,
-                'id_jabatan'          => PpdiHelperService::resolveJabatanId($data['id_jabatan'] ?? 1),
+                'id_jabatan'          => $validJabatanId,
+                'periode'             => $periodeCheck['value'],
                 'no_sk_pengangkatan'  => ($data['no_sk_pengangkatan'] ?? null) ?: ('141.1/Kep.Reg-' . date('Y')),
                 'tgl_sk_pengangkatan' => ($data['tgl_sk_pengangkatan'] ?? null) ?: date('Y-m-d'),
                 'tmt_jabatan'         => ($data['tmt_jabatan'] ?? null) ?: date('Y-m-d'),
@@ -234,11 +247,22 @@ class PendaftaranController extends Controller
                     ->where('nik', $cleanNik)
                     ->first();
 
-                $nipdVal = 'NIPD.' . substr($cleanNik, -6);
-
                 $txStep = 'resolve_foreign_keys';
                 $validDesaId = PpdiHelperService::resolveDesaId($p->id_desa);
                 $validJabatanId = PpdiHelperService::resolveJabatanId($p->id_jabatan);
+
+                $jabatanInfo = DB::table('ref_jabatan')
+                    ->select('nama_jabatan', 'kategori_jabatan')
+                    ->where('id_jabatan', $validJabatanId)
+                    ->first();
+
+                $periodeCheck = PpdiHelperService::validateAndNormalizePeriode(
+                    $validJabatanId,
+                    $p->periode ?? null
+                );
+                $effectiveApprovedPeriode = $validJabatanId === PpdiHelperService::ID_JABATAN_KEPALA_DESA
+                    ? ($periodeCheck['valid'] ? $periodeCheck['value'] : 1)
+                    : null;
 
                 $safeTglLahir = $p->tanggal_lahir ? substr((string) $p->tanggal_lahir, 0, 10) : '1990-01-01';
                 $safeTglSk = $p->tgl_sk_pengangkatan ? substr((string) $p->tgl_sk_pengangkatan, 0, 10) : date('Y-m-d');
@@ -249,6 +273,18 @@ class PendaftaranController extends Controller
 
                 $normalizedGender = ($p->jenis_kelamin ?? 'L') === 'P' ? 'P' : 'L';
                 $normalizedNama = strtoupper(trim((string) ($p->nama_lengkap ?? '')));
+
+                $nipdVal = PpdiHelperService::generateServerNIPD([
+                    'tanggal_lahir'    => $safeTglLahir,
+                    'tmt_jabatan'      => $safeTmt,
+                    'jenis_kelamin'    => $normalizedGender,
+                    'id_jabatan'       => $validJabatanId,
+                    'nama_jabatan'     => $jabatanInfo->nama_jabatan ?? null,
+                    'kategori_jabatan' => $jabatanInfo->kategori_jabatan ?? null,
+                    'periode'          => $effectiveApprovedPeriode,
+                    'id_kecamatan'     => $p->id_kecamatan ?: substr($validDesaId, 0, 6),
+                    'id_desa'          => $validDesaId,
+                ]);
 
                 // 1. Insert or update anggota (INT(11) AUTO_INCREMENT)
                 if ($existingAng) {
@@ -328,6 +364,7 @@ class PendaftaranController extends Controller
                         'id_anggota'          => $effectiveIdAnggota,
                         'id_desa'             => $validDesaId,
                         'id_jabatan'          => $validJabatanId,
+                        'periode'             => $effectiveApprovedPeriode,
                         'no_sk_pengangkatan'  => $p->no_sk_pengangkatan ?: ('141.1/Kep.01-Desa/' . date('Y')),
                         'tgl_sk_pengangkatan' => $safeTglSk,
                         'tmt_jabatan'         => $safeTmt,
@@ -341,6 +378,7 @@ class PendaftaranController extends Controller
                         'UPDATE riwayat_jabatan SET
                             id_desa = ?,
                             id_jabatan = ?,
+                            periode = ?,
                             no_sk_pengangkatan = COALESCE(?, no_sk_pengangkatan),
                             tgl_sk_pengangkatan = COALESCE(?, tgl_sk_pengangkatan),
                             tmt_jabatan = COALESCE(?, tmt_jabatan),
@@ -350,6 +388,7 @@ class PendaftaranController extends Controller
                         [
                             $validDesaId,
                             $validJabatanId,
+                            $effectiveApprovedPeriode,
                             $p->no_sk_pengangkatan ?: null,
                             $safeTglSk,
                             $safeTmt,
@@ -388,10 +427,6 @@ class PendaftaranController extends Controller
                     $finalKecCode = $ktaResult['kodeKecamatan'];
                     $finalNomorUrut = $ktaResult['nomorUrut'];
 
-                    $jabatanInfo = DB::table('ref_jabatan')
-                        ->select('nama_jabatan', 'kategori_jabatan')
-                        ->where('id_jabatan', $validJabatanId)
-                        ->first();
                     $isKades = $jabatanInfo
                         ? PpdiHelperService::isKepalaDesa($jabatanInfo->kategori_jabatan, $jabatanInfo->nama_jabatan)
                         : false;

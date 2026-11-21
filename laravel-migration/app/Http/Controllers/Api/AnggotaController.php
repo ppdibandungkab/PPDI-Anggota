@@ -55,6 +55,7 @@ class AnggotaController extends Controller
                         id_anggota,
                         id_desa,
                         id_jabatan,
+                        periode,
                         no_sk_pengangkatan,
                         DATE_FORMAT(tgl_sk_pengangkatan, '%Y-%m-%d') AS tgl_sk_pengangkatan,
                         DATE_FORMAT(tmt_jabatan, '%Y-%m-%d') AS tmt_jabatan,
@@ -247,18 +248,48 @@ class AnggotaController extends Controller
                 ], 409);
             }
 
-            $txResult = $this->ktaGenerator->executeWithUniqueRetry(function () use ($anggota, $riwayat, $keanggotaan, $cleanNik, $upperName) {
+            $validatedPeriode = null;
+            $resolvedJabatanId = 2;
+            if (is_array($riwayat)) {
+                $resolvedJabatanId = PpdiHelperService::resolveJabatanId($riwayat['id_jabatan'] ?? 2);
+                $periodeCheck = PpdiHelperService::validateAndNormalizePeriode(
+                    $resolvedJabatanId,
+                    $riwayat['periode'] ?? null
+                );
+                if (!$periodeCheck['valid']) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $periodeCheck['message'],
+                    ], 400);
+                }
+                $validatedPeriode = $periodeCheck['value'];
+            }
+
+            $txResult = $this->ktaGenerator->executeWithUniqueRetry(function () use ($anggota, $riwayat, $keanggotaan, $cleanNik, $upperName, $resolvedJabatanId, $validatedPeriode) {
+                $validDesaId = is_array($riwayat)
+                    ? PpdiHelperService::resolveDesaId($riwayat['id_desa'] ?? null)
+                    : null;
+                $validJabatanId = $resolvedJabatanId;
+
+                $jabatanInfo = DB::table('ref_jabatan')
+                    ->select('nama_jabatan', 'kategori_jabatan')
+                    ->where('id_jabatan', $validJabatanId)
+                    ->first();
+
                 $rawNipd = ($anggota['nipd'] ?? null)
                     ?: ($anggota['niap_nipd'] ?? null)
                     ?: ($anggota['niap'] ?? null);
                 $nipdValue = NipdFormatter::normalize($rawNipd)
                     ?: PpdiHelperService::generateServerNIPD([
-                        'tanggal_lahir' => $anggota['tanggal_lahir'] ?? null,
-                        'tmt_jabatan'   => $riwayat['tmt_jabatan'] ?? null,
-                        'jenis_kelamin' => $anggota['jenis_kelamin'] ?? 'L',
-                        'id_jabatan'    => $riwayat['id_jabatan'] ?? 2,
-                        'id_kecamatan'  => $riwayat['id_kecamatan'] ?? null,
-                        'id_desa'       => $riwayat['id_desa'] ?? null,
+                        'tanggal_lahir'    => $anggota['tanggal_lahir'] ?? null,
+                        'tmt_jabatan'      => $riwayat['tmt_jabatan'] ?? null,
+                        'jenis_kelamin'    => $anggota['jenis_kelamin'] ?? 'L',
+                        'id_jabatan'       => $validJabatanId,
+                        'nama_jabatan'     => $jabatanInfo->nama_jabatan ?? null,
+                        'kategori_jabatan' => $jabatanInfo->kategori_jabatan ?? null,
+                        'periode'          => $validatedPeriode,
+                        'id_kecamatan'     => $riwayat['id_kecamatan'] ?? ($validDesaId ? substr($validDesaId, 0, 6) : null),
+                        'id_desa'          => $validDesaId ?? ($riwayat['id_desa'] ?? null),
                     ]);
 
                 $safeFoto = PpdiHelperService::sanitizeVarcharPath(
@@ -286,13 +317,9 @@ class AnggotaController extends Controller
                     'status_pernikahan'   => ($anggota['status_pernikahan'] ?? null) ?: 'Kawin',
                 ]);
 
-                $validDesaId = null;
-                $validJabatanId = 2;
                 $generatedNoKta = null;
 
                 if (is_array($riwayat)) {
-                    $validDesaId = PpdiHelperService::resolveDesaId($riwayat['id_desa'] ?? null);
-                    $validJabatanId = PpdiHelperService::resolveJabatanId($riwayat['id_jabatan'] ?? 2);
                     $safeFileSk = PpdiHelperService::sanitizeVarcharPath(
                         $riwayat['file_sk'] ?? null,
                         'sk',
@@ -304,6 +331,7 @@ class AnggotaController extends Controller
                         'id_anggota'          => $idAnggota,
                         'id_desa'             => $validDesaId,
                         'id_jabatan'          => $validJabatanId,
+                        'periode'             => $validatedPeriode,
                         'no_sk_pengangkatan'  => ($riwayat['no_sk_pengangkatan'] ?? null) ?: ('141.1/Kep.01-Desa/' . date('Y')),
                         'tgl_sk_pengangkatan' => ($riwayat['tgl_sk_pengangkatan'] ?? null) ?: date('Y-m-d'),
                         'tmt_jabatan'         => ($riwayat['tmt_jabatan'] ?? null) ?: date('Y-m-d'),
@@ -313,10 +341,6 @@ class AnggotaController extends Controller
                 }
 
                 if (is_array($keanggotaan)) {
-                    $jabatanInfo = DB::table('ref_jabatan')
-                        ->select('nama_jabatan', 'kategori_jabatan')
-                        ->where('id_jabatan', $validJabatanId)
-                        ->first();
                     $isKades = $jabatanInfo
                         ? PpdiHelperService::isKepalaDesa($jabatanInfo->kategori_jabatan, $jabatanInfo->nama_jabatan)
                         : false;
@@ -415,8 +439,12 @@ class AnggotaController extends Controller
 
         foreach ($items as $idx => $item) {
             $rowNum = $idx + 1;
-            $nik = trim((string) preg_replace('/\D/', '', (string) ($item['nik'] ?? '')));
-            $nama = strtoupper(trim((string) ($item['nama_lengkap'] ?? '')));
+            $ang = is_array($item['anggota'] ?? null) ? $item['anggota'] : $item;
+            $rw = is_array($item['riwayat'] ?? null) ? $item['riwayat'] : $item;
+            $ktaPayload = is_array($item['keanggotaan'] ?? null) ? $item['keanggotaan'] : $item;
+
+            $nik = trim((string) preg_replace('/\D/', '', (string) ($ang['nik'] ?? '')));
+            $nama = strtoupper(trim((string) ($ang['nama_lengkap'] ?? '')));
 
             if ($nik === '' || $nama === '') {
                 $skipped++;
@@ -431,59 +459,77 @@ class AnggotaController extends Controller
             }
 
             try {
-                DB::transaction(function () use ($item, $nik, $nama) {
+                DB::transaction(function () use ($ang, $rw, $ktaPayload, $nik, $nama) {
                     $validDesaId = PpdiHelperService::resolveDesaId(
-                        $item['id_desa'] ?? null,
-                        $item['nama_desa'] ?? null
+                        $rw['id_desa'] ?? ($ang['id_desa'] ?? null),
+                        $rw['nama_desa'] ?? ($ang['nama_desa'] ?? null)
                     );
-                    $validJabatanId = PpdiHelperService::resolveJabatanId($item['id_jabatan'] ?? 2);
-                    $nipd = ($item['nipd'] ?? null) ?: PpdiHelperService::generateServerNIPD([
-                        'tanggal_lahir' => $item['tanggal_lahir'] ?? '1990-01-01',
-                        'tmt_jabatan'   => $item['tmt_jabatan'] ?? date('Y-m-d'),
-                        'jenis_kelamin' => $item['jenis_kelamin'] ?? 'L',
-                        'id_jabatan'    => $validJabatanId,
-                        'id_kecamatan'  => $item['id_kecamatan'] ?? substr($validDesaId, 0, 6),
-                        'id_desa'       => $validDesaId,
+                    $validJabatanId = PpdiHelperService::resolveJabatanId($rw['id_jabatan'] ?? ($ang['id_jabatan'] ?? 2));
+                    $periodeCheck = PpdiHelperService::validateAndNormalizePeriode(
+                        $validJabatanId,
+                        $rw['periode'] ?? ($ang['periode'] ?? null)
+                    );
+                    if (!$periodeCheck['valid']) {
+                        throw new \RuntimeException($periodeCheck['message']);
+                    }
+                    $validatedPeriode = $periodeCheck['value'];
+
+                    $jabatanInfo = DB::table('ref_jabatan')
+                        ->select('nama_jabatan', 'kategori_jabatan')
+                        ->where('id_jabatan', $validJabatanId)
+                        ->first();
+
+                    $nipd = ($ang['nipd'] ?? null) ?: PpdiHelperService::generateServerNIPD([
+                        'tanggal_lahir'    => $ang['tanggal_lahir'] ?? '1990-01-01',
+                        'tmt_jabatan'      => $rw['tmt_jabatan'] ?? ($ang['tmt_jabatan'] ?? date('Y-m-d')),
+                        'jenis_kelamin'    => $ang['jenis_kelamin'] ?? 'L',
+                        'id_jabatan'       => $validJabatanId,
+                        'nama_jabatan'     => $jabatanInfo->nama_jabatan ?? null,
+                        'kategori_jabatan' => $jabatanInfo->kategori_jabatan ?? null,
+                        'periode'          => $validatedPeriode,
+                        'id_kecamatan'     => $rw['id_kecamatan'] ?? ($ang['id_kecamatan'] ?? substr($validDesaId, 0, 6)),
+                        'id_desa'          => $validDesaId,
                     ]);
 
                     $idAnggota = (int) DB::table('anggota')->insertGetId([
                         'nik'                 => $nik,
                         'nipd'                => $nipd,
                         'nama_lengkap'        => $nama,
-                        'gelar_depan'         => $item['gelar_depan'] ?? null,
-                        'gelar_belakang'      => $item['gelar_belakang'] ?? null,
-                        'tempat_lahir'        => ($item['tempat_lahir'] ?? null) ?: 'Bandung',
-                        'tanggal_lahir'       => ($item['tanggal_lahir'] ?? null) ?: '1990-01-01',
-                        'jenis_kelamin'       => strtoupper((string) ($item['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
-                        'agama'               => ($item['agama'] ?? null) ?: 'Islam',
-                        'pendidikan_terakhir' => ($item['pendidikan_terakhir'] ?? null) ?: 'SMA',
-                        'no_hp_wa'            => ($item['no_hp_wa'] ?? null) ?: '-',
-                        'email'               => $item['email'] ?? null,
-                        'alamat_rumah'        => ($item['alamat_rumah'] ?? null) ?: 'Kabupaten Bandung',
-                        'status_pernikahan'   => ($item['status_pernikahan'] ?? null) ?: 'Kawin',
+                        'gelar_depan'         => $ang['gelar_depan'] ?? null,
+                        'gelar_belakang'      => $ang['gelar_belakang'] ?? null,
+                        'tempat_lahir'        => ($ang['tempat_lahir'] ?? null) ?: 'Bandung',
+                        'tanggal_lahir'       => ($ang['tanggal_lahir'] ?? null) ?: '1990-01-01',
+                        'jenis_kelamin'       => strtoupper((string) ($ang['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
+                        'agama'               => ($ang['agama'] ?? null) ?: 'Islam',
+                        'pendidikan_terakhir' => ($ang['pendidikan_terakhir'] ?? null) ?: 'SMA',
+                        'no_hp_wa'            => ($ang['no_hp_wa'] ?? null) ?: '-',
+                        'email'               => $ang['email'] ?? null,
+                        'alamat_rumah'        => ($ang['alamat_rumah'] ?? null) ?: 'Kabupaten Bandung',
+                        'status_pernikahan'   => ($ang['status_pernikahan'] ?? null) ?: 'Kawin',
                     ]);
 
                     DB::table('riwayat_jabatan')->insert([
                         'id_anggota'          => $idAnggota,
                         'id_desa'             => $validDesaId,
                         'id_jabatan'          => $validJabatanId,
-                        'no_sk_pengangkatan'  => ($item['no_sk_pengangkatan'] ?? null) ?: ('141.1/Kep.Imp/' . date('Y')),
-                        'tgl_sk_pengangkatan' => ($item['tgl_sk_pengangkatan'] ?? null) ?: date('Y-m-d'),
-                        'tmt_jabatan'         => ($item['tmt_jabatan'] ?? null) ?: date('Y-m-d'),
+                        'periode'             => $validatedPeriode,
+                        'no_sk_pengangkatan'  => ($rw['no_sk_pengangkatan'] ?? null) ?: ('141.1/Kep.Imp/' . date('Y')),
+                        'tgl_sk_pengangkatan' => ($rw['tgl_sk_pengangkatan'] ?? null) ?: date('Y-m-d'),
+                        'tmt_jabatan'         => ($rw['tmt_jabatan'] ?? null) ?: date('Y-m-d'),
                         'status_aktif'        => 'Aktif',
                     ]);
 
                     $kta = PpdiHelperService::generateUniqueKTA(
-                        (string) ($item['id_kecamatan'] ?? $validDesaId),
+                        (string) ($rw['id_kecamatan'] ?? $validDesaId),
                         $validDesaId,
-                        $item['no_kta'] ?? null
+                        $ktaPayload['no_kta'] ?? null
                     );
 
                     DB::table('keanggotaan_ppdi')->insert([
                         'id_anggota'       => $idAnggota,
                         'no_kta'           => $kta['noKta'],
-                        'tgl_bergabung'    => date('Y-m-d'),
-                        'jabatan_pengurus' => ($item['jabatan_pengurus'] ?? null) ?: 'Anggota Biasa',
+                        'tgl_bergabung'    => ($ktaPayload['tgl_bergabung'] ?? null) ?: date('Y-m-d'),
+                        'jabatan_pengurus' => ($ktaPayload['jabatan_pengurus'] ?? null) ?: 'Anggota Biasa',
                         'status_kta'       => 'Aktif',
                     ]);
 

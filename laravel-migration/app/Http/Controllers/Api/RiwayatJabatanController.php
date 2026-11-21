@@ -30,6 +30,17 @@ class RiwayatJabatanController extends Controller
             $validDesaId = PpdiHelperService::resolveDesaId($idDesa);
             $validJabatanId = PpdiHelperService::resolveJabatanId($idJabatan);
 
+            $periodeCheck = PpdiHelperService::validateAndNormalizePeriode(
+                $validJabatanId,
+                $request->input('periode')
+            );
+            if (!$periodeCheck['valid']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $periodeCheck['message'],
+                ], 400);
+            }
+
             $savedTtdPath = $tandaTangan ? trim((string) $tandaTangan) : null;
             if ($savedTtdPath && str_starts_with($savedTtdPath, 'data:')) {
                 try {
@@ -42,6 +53,7 @@ class RiwayatJabatanController extends Controller
                 'id_anggota'          => (int) $idAnggota,
                 'id_desa'             => $validDesaId,
                 'id_jabatan'          => $validJabatanId,
+                'periode'             => $periodeCheck['value'],
                 'no_sk_pengangkatan'  => $noSk ?: '-',
                 'tgl_sk_pengangkatan' => $tglSk ?: date('Y-m-d'),
                 'tmt_jabatan'         => $tmt ?: date('Y-m-d'),
@@ -130,6 +142,25 @@ class RiwayatJabatanController extends Controller
                 ? PpdiHelperService::resolveDesaId($request->input('id_desa'))
                 : null;
 
+            $effectiveJabatanId = $request->filled('id_jabatan')
+                ? PpdiHelperService::resolveJabatanId($request->input('id_jabatan'))
+                : (int) ($prevRow->id_jabatan ?? 0);
+
+            $candidatePeriode = $request->has('periode')
+                ? $request->input('periode')
+                : ($prevRow->periode ?? null);
+
+            $periodeCheck = PpdiHelperService::validateAndNormalizePeriode(
+                $effectiveJabatanId,
+                $candidatePeriode
+            );
+            if (!$periodeCheck['valid']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $periodeCheck['message'],
+                ], 400);
+            }
+
             $savedTtdPath = $request->filled('tanda_tangan') ? trim((string) $request->input('tanda_tangan')) : null;
             if ($savedTtdPath && str_starts_with($savedTtdPath, 'data:')) {
                 try {
@@ -142,6 +173,7 @@ class RiwayatJabatanController extends Controller
                 'UPDATE riwayat_jabatan SET
                     id_desa = COALESCE(?, id_desa),
                     id_jabatan = COALESCE(?, id_jabatan),
+                    periode = ?,
                     no_sk_pengangkatan = COALESCE(?, no_sk_pengangkatan),
                     tgl_sk_pengangkatan = COALESCE(?, tgl_sk_pengangkatan),
                     tmt_jabatan = COALESCE(?, tmt_jabatan),
@@ -151,7 +183,8 @@ class RiwayatJabatanController extends Controller
                  WHERE id_riwayat = ?',
                 [
                     $validDesaId,
-                    $request->input('id_jabatan'),
+                    $request->filled('id_jabatan') ? $effectiveJabatanId : null,
+                    $periodeCheck['value'],
                     $request->input('no_sk_pengangkatan'),
                     $request->input('tgl_sk_pengangkatan'),
                     $request->input('tmt_jabatan'),

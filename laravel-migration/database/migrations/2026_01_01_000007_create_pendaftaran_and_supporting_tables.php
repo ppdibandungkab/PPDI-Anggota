@@ -44,6 +44,9 @@ return new class extends Migration
                     ->constrained('ref_jabatan', 'id_jabatan')
                     ->onUpdate('cascade')
                     ->restrictOnDelete();
+                $table->integer('periode')
+                    ->nullable()
+                    ->comment('Periodisasi Kepala Desa (1, 2, 3) wajib diisi bagi id_jabatan = 10; NULL untuk lainnya');
                 $table->string('no_sk_pengangkatan', 100)->nullable();
                 $table->date('tgl_sk_pengangkatan')->nullable();
                 $table->date('tmt_jabatan')->nullable();

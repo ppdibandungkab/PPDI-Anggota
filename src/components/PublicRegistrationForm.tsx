@@ -93,6 +93,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     selectedKecamatan: '',
     selectedDesa: '',
     selectedJabatan: jabatanList[0]?.id_jabatan || 1,
+    periode: '' as string,
     jabatanPengurus: 'Anggota Biasa',
     noSkPengangkatan: '',
     tglSkPengangkatan: '',
@@ -168,6 +169,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       selectedKecamatan: '',
       selectedDesa: '',
       selectedJabatan: jabatanList[0]?.id_jabatan || 1,
+      periode: '',
       jabatanPengurus: 'Anggota Biasa',
       noSkPengangkatan: '',
       tglSkPengangkatan: '',
@@ -399,6 +401,12 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       return;
     }
 
+    const isKepalaDesaSelected = Number(formData.selectedJabatan) === 10;
+    if (isKepalaDesaSelected && !['1', '2', '3'].includes(String(formData.periode))) {
+      setFormError('Periode jabatan Kepala Desa wajib dipilih (Periode Ke-1, Ke-2, atau Ke-3)!');
+      return;
+    }
+
     if (!formData.noSkPengangkatan.trim()) {
       setFormError('No. SK Pengangkatan Perangkat Desa wajib diisi!');
       return;
@@ -449,6 +457,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         id_kecamatan: formData.selectedKecamatan,
         id_desa: formData.selectedDesa,
         id_jabatan: formData.selectedJabatan,
+        periode: isKepalaDesaSelected ? Number(formData.periode) : null,
         jabatan_pengurus: formData.jabatanPengurus || 'Anggota Biasa',
         no_sk_pengangkatan: formData.noSkPengangkatan.trim(),
         tgl_sk_pengangkatan: tglSkValidation.isoDate,
@@ -758,6 +767,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                     setFormData(prev => ({
                       ...prev,
                       selectedJabatan: newJId,
+                      periode: newJId === 10 ? prev.periode : '',
                       jabatanPengurus: isKades 
                         ? (prev.jabatanPengurus === 'Penasehat' ? 'Penasehat' : 'Anggota Istimewa')
                         : prev.jabatanPengurus
@@ -772,6 +782,29 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                   ))}
                 </select>
               </div>
+
+              {/* Periode Jabatan (Khusus Kepala Desa id_jabatan = 10) */}
+              {Number(formData.selectedJabatan) === 10 && (
+                <div className="md:col-span-2 space-y-1 p-3 rounded-lg bg-amber-50/70 border border-amber-200">
+                  <label className="text-xs font-bold text-amber-900 uppercase flex items-center justify-between">
+                    <span>Periode Jabatan Kepala Desa <span className="text-red-500">*</span></span>
+                    <span className="text-[10px] font-normal text-amber-700 normal-case">
+                      Wajib diisi untuk Kepala Desa (digunakan pada digit ke-18 NIPD)
+                    </span>
+                  </label>
+                  <select
+                    className="w-full p-3 border border-amber-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white font-medium"
+                    value={formData.periode}
+                    onChange={e => setFormData(prev => ({ ...prev, periode: e.target.value }))}
+                    required
+                  >
+                    <option value="">-- Pilih Periode Kepala Desa --</option>
+                    <option value="1">Periode Ke-1 (Pertama)</option>
+                    <option value="2">Periode Ke-2 (Kedua)</option>
+                    <option value="3">Periode Ke-3 (Ketiga)</option>
+                  </select>
+                </div>
+              )}
 
               {/* Jabatan Kepengurusan PPDI */}
               <div className="md:col-span-2 space-y-1">

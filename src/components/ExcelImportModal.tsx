@@ -41,6 +41,7 @@ interface ParsedRow {
   idDesa?: string;
   namaJabatan?: string;
   idJabatan?: number;
+  periode?: number | null;
   noSk?: string;
   tglSk?: string;
   tmtJabatan?: string;
@@ -91,15 +92,15 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
       'NIK', 'Nama Lengkap', 'Gelar Depan', 'Gelar Belakang', 'Tempat Lahir',
       'Tanggal Lahir', 'Jenis Kelamin', 'Agama', 'Pendidikan Terakhir',
       'Nomor WhatsApp', 'Email', 'Alamat Rumah', 'Kecamatan', 'Desa',
-      'Jabatan', 'Nomor SK', 'Tanggal SK', 'TMT Jabatan', 'Jabatan Pengurus PPDI',
+      'Jabatan', 'Periode Kades (1/2/3)', 'Nomor SK', 'Tanggal SK', 'TMT Jabatan', 'Jabatan Pengurus PPDI',
     ];
 
     worksheet.columns = headers.map(header => ({ header, key: header, width: 22 }));
 
     const sampleRows = [
-      ['3204051203850011', 'Asep Hidayat', 'H.', 'S.AP', 'Bandung', '1985-03-12', 'L', 'Islam', 'S1', '081223344551', 'asep.hidayat@desa.id', 'Jl. Raya Soreang No. 12 RT 02/03', 'SOREANG', 'PAMEKARAN', 'Sekretaris Desa', '141.1/Kep.05-Desa/2023', '2023-01-10', '2023-02-01', 'Anggota Biasa'],
-      ['3204162005900022', 'Siti Rahmawati', '', 'S.E', 'Bandung', '1990-05-20', 'P', 'Islam', 'S1', '085721889933', 'siti.rahmawati@desa.id', 'Kp. Ranca Manyar RT 01/05', 'BALEENDAH', 'ARJASARI', 'Kaur Keuangan', '141.1/Kep.12-Desa/2024', '2024-02-15', '2024-03-01', 'Anggota Biasa'],
-      ['3204131508920033', 'Dedi Kusnadi', '', 'S.IP', 'Bandung', '1992-08-15', 'L', 'Islam', 'S1', '087822991155', 'dedi.kusnadi@desa.id', 'Jl. Sindangreret No. 45 Banjaran', 'BANJARAN', 'BANJARAN', 'Kasi Pemerintahan', '141.1/Kep.08-Desa/2023', '2023-05-10', '2023-06-01', 'Ketua Pengurus Kecamatan'],
+      ['3204051203850011', 'Asep Hidayat', 'H.', 'S.AP', 'Bandung', '1985-03-12', 'L', 'Islam', 'S1', '081223344551', 'asep.hidayat@desa.id', 'Jl. Raya Soreang No. 12 RT 02/03', 'SOREANG', 'PAMEKARAN', 'Sekretaris Desa', '', '141.1/Kep.05-Desa/2023', '2023-01-10', '2023-02-01', 'Anggota Biasa'],
+      ['3204162005900022', 'Siti Rahmawati', '', 'S.E', 'Bandung', '1990-05-20', 'P', 'Islam', 'S1', '085721889933', 'siti.rahmawati@desa.id', 'Kp. Ranca Manyar RT 01/05', 'BALEENDAH', 'ARJASARI', 'Kaur Keuangan', '', '141.1/Kep.12-Desa/2024', '2024-02-15', '2024-03-01', 'Anggota Biasa'],
+      ['3204131508920033', 'Dedi Kusnadi', '', 'S.IP', 'Bandung', '1992-08-15', 'L', 'Islam', 'S1', '087822991155', 'dedi.kusnadi@desa.id', 'Jl. Sindangreret No. 45 Banjaran', 'BANJARAN', 'BANJARAN', 'Kasi Pemerintahan', '', '141.1/Kep.08-Desa/2023', '2023-05-10', '2023-06-01', 'Ketua Pengurus Kecamatan'],
     ];
 
     sampleRows.forEach(row => worksheet.addRow(row));
@@ -246,10 +247,23 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
       );
       const idJabatan = matchedJabatan ? matchedJabatan.id_jabatan : 2; // Default Sekretaris Desa
 
-      const isKades = matchedJabatan?.kategori_jabatan === 'Kepala Desa' ||
+      const rawPeriode = getVal('Periode Kades (1/2/3)', 'Periode Kepala Desa', 'Periode Kades', 'Periode');
+
+      const isKades = idJabatan === 10 ||
+        matchedJabatan?.kategori_jabatan === 'Kepala Desa' ||
         matchedJabatan?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
         namaJabatan.toLowerCase().includes('kepala desa') ||
         namaJabatan.toLowerCase().includes('kades');
+
+      let periode: number | null = null;
+      if (idJabatan === 10) {
+        const parsedPeriode = Number(rawPeriode);
+        if (!rawPeriode || !Number.isInteger(parsedPeriode) || parsedPeriode < 1 || parsedPeriode > 3) {
+          errors.push('Periode Kepala Desa wajib diisi angka 1, 2, atau 3');
+        } else {
+          periode = parsedPeriode;
+        }
+      }
 
       let effectiveJabatanPengurus = jabatanPengurus;
       if (isKades) {
@@ -279,6 +293,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         idDesa,
         namaJabatan: matchedJabatan?.nama_jabatan || namaJabatan || 'Sekretaris Desa',
         idJabatan,
+        periode,
         noSk: noSk || `141.1/Kep.${Math.floor(Math.random() * 80 + 10)}-Desa/${new Date().getFullYear()}`,
         tglSk,
         tmtJabatan,
@@ -330,6 +345,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
           id_desa: r.idDesa,
           nama_desa: r.namaDesa,
           id_jabatan: r.idJabatan,
+          periode: r.idJabatan === 10 ? (r.periode ?? null) : null,
           no_sk_pengangkatan: r.noSk,
           tgl_sk_pengangkatan: r.tglSk,
           tmt_jabatan: r.tmtJabatan,

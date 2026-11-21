@@ -21,7 +21,7 @@ class StoreAnggotaRequest extends ApiFormRequest
                 'email', 'foto', 'alamat_rumah', 'status_pernikahan',
             ];
             $riwayatFields = [
-                'id_kecamatan', 'id_desa', 'id_jabatan',
+                'id_kecamatan', 'id_desa', 'id_jabatan', 'periode',
                 'no_sk_pengangkatan', 'tgl_sk_pengangkatan', 'tmt_jabatan', 'file_sk',
             ];
             $keanggotaanFields = [
@@ -83,6 +83,18 @@ class StoreAnggotaRequest extends ApiFormRequest
 
             $this->merge(['anggota' => $anggotaData]);
         }
+
+        $riwayatData = $this->input('riwayat');
+        if (is_array($riwayatData)) {
+            $jabatanId = (int) ($riwayatData['id_jabatan'] ?? 0);
+            if ($jabatanId !== 10) {
+                // Selain Kepala Desa (id_jabatan = 10), field periode selalu NULL
+                $riwayatData['periode'] = null;
+            } elseif (array_key_exists('periode', $riwayatData) && $riwayatData['periode'] === '') {
+                $riwayatData['periode'] = null;
+            }
+            $this->merge(['riwayat' => $riwayatData]);
+        }
     }
 
     public function rules(): array
@@ -110,6 +122,7 @@ class StoreAnggotaRequest extends ApiFormRequest
             'riwayat.id_kecamatan'         => ['nullable', 'string', 'max:20'],
             'riwayat.id_desa'              => ['nullable', 'string', 'max:20'],
             'riwayat.id_jabatan'           => ['nullable', 'integer'],
+            'riwayat.periode'              => ['nullable', 'integer', 'in:1,2,3', 'required_if:riwayat.id_jabatan,10'],
             'riwayat.no_sk_pengangkatan'   => ['nullable', 'string', 'max:100'],
             'riwayat.tgl_sk_pengangkatan'  => ['nullable', 'date_format:Y-m-d'],
             'riwayat.tmt_jabatan'          => ['nullable', 'date_format:Y-m-d'],
@@ -129,12 +142,15 @@ class StoreAnggotaRequest extends ApiFormRequest
             'anggota.nik.required'                   => 'Data anggota tidak lengkap',
             'anggota.nik.digits'                     => 'NIK KTP harus terdiri dari tepat 16 digit angka.',
             'anggota.nama_lengkap.required'          => 'Data anggota tidak lengkap',
-            'anggota.nipd.digits'                    => 'NIPD harus terdiri dari tepat 28 digit angka (format: YYYYMMDD YYYYMM J 02X 3204KKDDDD).',
+            'anggota.nipd.digits'                    => 'NIPD harus terdiri dari tepat 28 digit angka (YYYYMMDD YYYYMM J [01P/02X/031] 10-digit wilayah).',
             'anggota.niap_nipd.digits'               => 'NIPD harus terdiri dari tepat 28 digit angka.',
             'anggota.niap.digits'                    => 'NIPD harus terdiri dari tepat 28 digit angka.',
             'anggota.tanggal_lahir.date_format'      => 'Format tanggal_lahir harus YYYY-MM-DD.',
             'anggota.jenis_kelamin.in'               => 'Jenis kelamin harus L atau P.',
             'anggota.email.email'                    => 'Format alamat email tidak valid.',
+            'riwayat.periode.required_if'            => 'Field periode wajib diisi (1, 2, atau 3) untuk jabatan Kepala Desa (id_jabatan = 10).',
+            'riwayat.periode.integer'                => 'Field periode Kepala Desa harus berupa angka 1, 2, atau 3.',
+            'riwayat.periode.in'                     => 'Field periode Kepala Desa hanya boleh bernilai 1 (periode pertama), 2 (periode kedua), atau 3 (periode ketiga).',
             'riwayat.tgl_sk_pengangkatan.date_format'=> 'Format tgl_sk_pengangkatan harus YYYY-MM-DD.',
             'riwayat.tmt_jabatan.date_format'        => 'Format tmt_jabatan harus YYYY-MM-DD.',
             'keanggotaan.tgl_bergabung.date_format'  => 'Format tgl_bergabung harus YYYY-MM-DD.',

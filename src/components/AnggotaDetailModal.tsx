@@ -173,6 +173,11 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     setVcardText('');
     setNewDesa(member.jabatanTerkini?.id_desa || '32.04.05.2001');
     setNewJabatan(member.jabatanTerkini?.id_jabatan || 2);
+    setNewPeriode(
+      Number(member.jabatanTerkini?.id_jabatan) === 10 && member.jabatanTerkini?.periode
+        ? String(member.jabatanTerkini.periode)
+        : ''
+    );
   }, [isOpen, memberId]);
 
   // Fetch activity logs whenever the user opens the Riwayat Aktivitas tab
@@ -276,6 +281,11 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   const [showAddRiwayat, setShowAddRiwayat] = useState(false);
   const [newDesa, setNewDesa] = useState(member?.jabatanTerkini?.id_desa || '32.04.05.2001');
   const [newJabatan, setNewJabatan] = useState(member?.jabatanTerkini?.id_jabatan || 2);
+  const [newPeriode, setNewPeriode] = useState<string>(
+    Number(member?.jabatanTerkini?.id_jabatan) === 10 && member?.jabatanTerkini?.periode
+      ? String(member.jabatanTerkini.periode)
+      : ''
+  );
   const [newNoSk, setNewNoSk] = useState('');
   const [newTglSk, setNewTglSk] = useState('2026-03-01');
   const [newTmt, setNewTmt] = useState('2026-03-15');
@@ -401,6 +411,13 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   const handleCreateNewRiwayat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNoSk.trim()) return;
+    if (Number(newJabatan) === 10 && !['1', '2', '3'].includes(String(newPeriode))) {
+      setActionFeedback({
+        type: 'error',
+        message: 'Periode jabatan Kepala Desa wajib dipilih (Periode Ke-1, Ke-2, atau Ke-3).',
+      });
+      return;
+    }
 
     // Set old active to Mutasi
     const oldActive = memberRiwayats.find((r) => r.status_aktif === 'Aktif');
@@ -412,6 +429,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
       id_anggota: member.anggota.id_anggota,
       id_desa: newDesa,
       id_jabatan: Number(newJabatan),
+      periode: Number(newJabatan) === 10 ? Number(newPeriode) : null,
       no_sk_pengangkatan: newNoSk,
       tgl_sk_pengangkatan: newTglSk,
       tmt_jabatan: newTmt,
@@ -422,6 +440,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
 
     setShowAddRiwayat(false);
     setNewNoSk('');
+    setNewPeriode('');
     setNewKet('');
     fetchMemberActivity();
   };
@@ -750,7 +769,11 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                       <label className="block text-neutral-600 mb-1">Jabatan Baru</label>
                       <select
                         value={newJabatan}
-                        onChange={(e) => setNewJabatan(Number(e.target.value))}
+                        onChange={(e) => {
+                          const nextJab = Number(e.target.value);
+                          setNewJabatan(nextJab);
+                          if (nextJab !== 10) setNewPeriode('');
+                        }}
                         className="w-full p-1.5 bg-white border border-neutral-300 rounded-md"
                       >
                         {jabatanList.map((j) => (
@@ -760,6 +783,24 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         ))}
                       </select>
                     </div>
+                    {Number(newJabatan) === 10 && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-amber-800 font-semibold mb-1">
+                          Periode Kepala Desa <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={newPeriode}
+                          onChange={(e) => setNewPeriode(e.target.value)}
+                          className="w-full p-1.5 bg-amber-50/60 border border-amber-300 rounded-md"
+                          required
+                        >
+                          <option value="">-- Pilih Periode Kepala Desa --</option>
+                          <option value="1">Periode Ke-1 (Pertama)</option>
+                          <option value="2">Periode Ke-2 (Kedua)</option>
+                          <option value="3">Periode Ke-3 (Ketiga)</option>
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-neutral-600 mb-1">Nomor SK Pengangkatan</label>
                       <input
@@ -833,8 +874,13 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                     >
                       <div className="flex items-start justify-between">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-neutral-900">{j?.nama_jabatan}</span>
+                            {Number(rw.id_jabatan) === 10 && rw.periode && (
+                              <span className="px-2 py-0.5 rounded-sm font-semibold text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
+                                Periode Ke-{rw.periode}
+                              </span>
+                            )}
                             <span
                               className={`px-2 py-0.5 rounded-sm font-semibold text-[10px] ${
                                 rw.status_aktif === 'Aktif'

@@ -92,6 +92,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const [selectedKec, setSelectedKec] = useState<string>('32.04.05');
   const [selectedDesa, setSelectedDesa] = useState<string>('32.04.05.2001');
   const [selectedJabatan, setSelectedJabatan] = useState<number>(2);
+  const [periode, setPeriode] = useState<string>('');
   const [noSk, setNoSk] = useState('');
   const [tglSk, setTglSk] = useState('2023-01-10');
   const [tmtJabatan, setTmtJabatan] = useState('2023-02-01');
@@ -260,10 +261,12 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   }, [nik, duplicateNikMember, nikCheckStatus, namaLengkap, tempatLahir, tanggalLahir, noHpWa]);
 
   const isRiwayatValid = useMemo(() => {
-    return Boolean(selectedDesa) && Boolean(selectedJabatan);
-  }, [selectedDesa, selectedJabatan]);
+    const periodeOk = Number(selectedJabatan) !== 10 || ['1', '2', '3'].includes(String(periode));
+    return Boolean(selectedDesa) && Boolean(selectedJabatan) && periodeOk;
+  }, [selectedDesa, selectedJabatan, periode]);
 
   const isAllRequiredFieldsFilled = useMemo(() => {
+    const periodeOk = Number(selectedJabatan) !== 10 || ['1', '2', '3'].includes(String(periode));
     return (
       nik.length === 16 &&
       !duplicateNikMember &&
@@ -274,9 +277,10 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       noHpWa.trim().length >= 8 &&
       Boolean(selectedDesa) &&
       Boolean(selectedJabatan) &&
+      periodeOk &&
       noSk.trim().length > 0
     );
-  }, [nik, duplicateNikMember, nikCheckStatus, namaLengkap, tempatLahir, tanggalLahir, noHpWa, selectedDesa, selectedJabatan, noSk]);
+  }, [nik, duplicateNikMember, nikCheckStatus, namaLengkap, tempatLahir, tanggalLahir, noHpWa, selectedDesa, selectedJabatan, periode, noSk]);
 
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
 
@@ -285,6 +289,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
   const [newRwKec, setNewRwKec] = useState('32.04.05');
   const [newRwDesa, setNewRwDesa] = useState('32.04.05.2001');
   const [newRwJabatan, setNewRwJabatan] = useState<number>(2);
+  const [newRwPeriode, setNewRwPeriode] = useState<string>('');
   const [newRwNoSk, setNewRwNoSk] = useState('');
   const [newRwTglSk, setNewRwTglSk] = useState(new Date().toISOString().split('T')[0]);
   const [newRwTmt, setNewRwTmt] = useState(new Date().toISOString().split('T')[0]);
@@ -357,6 +362,11 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
         const desa = desaList.find((d) => d.id_desa === editMember.jabatanTerkini?.id_desa);
         if (desa) setSelectedKec(desa.id_kecamatan);
         setSelectedJabatan(editMember.jabatanTerkini.id_jabatan);
+        setPeriode(
+          Number(editMember.jabatanTerkini.id_jabatan) === 10 && editMember.jabatanTerkini.periode
+            ? String(editMember.jabatanTerkini.periode)
+            : ''
+        );
         setNoSk(editMember.jabatanTerkini.no_sk_pengangkatan);
         setTglSk(editMember.jabatanTerkini.tgl_sk_pengangkatan);
         setTmtJabatan(editMember.jabatanTerkini.tmt_jabatan);
@@ -401,6 +411,8 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       setTmtJabatan(new Date().toISOString().split('T')[0]);
       setFileSk('');
       setFileSkName('');
+      setPeriode('');
+      setNewRwPeriode('');
       setJabatanPengurus('Anggota Biasa');
     }
     setErrorMsg('');
@@ -450,15 +462,19 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
 
   // Projected 28-digit NIPD
   const projectedNiap = useMemo(() => {
+    const matchedJab = jabatanList.find((j) => Number(j.id_jabatan) === Number(selectedJabatan));
     return generateNIPD({
       tanggalLahir,
       tmtJabatan,
       jenisKelamin,
       idJabatan: selectedJabatan,
+      namaJabatan: matchedJab?.nama_jabatan,
+      kategoriJabatan: matchedJab?.kategori_jabatan,
+      periode: Number(selectedJabatan) === 10 ? (periode ? Number(periode) : 1) : null,
       idKecamatan: selectedKec,
       idDesa: selectedDesa,
     });
-  }, [tanggalLahir, tmtJabatan, jenisKelamin, selectedJabatan, selectedKec, selectedDesa]);
+  }, [tanggalLahir, tmtJabatan, jenisKelamin, selectedJabatan, periode, selectedKec, selectedDesa, jabatanList]);
 
   // Member's existing career history
   const memberCareerHistory = useMemo(() => {
@@ -644,10 +660,16 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       return;
     }
 
+    if (Number(newRwJabatan) === 10 && !['1', '2', '3'].includes(String(newRwPeriode))) {
+      setErrorMsg('Periode jabatan Kepala Desa wajib dipilih (Periode Ke-1, Ke-2, atau Ke-3).');
+      return;
+    }
+
     await addRiwayatJabatan({
       id_anggota: editMember.anggota.id_anggota,
       id_desa: newRwDesa,
       id_jabatan: newRwJabatan,
+      periode: Number(newRwJabatan) === 10 ? Number(newRwPeriode) : null,
       no_sk_pengangkatan: newRwNoSk,
       tgl_sk_pengangkatan: newRwTglSk,
       tmt_jabatan: newRwTmt,
@@ -659,6 +681,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
     // Reset subform
     setShowAddRiwayatForm(false);
     setNewRwNoSk('');
+    setNewRwPeriode('');
     setNewRwFileSk('');
     setNewRwFileSkName('');
     setErrorMsg('');
@@ -713,6 +736,11 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
       setActiveFormTab('riwayat');
       return;
     }
+    if (Number(selectedJabatan) === 10 && !['1', '2', '3'].includes(String(periode))) {
+      setErrorMsg('Periode jabatan Kepala Desa wajib dipilih (Periode Ke-1, Ke-2, atau Ke-3).');
+      setActiveFormTab('riwayat');
+      return;
+    }
 
     const effectiveNoSk = noSk.trim() || `141.1/Kep.${Math.floor(Math.random() * 80 + 10)}-Desa/${new Date().getFullYear()}`;
     const rawNiapInput = niap.trim() || projectedNiap;
@@ -762,6 +790,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
           await updateRiwayatJabatan(editMember.jabatanTerkini.id_riwayat, {
             id_desa: selectedDesa,
             id_jabatan: selectedJabatan,
+            periode: Number(selectedJabatan) === 10 ? Number(periode) : null,
             no_sk_pengangkatan: effectiveNoSk,
             tgl_sk_pengangkatan: tglSk,
             tmt_jabatan: tmtJabatan,
@@ -793,6 +822,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
           {
             id_desa: selectedDesa,
             id_jabatan: selectedJabatan,
+            periode: Number(selectedJabatan) === 10 ? Number(periode) : null,
             no_sk_pengangkatan: effectiveNoSk,
             tgl_sk_pengangkatan: tglSk,
             tmt_jabatan: tmtJabatan,
@@ -1520,7 +1550,11 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       <label className="block text-neutral-700 font-medium mb-1">Jabatan Formasi</label>
                       <select
                         value={newRwJabatan}
-                        onChange={(e) => setNewRwJabatan(Number(e.target.value))}
+                        onChange={(e) => {
+                          const nextId = Number(e.target.value);
+                          setNewRwJabatan(nextId);
+                          if (nextId !== 10) setNewRwPeriode('');
+                        }}
                         className="w-full px-3 py-2 border border-neutral-300 rounded-lg bg-white"
                       >
                         {jabatanList.map((j) => (
@@ -1530,6 +1564,25 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                         ))}
                       </select>
                     </div>
+
+                    {Number(newRwJabatan) === 10 && (
+                      <div>
+                        <label className="block text-amber-800 font-semibold mb-1">
+                          Periode Kepala Desa <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={newRwPeriode}
+                          onChange={(e) => setNewRwPeriode(e.target.value)}
+                          className="w-full px-3 py-2 border border-amber-300 rounded-lg bg-amber-50/40"
+                          required
+                        >
+                          <option value="">-- Pilih Periode --</option>
+                          <option value="1">Periode Ke-1 (Pertama)</option>
+                          <option value="2">Periode Ke-2 (Kedua)</option>
+                          <option value="3">Periode Ke-3 (Ketiga)</option>
+                        </select>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-neutral-700 font-medium mb-1">Status Keaktifan</label>
@@ -1700,6 +1753,9 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       onChange={(e) => {
                         const newJabId = Number(e.target.value);
                         setSelectedJabatan(newJabId);
+                        if (newJabId !== 10) {
+                          setPeriode('');
+                        }
                         const matchedJ = jabatanList.find((j) => j.id_jabatan === newJabId);
                         const isKades = matchedJ?.kategori_jabatan === 'Kepala Desa' ||
                           matchedJ?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
@@ -1719,6 +1775,28 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       ))}
                     </select>
                   </div>
+
+                  {Number(selectedJabatan) === 10 && (
+                    <div>
+                      <label className="block text-amber-900 font-semibold mb-1">
+                        Periode Kepala Desa <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={periode}
+                        onChange={(e) => setPeriode(e.target.value)}
+                        className="w-full px-3 py-2 border border-amber-300 rounded-lg bg-amber-50/50 focus:outline-hidden focus:ring-1 focus:ring-emerald-700"
+                        required
+                      >
+                        <option value="">-- Pilih Periode Kepala Desa --</option>
+                        <option value="1">Periode Ke-1 (Pertama)</option>
+                        <option value="2">Periode Ke-2 (Kedua)</option>
+                        <option value="3">Periode Ke-3 (Ketiga)</option>
+                      </select>
+                      <span className="text-[10px] text-amber-700 mt-0.5 block">
+                        Wajib diisi untuk Kepala Desa (kode NIPD 01{periode || 'X'}).
+                      </span>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-neutral-700 font-medium mb-1">
@@ -1957,7 +2035,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                     </strong>
                   </div>
                   <span className="text-[10px] text-neutral-500 font-mono mt-1 block">
-                    * Disimpan di database sebagai 28 digit utuh tanpa spasi (8 Lahir + 6 TMT + 1 JK + 3 Perangkat/Jabatan + 10 Wilayah).
+                    * 28 digit utuh tanpa spasi: 8 Lahir + 6 TMT + 1 JK + 2 Kode Unsur (01 Kades / 02 Perangkat / 03 Staf) + 1 Periode/Jabatan + 10 Wilayah.
                   </span>
                 </div>
               </div>
@@ -2021,6 +2099,11 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       setActiveFormTab('riwayat');
                       return;
                     }
+                    if (Number(selectedJabatan) === 10 && !['1', '2', '3'].includes(String(periode))) {
+                      setErrorMsg('Periode jabatan Kepala Desa wajib dipilih (Periode Ke-1, Ke-2, atau Ke-3) pada tab Riwayat.');
+                      setActiveFormTab('riwayat');
+                      return;
+                    }
                     setErrorMsg('');
                     setIsVerificationModalOpen(true);
                   }}
@@ -2077,6 +2160,10 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                       }
                       if (!selectedJabatan) {
                         setErrorMsg('Silakan pilih Jabatan SOTK Desa.');
+                        return;
+                      }
+                      if (Number(selectedJabatan) === 10 && !['1', '2', '3'].includes(String(periode))) {
+                        setErrorMsg('Periode jabatan Kepala Desa wajib dipilih (Periode Ke-1, Ke-2, atau Ke-3).');
                         return;
                       }
                       setErrorMsg('');

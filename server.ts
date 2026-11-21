@@ -1480,7 +1480,42 @@ async function ensureSignatureColumns(conn: any): Promise<void> {
   try {
     await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN tanda_tangan MEDIUMTEXT NULL AFTER file_sk`);
   } catch (_) {}
+  try {
+    await conn.query(`ALTER TABLE riwayat_jabatan ADD COLUMN periode INT(11) NULL AFTER id_jabatan`);
+  } catch (_) {}
+  try {
+    await conn.query(`ALTER TABLE pendaftaran_perangkat_desa ADD COLUMN periode INT(11) NULL AFTER id_jabatan`);
+  } catch (_) {}
   signatureColumnsEnsured = true;
+}
+
+const ID_JABATAN_KEPALA_DESA = 10;
+const ID_JABATAN_STAF_PERANGKAT_DESA = 9;
+
+function validateAndNormalizePeriode(
+  idJabatan: any,
+  rawPeriode: any
+): { valid: boolean; value: number | null; message?: string } {
+  const jId = Number(idJabatan) || 0;
+  if (jId !== ID_JABATAN_KEPALA_DESA) {
+    return { valid: true, value: null };
+  }
+  if (rawPeriode === null || rawPeriode === undefined || String(rawPeriode).trim() === '') {
+    return {
+      valid: false,
+      value: null,
+      message: 'Field periode wajib diisi (1, 2, atau 3) untuk jabatan Kepala Desa (id_jabatan = 10).',
+    };
+  }
+  const parsed = Number(rawPeriode);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 3) {
+    return {
+      valid: false,
+      value: null,
+      message: 'Field periode Kepala Desa hanya boleh bernilai 1 (periode pertama), 2 (periode kedua), atau 3 (periode ketiga).',
+    };
+  }
+  return { valid: true, value: parsed };
 }
 
 // Endpoint untuk inisialisasi / sinkronisasi struktur seluruh tabel database PPDI
@@ -1573,6 +1608,7 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         \`id_anggota\` INT(11) NOT NULL,
         \`id_desa\` VARCHAR(20) NOT NULL,
         \`id_jabatan\` INT NOT NULL,
+        \`periode\` INT(11) NULL,
         \`no_sk_pengangkatan\` VARCHAR(100) NOT NULL,
         \`tgl_sk_pengangkatan\` DATE NOT NULL,
         \`tmt_jabatan\` DATE NOT NULL,
@@ -1684,6 +1720,7 @@ app.post('/api/db/init-tables', requirePermission('settings-db', 'edit'), async 
         \`id_kecamatan\` VARCHAR(10) NOT NULL,
         \`id_desa\` VARCHAR(20) NOT NULL,
         \`id_jabatan\` INT NOT NULL,
+        \`periode\` INT(11) NULL,
         \`no_sk_pengangkatan\` VARCHAR(100) NULL,
         \`tgl_sk_pengangkatan\` DATE NULL,
         \`tmt_jabatan\` DATE NULL,
@@ -1809,6 +1846,7 @@ app.get('/api/anggota', async (_req, res) => {
           id_anggota,
           id_desa,
           id_jabatan,
+          periode,
           no_sk_pengangkatan,
           DATE_FORMAT(tgl_sk_pengangkatan, '%Y-%m-%d') as tgl_sk_pengangkatan,
           DATE_FORMAT(tmt_jabatan, '%Y-%m-%d') as tmt_jabatan,
@@ -2220,9 +2258,13 @@ function generateServerNIPD(params: {
   tmt_jabatan?: string;
   jenis_kelamin?: string;
   id_jabatan?: any;
+  nama_jabatan?: string;
+  kategori_jabatan?: string;
+  periode?: any;
   id_kecamatan?: string;
   id_desa?: string;
 }): string {
+  // a. 8 digit pertama: Tahun, Bulan, Tanggal Lahir (YYYYMMDD)
   let lahirStr = '19900101';
   if (params.tanggal_lahir) {
     const clean = String(params.tanggal_lahir).replace(/[^0-9]/g, '');
@@ -2230,6 +2272,7 @@ function generateServerNIPD(params: {
     else if (clean.length === 6) lahirStr = clean + '01';
   }
 
+  // b. 6 digit berikutnya: Tahun dan Bulan Pengangkatan/Pelantikan (YYYYMM)
   let tmtStr = '202001';
   if (params.tmt_jabatan) {
     const cleanTmt = String(params.tmt_jabatan).replace(/[^0-9]/g, '');
@@ -2237,36 +2280,89 @@ function generateServerNIPD(params: {
     else if (cleanTmt.length >= 4) tmtStr = cleanTmt.slice(0, 4) + '01';
   }
 
+  // c. 1 digit berikutnya: Jenis Kelamin (1 = Laki-laki, 2 = Perempuan)
   const jk = (params.jenis_kelamin || 'L').toUpperCase();
   const jkCode = (jk === 'P' || jk === 'PEREMPUAN') ? '2' : '1';
-  const devCode = '02';
 
-  let jabCode = '2';
-  const jId = Number(params.id_jabatan) || 2;
-  if (jId === 1) jabCode = '1';
-  else if (jId === 2) jabCode = '2';
-  else if (jId === 3) jabCode = '3';
-  else if (jId === 4) jabCode = '4';
-  else jabCode = '2';
+  // d & e. 2 digit kode unsur + 1 digit kode periodisasi/jabatan
+  const jId = Number(params.id_jabatan) || 0;
+  const namaLower = String(params.nama_jabatan || '').toLowerCase();
+  const katLower = String(params.kategori_jabatan || '').toLowerCase();
+
+  const isKepalaDesa =
+    jId === ID_JABATAN_KEPALA_DESA ||
+    katLower === 'kepala desa' ||
+    namaLower.includes('kepala desa') ||
+    namaLower.includes('kades');
+
+  const isStafPerangkatDesa =
+    !isKepalaDesa &&
+    (jId === ID_JABATAN_STAF_PERANGKAT_DESA ||
+      katLower === 'staf desa' ||
+      namaLower.includes('staf'));
+
+  let devCode = '02';
+  let subCode = '2';
+
+  if (isKepalaDesa) {
+    // 1. Kepala Desa: 01 + periodisasi (1, 2, atau 3)
+    devCode = '01';
+    const parsedPeriode = Number(params.periode);
+    subCode = Number.isInteger(parsedPeriode) && parsedPeriode >= 1 && parsedPeriode <= 3
+      ? String(parsedPeriode)
+      : '1';
+  } else if (isStafPerangkatDesa) {
+    // 3. Staf Perangkat Desa: 03 + 1
+    devCode = '03';
+    subCode = '1';
+  } else {
+    // 2. Perangkat Desa: 02 + Kode Jabatan (1=Sekdes, 2=Kasi, 3=Kaur, 4=Kewilayahan)
+    devCode = '02';
+    if (jId === 1 || namaLower.includes('sekretaris desa') || namaLower.includes('sekdes')) {
+      subCode = '1';
+    } else if (
+      jId === 2 || jId === 3 || jId === 4 ||
+      katLower === 'pelaksana teknis' ||
+      namaLower.includes('kepala seksi') || namaLower.includes('kasi')
+    ) {
+      subCode = '2';
+    } else if (
+      jId === 5 || jId === 6 || jId === 7 ||
+      namaLower.includes('kepala urusan') || namaLower.includes('kaur')
+    ) {
+      subCode = '3';
+    } else if (
+      jId === 8 ||
+      katLower === 'pelaksana kewilayahan' ||
+      namaLower.includes('kepala dusun') || namaLower.includes('kadus') || namaLower.includes('kewilayahan')
+    ) {
+      subCode = '4';
+    } else {
+      subCode = '2';
+    }
+  }
+
+  // f. 10 digit terakhir: 2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa
+  const cleanDesa = params.id_desa ? String(params.id_desa).replace(/[^0-9]/g, '') : '';
+  const cleanKec = params.id_kecamatan ? String(params.id_kecamatan).replace(/[^0-9]/g, '') : '';
+
+  let provKabCode = '3204';
+  if (cleanDesa.length >= 10) provKabCode = cleanDesa.slice(0, 4);
+  else if (cleanKec.length >= 6) provKabCode = cleanKec.slice(0, 4);
 
   let kecCode = '01';
-  if (params.id_kecamatan) {
-    const cleanKec = String(params.id_kecamatan).replace(/\./g, '').trim();
-    if (cleanKec.length >= 6) kecCode = cleanKec.slice(4, 6);
-    else if (cleanKec.length >= 2) kecCode = cleanKec.slice(-2);
-    else kecCode = cleanKec.padStart(2, '0');
-  }
+  if (cleanKec.length >= 6) kecCode = cleanKec.slice(4, 6);
+  else if (cleanDesa.length >= 10) kecCode = cleanDesa.slice(4, 6);
+  else if (cleanKec.length >= 2) kecCode = cleanKec.slice(-2);
+  else if (cleanKec.length === 1) kecCode = cleanKec.padStart(2, '0');
 
   let desaCode = '0001';
-  if (params.id_desa) {
-    const cleanDesa = String(params.id_desa).replace(/\./g, '').trim();
-    if (cleanDesa.length >= 10) desaCode = cleanDesa.slice(6, 10);
-    else if (cleanDesa.length >= 4) desaCode = cleanDesa.slice(-4);
-    else desaCode = cleanDesa.padStart(4, '0');
-  }
+  if (cleanDesa.length >= 10) desaCode = cleanDesa.slice(6, 10);
+  else if (cleanDesa.length >= 4) desaCode = cleanDesa.slice(-4);
+  else if (cleanDesa.length > 0) desaCode = cleanDesa.padStart(4, '0');
 
-  const wilayahCode = `3204${kecCode}${desaCode}`;
-  return `${lahirStr}${tmtStr}${jkCode}${devCode}${jabCode}${wilayahCode}`;
+  const wilayahCode = `${provKabCode}${kecCode}${desaCode}`;
+  return `${lahirStr}${tmtStr}${jkCode}${devCode}${subCode}${wilayahCode}`;
 }
 
 // Add Member with Unique NIK enforcement & Safe Desa FK
@@ -2276,11 +2372,21 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
     return res.status(400).json({ success: false, message: 'Data anggota tidak lengkap' });
   }
 
+  let validatedPeriode: number | null = null;
+  if (riwayat) {
+    const periodeCheck = validateAndNormalizePeriode(riwayat.id_jabatan || 2, riwayat.periode);
+    if (!periodeCheck.valid) {
+      return res.status(400).json({ success: false, message: periodeCheck.message });
+    }
+    validatedPeriode = periodeCheck.value;
+  }
+
   let conn;
   try {
     if (!pool) throw new Error('Pool not ready');
     conn = await pool.getConnection();
     await ensureAnggotaIntSchema(conn);
+    await ensureSignatureColumns(conn);
 
     // 0. Cek NIK Unik - Tidak Boleh Duplikat
     const [existingNik]: [any[], any] = await conn.query(
@@ -2297,11 +2403,24 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
 
     await conn.beginTransaction();
 
+    let jabMeta: { nama_jabatan?: string; kategori_jabatan?: string } = {};
+    const effectiveJabId = riwayat?.id_jabatan || 2;
+    try {
+      const [jRows]: [any[], any] = await conn.query(
+        'SELECT nama_jabatan, kategori_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1',
+        [effectiveJabId]
+      );
+      if (jRows.length > 0) jabMeta = jRows[0];
+    } catch (_) {}
+
     const nipdValue = anggota.nipd || anggota.niap_nipd || anggota.niap || generateServerNIPD({
       tanggal_lahir: anggota.tanggal_lahir,
       tmt_jabatan: riwayat?.tmt_jabatan,
       jenis_kelamin: anggota.jenis_kelamin,
-      id_jabatan: riwayat?.id_jabatan,
+      id_jabatan: effectiveJabId,
+      nama_jabatan: jabMeta.nama_jabatan,
+      kategori_jabatan: jabMeta.kategori_jabatan,
+      periode: validatedPeriode,
       id_kecamatan: riwayat?.id_kecamatan,
       id_desa: riwayat?.id_desa,
     });
@@ -2334,12 +2453,13 @@ app.post('/api/anggota', requirePermission('anggota', 'add'), async (req, res) =
     if (riwayat) {
       const validDesaId = await resolveDesaId(conn, riwayat.id_desa);
       await conn.query(
-        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newIdAnggota,
           validDesaId,
-          riwayat.id_jabatan || 2,
+          effectiveJabId,
+          validatedPeriode,
           riwayat.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
           riwayat.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           riwayat.tmt_jabatan || new Date().toISOString().split('T')[0],
@@ -2402,6 +2522,7 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
     if (!pool) throw new Error('Koneksi database pool belum siap');
     conn = await pool.getConnection();
     await ensureAnggotaIntSchema(conn);
+    await ensureSignatureColumns(conn);
 
     await conn.beginTransaction();
 
@@ -2438,13 +2559,21 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
         continue;
       }
 
+      const rowJabId = rw.id_jabatan || ang.id_jabatan || 2;
+      const rowPeriodeCheck = validateAndNormalizePeriode(rowJabId, rw.periode ?? ang.periode);
+      if (!rowPeriodeCheck.valid) {
+        skipped.push({ row: i + 1, nik: nikStr, nama: ang.nama_lengkap, reason: rowPeriodeCheck.message });
+        continue;
+      }
+
       const nipdVal = ang.nipd || ang.niap || ang.niap_nipd || generateServerNIPD({
         tanggal_lahir: ang.tanggal_lahir,
-        tmt_jabatan: ang.tmt_jabatan,
+        tmt_jabatan: rw.tmt_jabatan || ang.tmt_jabatan,
         jenis_kelamin: ang.jenis_kelamin,
-        id_jabatan: ang.id_jabatan,
-        id_kecamatan: ang.id_kecamatan,
-        id_desa: ang.id_desa || ang.desa,
+        id_jabatan: rowJabId,
+        periode: rowPeriodeCheck.value,
+        id_kecamatan: rw.id_kecamatan || ang.id_kecamatan,
+        id_desa: rw.id_desa || ang.id_desa || ang.desa,
       });
 
       // Insert anggota (id_anggota INT(11) AUTO_INCREMENT)
@@ -2478,12 +2607,13 @@ app.post('/api/anggota/batch-import', requirePermission('anggota', 'add'), async
 
       // Insert riwayat
       await conn.query(
-        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newIdAnggota,
           validDesaId,
-          rw.id_jabatan || 2,
+          rowJabId,
+          rowPeriodeCheck.value,
           rw.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
           rw.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
           rw.tmt_jabatan || new Date().toISOString().split('T')[0],
@@ -2771,7 +2901,13 @@ app.delete('/api/anggota/:id', requirePermission('anggota', 'delete'), async (re
 // 4. RIWAYAT JABATAN & MUTASI
 // ====================================================================
 app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) => {
-  const { id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan } = req.body;
+  const { id_anggota, id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan } = req.body;
+
+  const effectiveJabId = id_jabatan || 2;
+  const periodeCheck = validateAndNormalizePeriode(effectiveJabId, periode);
+  if (!periodeCheck.valid) {
+    return res.status(400).json({ success: false, message: periodeCheck.message });
+  }
 
   try {
     if (!pool) throw new Error('Pool not ready');
@@ -2791,12 +2927,13 @@ app.post('/api/riwayat', requirePermission('anggota', 'add'), async (req, res) =
     }
 
     const [rwInsertRes]: [any, any] = await conn.query(
-      `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan, keterangan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id_anggota,
         validDesaId,
-        id_jabatan || 2,
+        effectiveJabId,
+        periodeCheck.value,
         no_sk_pengangkatan,
         tgl_sk_pengangkatan,
         tmt_jabatan,
@@ -2868,7 +3005,7 @@ app.put('/api/riwayat/:id/status', requirePermission('anggota', 'edit'), async (
 // Update Full Riwayat Jabatan
 app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, res) => {
   const { id } = req.params;
-  const { id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan } = req.body;
+  const { id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan } = req.body;
 
   try {
     if (!pool) throw new Error('Pool not ready');
@@ -2880,6 +3017,14 @@ app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, re
       [id]
     );
     const prevRow = prevRows?.[0] || null;
+
+    const effectiveJabId = Number(id_jabatan ?? prevRow?.id_jabatan ?? 0);
+    const candidatePeriode = periode !== undefined ? periode : prevRow?.periode;
+    const periodeCheck = validateAndNormalizePeriode(effectiveJabId, candidatePeriode);
+    if (!periodeCheck.valid) {
+      conn.release();
+      return res.status(400).json({ success: false, message: periodeCheck.message });
+    }
 
     let validDesaId = null;
     if (id_desa) {
@@ -2900,6 +3045,7 @@ app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, re
       `UPDATE riwayat_jabatan SET
         id_desa = COALESCE(?, id_desa),
         id_jabatan = COALESCE(?, id_jabatan),
+        periode = ?,
         no_sk_pengangkatan = COALESCE(?, no_sk_pengangkatan),
         tgl_sk_pengangkatan = COALESCE(?, tgl_sk_pengangkatan),
         tmt_jabatan = COALESCE(?, tmt_jabatan),
@@ -2907,7 +3053,7 @@ app.put('/api/riwayat/:id', requirePermission('anggota', 'edit'), async (req, re
         file_sk = COALESCE(?, file_sk),
         tanda_tangan = COALESCE(?, tanda_tangan)
       WHERE id_riwayat = ?`,
-      [validDesaId, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, savedTtdPath, id]
+      [validDesaId, id_jabatan, periodeCheck.value, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, savedTtdPath, id]
     );
 
     let newJabatanName = prevRow?.nama_jabatan || '';
@@ -3965,13 +4111,23 @@ app.post('/api/pendaftaran', async (req, res) => {
       }
     }
 
+    const effectivePendaftaranJabId = Number(data.id_jabatan) || 1;
+    const pendaftaranPeriodeCheck = validateAndNormalizePeriode(effectivePendaftaranJabId, data.periode);
+    if (!pendaftaranPeriodeCheck.valid) {
+      conn.release();
+      return res.status(400).json({
+        success: false,
+        message: pendaftaranPeriodeCheck.message,
+      });
+    }
+
     const [insertRes]: [any, any] = await conn.query(
       `INSERT INTO pendaftaran_perangkat_desa (
         nik, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama,
         pendidikan_terakhir, no_hp_wa, email, alamat_rumah, status_pernikahan,
-        id_kecamatan, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan,
+        id_kecamatan, id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan,
         foto, file_sk, tanda_tangan, status_approval
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Menunggu')`,
       [
         data.nik,
         data.nama_lengkap.trim().toUpperCase(),
@@ -3988,7 +4144,8 @@ app.post('/api/pendaftaran', async (req, res) => {
         data.status_pernikahan || 'Kawin',
         cleanKecId,
         validDesaId,
-        data.id_jabatan || 1,
+        effectivePendaftaranJabId,
+        pendaftaranPeriodeCheck.value,
         data.no_sk_pengangkatan || `141.1/Kep.Reg-${new Date().getFullYear()}`,
         data.tgl_sk_pengangkatan || new Date().toISOString().split('T')[0],
         data.tmt_jabatan || new Date().toISOString().split('T')[0],
@@ -4070,10 +4227,24 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     let effectiveIdRiwayat: number | null = null;
     let effectiveIdPpdi: number | null = null;
 
-    const nipdVal = `NIPD.${cleanNik.slice(-6)}`;
     txStep = 'resolve_foreign_keys';
     const validDesaId = await resolveDesaId(conn, p.id_desa);
     const validJabatanId = await resolveJabatanId(conn, p.id_jabatan);
+
+    let approvedJabMeta: { nama_jabatan?: string; kategori_jabatan?: string } = {};
+    try {
+      const [jMetaRows]: [any[], any] = await conn.query(
+        'SELECT nama_jabatan, kategori_jabatan FROM ref_jabatan WHERE id_jabatan = ? LIMIT 1',
+        [validJabatanId]
+      );
+      if (jMetaRows.length > 0) approvedJabMeta = jMetaRows[0];
+    } catch (_) {}
+
+    const rawApprovedPeriode = p.periode ?? req.body?.periode;
+    const approvedPeriodeCheck = validateAndNormalizePeriode(validJabatanId, rawApprovedPeriode);
+    const effectiveApprovedPeriode = validJabatanId === ID_JABATAN_KEPALA_DESA
+      ? (approvedPeriodeCheck.valid ? approvedPeriodeCheck.value : 1)
+      : null;
 
     const safeTglLahir = p.tanggal_lahir
       ? (p.tanggal_lahir instanceof Date ? p.tanggal_lahir.toISOString().slice(0, 10) : String(p.tanggal_lahir).slice(0, 10))
@@ -4110,6 +4281,18 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
 
     const normalizedGender = p.jenis_kelamin === 'P' ? 'P' : 'L';
     const normalizedNama = String(p.nama_lengkap || '').trim().toUpperCase();
+
+    const nipdVal = generateServerNIPD({
+      tanggal_lahir: safeTglLahir,
+      tmt_jabatan: safeTmt,
+      jenis_kelamin: normalizedGender,
+      id_jabatan: validJabatanId,
+      nama_jabatan: approvedJabMeta.nama_jabatan,
+      kategori_jabatan: approvedJabMeta.kategori_jabatan,
+      periode: effectiveApprovedPeriode,
+      id_kecamatan: p.id_kecamatan || validDesaId.slice(0, 6),
+      id_desa: validDesaId,
+    });
 
     if (existingAng.length > 0) {
       txStep = 'update_existing_anggota';
@@ -4190,12 +4373,13 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
 
     if (existingRw.length === 0) {
       const [rwInsertRes]: [any, any] = await conn.query(
-        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan)
-         VALUES (?, ?, ?, ?, ?, ?, 'Aktif', ?, ?)`,
+        `INSERT INTO riwayat_jabatan (id_anggota, id_desa, id_jabatan, periode, no_sk_pengangkatan, tgl_sk_pengangkatan, tmt_jabatan, status_aktif, file_sk, tanda_tangan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'Aktif', ?, ?)`,
         [
           effectiveIdAnggota,
           validDesaId,
           validJabatanId,
+          effectiveApprovedPeriode,
           p.no_sk_pengangkatan || `141.1/Kep.01-Desa/${new Date().getFullYear()}`,
           safeTglSk,
           safeTmt,
@@ -4210,6 +4394,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
         `UPDATE riwayat_jabatan SET
           id_desa = ?,
           id_jabatan = ?,
+          periode = ?,
           no_sk_pengangkatan = COALESCE(?, no_sk_pengangkatan),
           tgl_sk_pengangkatan = COALESCE(?, tgl_sk_pengangkatan),
           tmt_jabatan = COALESCE(?, tmt_jabatan),
@@ -4219,6 +4404,7 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
         [
           validDesaId,
           validJabatanId,
+          effectiveApprovedPeriode,
           p.no_sk_pengangkatan || null,
           safeTglSk,
           safeTmt,

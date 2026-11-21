@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS \`riwayat_jabatan\` (
   \`id_anggota\` INT(11) NOT NULL,
   \`id_desa\` VARCHAR(20) NOT NULL,
   \`id_jabatan\` INT NOT NULL,
+  \`periode\` INT(11) NULL COMMENT 'Periodisasi Kepala Desa (1, 2, 3) wajib diisi bagi id_jabatan = 10; NULL untuk lainnya',
   \`no_sk_pengangkatan\` VARCHAR(100) NOT NULL,
   \`tgl_sk_pengangkatan\` DATE NOT NULL,
   \`tmt_jabatan\` DATE NOT NULL COMMENT 'Terhitung Mulai Tanggal',
@@ -493,6 +494,7 @@ return new class extends Migration {
             $table->foreign('id_anggota')->references('id_anggota')->on('anggota')->cascadeOnDelete();
             $table->string('id_desa', 20);
             $table->unsignedBigInteger('id_jabatan');
+            $table->integer('periode')->nullable()->comment('Periodisasi Kepala Desa (1, 2, 3) wajib diisi bagi id_jabatan = 10; NULL untuk lainnya');
             $table->string('no_sk_pengangkatan', 100);
             $table->date('tgl_sk_pengangkatan');
             $table->date('tmt_jabatan');

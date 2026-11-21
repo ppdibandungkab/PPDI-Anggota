@@ -128,6 +128,7 @@ interface PPDIContextType {
     riwayat: {
       id_desa: string;
       id_jabatan: number;
+      periode?: number | null;
       no_sk_pengangkatan: string;
       tgl_sk_pengangkatan: string;
       tmt_jabatan: string;
@@ -1600,6 +1601,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     riwayatData: {
       id_desa: string;
       id_jabatan: number;
+      periode?: number | null;
       no_sk_pengangkatan: string;
       tgl_sk_pengangkatan: string;
       tmt_jabatan: string;
@@ -1632,11 +1634,17 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updated_at: nowIso,
     };
 
+    const normalizedPeriode =
+      Number(riwayatData.id_jabatan) === 10
+        ? (riwayatData.periode ? Number(riwayatData.periode) : null)
+        : null;
+
     const newRiwayat: RiwayatJabatan = {
       id_riwayat: `rw-${Date.now().toString().slice(-6)}`,
       id_anggota: tempId,
       id_desa: targetDesa?.id_desa || cleanDesaId || riwayatData.id_desa,
       id_jabatan: riwayatData.id_jabatan,
+      periode: normalizedPeriode,
       no_sk_pengangkatan: riwayatData.no_sk_pengangkatan,
       tgl_sk_pengangkatan: riwayatData.tgl_sk_pengangkatan,
       tmt_jabatan: riwayatData.tmt_jabatan,
@@ -1861,8 +1869,17 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addRiwayatJabatan = async (data: Omit<RiwayatJabatan, 'id_riwayat'>) => {
-    const newRw: RiwayatJabatan = {
+    const normalizedPeriode =
+      Number(data.id_jabatan) === 10
+        ? (data.periode ? Number(data.periode) : null)
+        : null;
+    const sanitizedData: Omit<RiwayatJabatan, 'id_riwayat'> = {
       ...data,
+      periode: normalizedPeriode,
+    };
+
+    const newRw: RiwayatJabatan = {
+      ...sanitizedData,
       id_riwayat: `rw-${Date.now().toString().slice(-6)}`,
       created_at: new Date().toISOString(),
     };
@@ -1876,14 +1893,14 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       modul: 'Riwayat Jabatan & SK',
       target_id: String(data.id_anggota),
       target_nama: memberRec?.nama_lengkap || String(data.id_anggota),
-      deskripsi: `Menambahkan SK/Mutasi jabatan baru: ${jabRec?.nama_jabatan || `Jabatan #${data.id_jabatan}`} di ${desaRec ? `Desa ${desaRec.nama_desa}` : data.id_desa} (No. SK: ${data.no_sk_pengangkatan || '-'}, TMT: ${data.tmt_jabatan || '-'}).`,
+      deskripsi: `Menambahkan SK/Mutasi jabatan baru: ${jabRec?.nama_jabatan || `Jabatan #${data.id_jabatan}`}${normalizedPeriode ? ` (Periode Ke-${normalizedPeriode})` : ''} di ${desaRec ? `Desa ${desaRec.nama_desa}` : data.id_desa} (No. SK: ${data.no_sk_pengangkatan || '-'}, TMT: ${data.tmt_jabatan || '-'}).`,
     });
 
     try {
       await safeFetchJson('/api/riwayat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(sanitizedData),
       });
       await refreshDataFromMySQL();
     } catch (err) {
@@ -1893,19 +1910,28 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateRiwayatJabatan = async (idRiwayat: string | number, updated: Partial<RiwayatJabatan>) => {
     const prevRw = riwayatList.find((r) => String(r.id_riwayat) === String(idRiwayat));
+    const effectiveJabId = Number(updated.id_jabatan ?? prevRw?.id_jabatan ?? 0);
+    const sanitizedUpdated: Partial<RiwayatJabatan> = {
+      ...updated,
+      periode:
+        effectiveJabId === 10
+          ? (updated.periode !== undefined ? (updated.periode ? Number(updated.periode) : null) : (prevRw?.periode ?? null))
+          : null,
+    };
+
     setRiwayatList((prev) =>
-      prev.map((r) => (String(r.id_riwayat) === String(idRiwayat) ? { ...r, ...updated } : r))
+      prev.map((r) => (String(r.id_riwayat) === String(idRiwayat) ? { ...r, ...sanitizedUpdated } : r))
     );
 
     if (prevRw) {
       const memberRec = anggotaList.find((a) => String(a.id_anggota) === String(prevRw.id_anggota));
-      const jabRec = jabatanList.find((j) => Number(j.id_jabatan) === Number(updated.id_jabatan ?? prevRw.id_jabatan));
+      const jabRec = jabatanList.find((j) => Number(j.id_jabatan) === Number(sanitizedUpdated.id_jabatan ?? prevRw.id_jabatan));
       addActivityLog({
         aksi: 'EDIT',
         modul: 'Riwayat Jabatan & SK',
         target_id: String(prevRw.id_anggota),
         target_nama: memberRec?.nama_lengkap || String(prevRw.id_anggota),
-        deskripsi: `Memperbarui data SK/Jabatan ${jabRec?.nama_jabatan || 'Perangkat Desa'} (No. SK: ${updated.no_sk_pengangkatan || prevRw.no_sk_pengangkatan || '-'}).`,
+        deskripsi: `Memperbarui data SK/Jabatan ${jabRec?.nama_jabatan || 'Perangkat Desa'}${sanitizedUpdated.periode ? ` (Periode Ke-${sanitizedUpdated.periode})` : ''} (No. SK: ${sanitizedUpdated.no_sk_pengangkatan || prevRw.no_sk_pengangkatan || '-'}).`,
       });
     }
 
@@ -1913,7 +1939,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await safeFetchJson(`/api/riwayat/${idRiwayat}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        body: JSON.stringify(sanitizedUpdated),
       });
       await refreshDataFromMySQL();
     } catch (err) {

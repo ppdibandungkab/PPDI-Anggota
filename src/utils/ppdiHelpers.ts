@@ -273,26 +273,70 @@ export function generateNextKTA(
   return `32.04.${kecCode}.${desaCode}.${numStr}`;
 }
 
+export const ID_JABATAN_KEPALA_DESA = 10;
+export const ID_JABATAN_STAF_PERANGKAT_DESA = 9;
+
+/**
+ * Menormalkan field periode (INT) sesuai ketentuan:
+ * - id_jabatan === 10 (Kepala Desa): bernilai 1, 2, atau 3 (null jika belum valid)
+ * - id_jabatan lainnya: selalu null
+ */
+export function normalizePeriodeForJabatan(
+  idJabatan?: number | string | null,
+  periode?: number | string | null
+): number | null {
+  if (Number(idJabatan) !== ID_JABATAN_KEPALA_DESA) {
+    return null;
+  }
+  const parsed = Number(periode);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 3) {
+    return parsed;
+  }
+  return null;
+}
+
 /**
  * Generates official 28-digit NIPD (Nomor Induk Perangkat Desa) based on statutory rules:
- * - 8 digits: Birth Date (YYYYMMDD)
- * - 6 digits: Appointment / TMT Date (YYYYMM)
- * - 1 digit: Gender (1 = Male, 2 = Female)
- * - 2 digits: Device code ("02")
- * - 1 digit: Position code (1 = Sekdes, 2 = Kasi, 3 = Kaur, 4 = Kewilayahan)
- * - 10 digits: Regional code (3204 + 2 digit Kec + 4 digit Desa)
+ *
+ * 1. Kepala Desa (id_jabatan = 10):
+ *    - 8 digit : Tahun, Bulan, Tanggal Lahir (YYYYMMDD)
+ *    - 6 digit : Tahun & Bulan Pengangkatan/Pelantikan (YYYYMM)
+ *    - 1 digit : Jenis Kelamin (1 = Laki-laki, 2 = Perempuan)
+ *    - 2 digit : Kode Kepala Desa = "01"
+ *    - 1 digit : Periodisasi Kepala Desa (1 = Periode 1, 2 = Periode 2, 3 = Periode 3)
+ *    - 10 digit: Kode Wilayah Administrasi (2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa)
+ *
+ * 2. Perangkat Desa (id_jabatan = 1..8):
+ *    - 8 digit : YYYYMMDD (Tanggal Lahir)
+ *    - 6 digit : YYYYMM (Tahun & Bulan Pengangkatan/Pelantikan)
+ *    - 1 digit : Jenis Kelamin (1 = L, 2 = P)
+ *    - 2 digit : Kode Perangkat Desa = "02"
+ *    - 1 digit : Kode Jabatan (1 = Sekretaris Desa, 2 = Kepala Seksi, 3 = Kepala Urusan, 4 = Kepala Kewilayahan)
+ *    - 10 digit: Kode Wilayah Administrasi (2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa)
+ *
+ * 3. Staf Perangkat Desa (id_jabatan = 9):
+ *    - 8 digit : YYYYMMDD (Tanggal Lahir)
+ *    - 6 digit : YYYYMM (Tahun & Bulan Pengangkatan/Pelantikan)
+ *    - 1 digit : Jenis Kelamin (1 = L, 2 = P)
+ *    - 2 digit : Kode Staf Perangkat Desa = "03"
+ *    - 1 digit : Kode Jabatan = "1" (Staf Perangkat Desa)
+ *    - 10 digit: Kode Wilayah Administrasi (2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa)
  */
 export function generateNIPD(params: {
   tanggalLahir?: string;
   tmtJabatan?: string;
   jenisKelamin?: 'L' | 'P' | string;
   idJabatan?: number | string;
+  namaJabatan?: string;
+  kategoriJabatan?: string;
+  periode?: number | string | null;
   idKecamatan?: string;
   idDesa?: string;
 }): string {
+  // a. 8 digit pertama: Tahun, Bulan, Tanggal Lahir (YYYYMMDD)
   let lahirStr = '19900101';
   if (params.tanggalLahir) {
-    const cleanLahir = params.tanggalLahir.replace(/[^0-9]/g, '');
+    const cleanLahir = String(params.tanggalLahir).replace(/[^0-9]/g, '');
     if (cleanLahir.length >= 8) {
       lahirStr = cleanLahir.slice(0, 8);
     } else if (cleanLahir.length === 6) {
@@ -300,9 +344,10 @@ export function generateNIPD(params: {
     }
   }
 
+  // b. 6 digit berikutnya: Tahun & Bulan Pengangkatan/Pelantikan (YYYYMM)
   let tmtStr = '202001';
   if (params.tmtJabatan) {
-    const cleanTmt = params.tmtJabatan.replace(/[^0-9]/g, '');
+    const cleanTmt = String(params.tmtJabatan).replace(/[^0-9]/g, '');
     if (cleanTmt.length >= 6) {
       tmtStr = cleanTmt.slice(0, 6);
     } else if (cleanTmt.length >= 4) {
@@ -310,51 +355,120 @@ export function generateNIPD(params: {
     }
   }
 
+  // c. 1 digit berikutnya: Jenis Kelamin (1 = Laki-laki, 2 = Perempuan)
   const jk = (params.jenisKelamin || 'L').toUpperCase();
-  const jkCode = (jk === 'P' || jk === 'PEREMPUAN') ? '2' : '1';
+  const jkCode = jk === 'P' || jk === 'PEREMPUAN' ? '2' : '1';
 
-  const devCode = '02';
+  // d & e. 2 digit kode unsur + 1 digit kode periodisasi/jabatan
+  const jId = Number(params.idJabatan) || 0;
+  const namaLower = (params.namaJabatan || '').toLowerCase();
+  const katLower = (params.kategoriJabatan || '').toLowerCase();
 
-  let jabCode = '2';
-  const jId = Number(params.idJabatan) || 2;
-  if (jId === 1) jabCode = '1';
-  else if (jId === 2) jabCode = '2';
-  else if (jId === 3) jabCode = '3';
-  else if (jId === 4) jabCode = '4';
-  else jabCode = '2';
+  const isKepalaDesa =
+    jId === ID_JABATAN_KEPALA_DESA ||
+    katLower === 'kepala desa' ||
+    namaLower.includes('kepala desa') ||
+    namaLower.includes('kades');
+
+  const isStafPerangkatDesa =
+    !isKepalaDesa &&
+    (jId === ID_JABATAN_STAF_PERANGKAT_DESA ||
+      katLower === 'staf desa' ||
+      namaLower.includes('staf'));
+
+  let devCode = '02';
+  let subCode = '2';
+
+  if (isKepalaDesa) {
+    // 1. Kepala Desa: 01 + waktu periodisasi (1, 2, atau 3)
+    devCode = '01';
+    const parsedPeriode = Number(params.periode);
+    subCode =
+      Number.isInteger(parsedPeriode) && parsedPeriode >= 1 && parsedPeriode <= 3
+        ? String(parsedPeriode)
+        : '1';
+  } else if (isStafPerangkatDesa) {
+    // 3. Staf Perangkat Desa: 03 + 1
+    devCode = '03';
+    subCode = '1';
+  } else {
+    // 2. Perangkat Desa: 02 + Kode Jabatan (1=Sekdes, 2=Kasi, 3=Kaur, 4=Kewilayahan)
+    devCode = '02';
+    if (
+      jId === 1 ||
+      namaLower.includes('sekretaris desa') ||
+      namaLower.includes('sekdes')
+    ) {
+      subCode = '1';
+    } else if (
+      jId === 2 ||
+      jId === 3 ||
+      jId === 4 ||
+      katLower === 'pelaksana teknis' ||
+      namaLower.includes('kepala seksi') ||
+      namaLower.includes('kasi')
+    ) {
+      subCode = '2';
+    } else if (
+      jId === 5 ||
+      jId === 6 ||
+      jId === 7 ||
+      namaLower.includes('kepala urusan') ||
+      namaLower.includes('kaur')
+    ) {
+      subCode = '3';
+    } else if (
+      jId === 8 ||
+      katLower === 'pelaksana kewilayahan' ||
+      namaLower.includes('kepala dusun') ||
+      namaLower.includes('kadus') ||
+      namaLower.includes('kewilayahan')
+    ) {
+      subCode = '4';
+    } else {
+      subCode = '2';
+    }
+  }
+
+  // f. 10 digit terakhir: 2 Prov + 2 Kab/Kota + 2 Kec + 4 Desa
+  const cleanDesa = params.idDesa ? String(params.idDesa).replace(/[^0-9]/g, '') : '';
+  const cleanKec = params.idKecamatan ? String(params.idKecamatan).replace(/[^0-9]/g, '') : '';
+
+  let provKabCode = '3204';
+  if (cleanDesa.length >= 10) {
+    provKabCode = cleanDesa.slice(0, 4);
+  } else if (cleanKec.length >= 6) {
+    provKabCode = cleanKec.slice(0, 4);
+  }
 
   let kecCode = '01';
-  if (params.idKecamatan) {
-    const cleanKec = params.idKecamatan.replace(/\./g, '').trim();
-    if (cleanKec.length >= 6) {
-      kecCode = cleanKec.slice(4, 6);
-    } else if (cleanKec.length >= 2) {
-      kecCode = cleanKec.slice(-2);
-    } else {
-      kecCode = cleanKec.padStart(2, '0');
-    }
+  if (cleanKec.length >= 6) {
+    kecCode = cleanKec.slice(4, 6);
+  } else if (cleanDesa.length >= 10) {
+    kecCode = cleanDesa.slice(4, 6);
+  } else if (cleanKec.length >= 2) {
+    kecCode = cleanKec.slice(-2);
+  } else if (cleanKec.length === 1) {
+    kecCode = cleanKec.padStart(2, '0');
   }
 
   let desaCode = '0001';
-  if (params.idDesa) {
-    const cleanDesa = params.idDesa.replace(/\./g, '').trim();
-    if (cleanDesa.length >= 10) {
-      desaCode = cleanDesa.slice(6, 10);
-    } else if (cleanDesa.length >= 4) {
-      desaCode = cleanDesa.slice(-4);
-    } else {
-      desaCode = cleanDesa.padStart(4, '0');
-    }
+  if (cleanDesa.length >= 10) {
+    desaCode = cleanDesa.slice(6, 10);
+  } else if (cleanDesa.length >= 4) {
+    desaCode = cleanDesa.slice(-4);
+  } else if (cleanDesa.length > 0) {
+    desaCode = cleanDesa.padStart(4, '0');
   }
 
-  const wilayahCode = `3204${kecCode}${desaCode}`;
+  const wilayahCode = `${provKabCode}${kecCode}${desaCode}`;
 
-  return `${lahirStr}${tmtStr}${jkCode}${devCode}${jabCode}${wilayahCode}`;
+  return `${lahirStr}${tmtStr}${jkCode}${devCode}${subCode}${wilayahCode}`;
 }
 
 /**
  * Memformat tampilan NIPD 28 digit di UI View dengan pemisah spasi:
- * 8 digit (Tgl Lahir) + 6 digit (TMT) + 1 digit (JK) + 3 digit (Kode Perangkat+Jabatan) + 10 digit (Wilayah)
+ * 8 digit (Tgl Lahir) + 6 digit (TMT) + 1 digit (JK) + 3 digit (Kode Unsur+Jabatan/Periode) + 10 digit (Wilayah)
  * Contoh DB  : 1982082820240210213204152005
  * Contoh View: 19820828 202402 1 021 3204152005
  * Nilai di database tetap disimpan utuh 28 digit tanpa spasi.

@@ -1791,9 +1791,16 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                     </div>
                     <div className="sm:col-span-2 p-2.5 bg-neutral-50 rounded border border-neutral-100">
                       <span className="text-neutral-500 block text-[10px]">Jabatan Formasi</span>
-                      <span className="font-bold text-neutral-900 text-sm">
-                        {selectedItem.nama_jabatan || `Jabatan ID: ${selectedItem.id_jabatan}`}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        <span className="font-bold text-neutral-900 text-sm">
+                          {selectedItem.nama_jabatan || `Jabatan ID: ${selectedItem.id_jabatan}`}
+                        </span>
+                        {Number(selectedItem.id_jabatan) === 10 && selectedItem.periode && (
+                          <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-semibold">
+                            Periode Ke-{selectedItem.periode}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
