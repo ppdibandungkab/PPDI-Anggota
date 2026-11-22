@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
+import net from 'net';
 import { fileURLToPath } from 'url';
 import { generateUniqueKTA } from './src/services/ktaService';
 
@@ -325,10 +326,99 @@ try {
   console.error('Failed to create backup directory:', e);
 }
 
-async function executeDatabaseBackup(): Promise<any> {
-  if (!pool) throw new Error('Pool not ready');
-  const conn = await pool.getConnection();
+const DB_CONNECTIVITY_ERROR_CODES = new Set([
+  'ETIMEDOUT',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ECONNRESET',
+  'PROTOCOL_CONNECTION_LOST',
+  'ER_ACCESS_DENIED_ERROR',
+]);
+
+function isDbConnectivityError(err: any): boolean {
+  const code = String(err?.code || err?.errno || err?.errorno || '').toUpperCase();
+  return DB_CONNECTIVITY_ERROR_CODES.has(code);
+}
+
+function probeTcpConnection(
+  host: string,
+  port: number,
+  timeoutMs = 2500
+): Promise<{ ok: boolean; code?: string; message?: string }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const socket = net.createConnection({ host, port });
+
+    const finish = (result: { ok: boolean; code?: string; message?: string }) => {
+      if (settled) return;
+      settled = true;
+      try {
+        socket.removeAllListeners();
+        socket.destroy();
+      } catch (_) {}
+      resolve(result);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish({ ok: true }));
+    socket.once('timeout', () =>
+      finish({
+        ok: false,
+        code: 'ETIMEDOUT',
+        message: `Koneksi ke server database ${host}:${port} melebihi batas waktu (${timeoutMs}ms).`,
+      })
+    );
+    socket.once('error', (err: any) =>
+      finish({
+        ok: false,
+        code: String(err?.code || 'ECONNREFUSED'),
+        message: err?.message || `Gagal terhubung ke ${host}:${port}.`,
+      })
+    );
+  });
+}
+
+async function executeDatabaseBackup(options?: { isAuto?: boolean }): Promise<any> {
+  const isAuto = Boolean(options?.isAuto);
+  const cfg = activeDbConfig;
+
+  if (!cfg?.host || !cfg?.user || !cfg?.database) {
+    const msg = 'Konfigurasi database MySQL belum lengkap (DB_HOST / DB_USER / DB_NAME kosong).';
+    if (isAuto) {
+      return { skipped: true, code: 'DB_NOT_CONFIGURED', message: msg };
+    }
+    const configErr: any = new Error(msg);
+    configErr.code = 'DB_NOT_CONFIGURED';
+    configErr.statusCode = 503;
+    throw configErr;
+  }
+
+  const probe = await probeTcpConnection(cfg.host, Number(cfg.port) || 3306, 2500);
+  if (!probe.ok) {
+    const msg = `Server MySQL (${cfg.host}:${cfg.port}) sedang tidak dapat dijangkau (${probe.code || 'ETIMEDOUT'}).`;
+    if (isAuto) {
+      return { skipped: true, code: probe.code || 'ETIMEDOUT', message: msg };
+    }
+    const offlineErr: any = new Error(msg);
+    offlineErr.code = probe.code || 'ETIMEDOUT';
+    offlineErr.statusCode = 503;
+    throw offlineErr;
+  }
+
+  if (!pool) {
+    createOrGetPool();
+  }
+  if (!pool) {
+    const poolErr: any = new Error('Pool koneksi database belum siap.');
+    poolErr.statusCode = 503;
+    throw poolErr;
+  }
+
+  let conn: mysql.PoolConnection | null = null;
   try {
+    conn = await pool.getConnection();
     const [tablesRows]: [any[], any] = await conn.query('SHOW TABLES');
     const tableKeys = tablesRows.map(r => Object.values(r)[0] as string);
 
@@ -352,7 +442,7 @@ async function executeDatabaseBackup(): Promise<any> {
             if (val === null) return 'NULL';
             if (typeof val === 'number') return val;
             if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
-            return conn.escape(val);
+            return conn!.escape(val);
           });
           return `(${vals.join(', ')})`;
         });
@@ -377,21 +467,35 @@ async function executeDatabaseBackup(): Promise<any> {
     };
 
     fs.writeFileSync(path.join(BACKUP_DIR, 'backup_log.json'), JSON.stringify(logData, null, 2), 'utf8');
-    conn.release();
     return logData;
   } catch (err: any) {
-    conn.release();
-    const errorLog = {
-      timestamp: new Date().toISOString(),
-      filename: '',
-      fileSize: 0,
-      status: 'ERROR',
-      message: err.message || 'Backup gagal',
-    };
-    try {
-      fs.writeFileSync(path.join(BACKUP_DIR, 'backup_log.json'), JSON.stringify(errorLog, null, 2), 'utf8');
-    } catch (_) {}
+    if (isAuto && isDbConnectivityError(err)) {
+      return {
+        skipped: true,
+        code: String(err?.code || err?.errno || 'ETIMEDOUT'),
+        message: `Server MySQL (${cfg.host}:${cfg.port}) sedang tidak dapat dijangkau (${err?.code || 'ETIMEDOUT'}).`,
+      };
+    }
+
+    if (!isAuto) {
+      const errorLog = {
+        timestamp: new Date().toISOString(),
+        filename: '',
+        fileSize: 0,
+        status: 'ERROR',
+        message: err?.message || 'Backup gagal',
+      };
+      try {
+        fs.writeFileSync(path.join(BACKUP_DIR, 'backup_log.json'), JSON.stringify(errorLog, null, 2), 'utf8');
+      } catch (_) {}
+    }
     throw err;
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch (_) {}
+    }
   }
 }
 
@@ -439,10 +543,19 @@ app.get('/api/database/backup/download/:filename?', (req, res) => {
 
 app.post('/api/database/backup', async (_req, res) => {
   try {
-    const result = await executeDatabaseBackup();
+    const result = await executeDatabaseBackup({ isAuto: false });
     return res.json({ success: true, ...result });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    const statusCode = Number(err?.statusCode) || (isDbConnectivityError(err) ? 503 : 500);
+    const message = isDbConnectivityError(err)
+      ? `Tidak dapat terhubung ke server MySQL (${activeDbConfig.host}:${activeDbConfig.port}). Pastikan database aktif dan terjangkau.`
+      : (err?.message || 'Gagal memproses backup database');
+    return res.status(statusCode).json({
+      success: false,
+      code: err?.code || 'BACKUP_ERROR',
+      error: message,
+      message,
+    });
   }
 });
 
@@ -459,15 +572,21 @@ setTimeout(() => {
       }
     }
     if (needsBackup) {
-      console.log('[Auto Backup] Menjalankan backup database harian otomatis...');
-      executeDatabaseBackup().then(() => {
-        console.log('[Auto Backup] Backup harian otomatis selesai.');
-      }).catch(err => {
-        console.warn('[Auto Backup] Gagal backup otomatis:', err);
-      });
+      console.log('[Auto Backup] Memeriksa koneksi database untuk backup harian otomatis...');
+      executeDatabaseBackup({ isAuto: true })
+        .then((result) => {
+          if (result?.skipped) {
+            console.log(`[Auto Backup] Dilewati: ${result.message}`);
+          } else {
+            console.log('[Auto Backup] Backup harian otomatis selesai.');
+          }
+        })
+        .catch((err: any) => {
+          console.log(`[Auto Backup] Ditunda: ${err?.message || 'Database belum siap'}`);
+        });
     }
-  } catch (e) {
-    console.warn('[Auto Backup] Error:', e);
+  } catch (e: any) {
+    console.log(`[Auto Backup] Dilewati: ${e?.message || 'Gagal membaca log backup'}`);
   }
 }, 4000);
 

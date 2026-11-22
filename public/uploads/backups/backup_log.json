@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-11-19T14:14:18.529Z",
-  "filename": "db_backup_2026-11-19T14-14-18-514Z.sql",
-  "fileSize": 3611702,
+  "timestamp": "2026-11-22T18:04:52.194Z",
+  "filename": "db_backup_2026-11-22T18-04-52-171Z.sql",
+  "fileSize": 3652773,
   "status": "SUCCESS",
   "message": "Backup database harian berhasil dibuat."
 }
