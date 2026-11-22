@@ -71,6 +71,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     updateKeanggotaanJabatan,
     activityLogs,
     currentUser,
+    appSettings,
     hasPermission,
   } = usePPDI();
 
@@ -261,11 +262,13 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     } catch (_) {}
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!member) return;
     try {
       setIsExportingPDF(true);
-      exportMemberProfileToPDF(member);
+      await exportMemberProfileToPDF(member, {
+        logoUrl: appSettings?.logoUrl || '/logo_kabupaten_bandung.svg',
+      });
     } catch (err: any) {
       console.error('Error generating member profile PDF:', err);
       setActionFeedback({
