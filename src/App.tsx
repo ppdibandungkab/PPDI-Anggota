@@ -70,9 +70,14 @@ const MainAppContent: React.FC = () => {
           setVerifyInitialQuery(token);
           setIsVerifyModalOpen(true);
         }
-      } else if (search.includes('v=') || search.includes('token=') || search.includes('verify=')) {
+      } else if (
+        search.includes('v=') ||
+        search.includes('token=') ||
+        search.includes('verify=') ||
+        search.includes('id_anggota=')
+      ) {
         const params = new URLSearchParams(search);
-        const token = params.get('v') || params.get('token');
+        const token = params.get('v') || params.get('token') || params.get('id_anggota');
         if (token) {
           setVerifyInitialQuery(token);
         }

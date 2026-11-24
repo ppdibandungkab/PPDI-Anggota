@@ -997,6 +997,20 @@ export function getPortalVerifikasiEktaUrl(params?: {
   return `${origin}/?verify=1`;
 }
 
+/**
+ * Generates a unique public KTA verification URL based on the member's ID Anggota.
+ * When scanned via QR Code, redirects directly to the public KTA verification modal.
+ */
+export function getMemberKtaVerifyByIdUrl(idAnggota: string | number): string {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin.replace(/\/+$/, '')
+      : 'https://anggota.ppdibandungkab.or.id';
+  const cleanId = encodeURIComponent(String(idAnggota || '').trim());
+  if (!cleanId) return `${origin}/?verify=1`;
+  return `${origin}/?verify=1&id_anggota=${cleanId}`;
+}
+
 export function buildWhatsAppApprovalMessage(params: {
   name: string;
   noKta: string;
@@ -1290,15 +1304,15 @@ export function buildSekdesAdminDesaAccountMessage(params: {
     `Yth. Bapak/Ibu Sekretaris Desa *${cleanDesa}*,`,
     `Kecamatan *${cleanKecamatan}*.`,
     '',
-    `Dalam rangka pengelolaan dan pemutakhiran data perangkat desa pada **Sistem Informasi Database & E-KTA PPDI Kabupaten Bandung**, bersama ini kami sampaikan akses akun **Admin Desa** untuk wilayah Desa *${cleanDesa}*:`,
+    `Dalam rangka pengelolaan dan pemutakhiran data perangkat desa pada *Sistem Informasi Database & E-KTA PPDI Kabupaten Bandung*, bersama ini kami sampaikan akses akun *Admin Desa* untuk wilayah Desa *${cleanDesa}*:`,
     '',
     '🌐 *Link Login:* https://anggota.ppdibandungkab.or.id/',
     `👤 *Username:* \`${cleanUsername}\``,
     `🔑 *Password:* \`${cleanPassword}\``,
     '',
     '*Catatan Penting & Keamanan Akun:*',
-    '1️⃣ Demi keamanan data, mohon untuk **segera mengganti password** setelah berhasil login pertama kali melalui menu Pengaturan/Ubah Password.',
-    '2️⃣ Mohon menjaga kerahasiaan akun ini dan **tidak membagikannya** ke grup umum.',
+    '1️⃣ Demi keamanan data, mohon untuk *segera mengganti password* setelah berhasil login pertama kali melalui menu Pengaturan/Ubah Password.',
+    '2️⃣ Mohon menjaga kerahasiaan akun ini dan *tidak membagikannya* ke grup umum.',
     '3️⃣ Silakan gunakan akun ini untuk memverifikasi, melengkapi, atau memperbarui data perangkat desa di wilayah Anda.',
     '',
     'Apabila mengalami kendala saat login atau pengelolaan data, silakan hubungi Admin Kabupaten di nomor *081223418088*.',
@@ -1309,6 +1323,6 @@ export function buildSekdesAdminDesaAccountMessage(params: {
     '*Salam Satu Komando!*',
     '',
     'Hormat kami,',
-    '*Admin PPDI Kabupaten Bandung*',
+    '*_Admin PPDI Kabupaten Bandung_*',
   ].join('\n');
 }

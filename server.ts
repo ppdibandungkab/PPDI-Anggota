@@ -4218,6 +4218,134 @@ app.delete('/api/users/:id', requirePermission('settings-user', 'delete'), async
   }
 });
 
+// Endpoint khusus admin (Kabupaten / Kecamatan) untuk mengambil kredensial akun Admin_Desa dari database
+// guna pengiriman resmi kepada Sekretaris Desa.
+app.get('/api/users/:id/admin-desa-credential', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+
+  const targetId = isValidInt32Id(req.params.id);
+  if (!targetId) {
+    return res.status(400).json({ success: false, message: 'ID pengguna tidak valid.' });
+  }
+
+  const headerRole = String(req.headers['x-user-role'] || req.headers['user-role'] || '').trim();
+  const headerUserId = isValidInt32Id(req.headers['x-user-id']);
+  const allowedAdminRoles = ['Superadmin_Kabupaten', 'Admin_Kabupaten', 'Admin_Kecamatan'];
+
+  if (!allowedAdminRoles.includes(headerRole) || !headerUserId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Akses ditolak: Hanya Superadmin/Admin Kabupaten atau Admin Kecamatan yang terautentikasi dapat mengakses kredensial Admin Desa.',
+    });
+  }
+
+  let conn: mysql.PoolConnection | null = null;
+  try {
+    if (!pool) throw new Error('Pool not ready');
+    conn = await pool.getConnection();
+
+    // Verifikasi ulang peran & wilayah pemohon langsung ke tabel users di database
+    const [callerRows]: [any[], any] = await conn.query(
+      `SELECT u.id_user, COALESCE(r.nama_role, u.id_role) as role, COALESCE(u.id_kecamatan, u.id_kecamatan_scope) as id_kecamatan
+       FROM users u
+       LEFT JOIN roles r ON (CAST(u.id_role AS CHAR) = CAST(r.id_role AS CHAR) OR u.id_role = r.nama_role)
+       WHERE u.id_user = ?
+       LIMIT 1`,
+      [headerUserId]
+    );
+    if (callerRows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses ditolak: Sesi admin pemohon tidak ditemukan di database.',
+      });
+    }
+    const effectiveCallerRole = String(callerRows[0].role || '').trim();
+    const callerKecamatan = String(callerRows[0].id_kecamatan || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
+    if (!allowedAdminRoles.includes(effectiveCallerRole)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses ditolak: Peran akun Anda tidak diizinkan mengambil kredensial Admin Desa.',
+      });
+    }
+
+    const [targetRows]: [any[], any] = await conn.query(
+      `SELECT u.id_user, u.username, u.nama, u.password,
+              COALESCE(r.nama_role, u.id_role) as role,
+              u.id_role, u.id_kecamatan, u.id_desa
+       FROM users u
+       LEFT JOIN roles r ON (CAST(u.id_role AS CHAR) = CAST(r.id_role AS CHAR) OR u.id_role = r.nama_role)
+       WHERE u.id_user = ?
+       LIMIT 1`,
+      [targetId]
+    );
+
+    if (targetRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Akun pengguna tidak ditemukan di database.' });
+    }
+
+    const target = targetRows[0];
+    const targetRole = String(target.role || '').trim();
+    const isAdminDesaTarget = targetRole === 'Admin_Desa' || String(target.id_role || '').trim() === '4';
+    if (!isAdminDesaTarget) {
+      return res.status(403).json({
+        success: false,
+        message: 'Pengambilan password hanya diizinkan untuk akun dengan role Admin_Desa.',
+      });
+    }
+
+    if (effectiveCallerRole === 'Admin_Kecamatan' && callerKecamatan) {
+      const targetKec = String(target.id_kecamatan || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
+      if (targetKec && targetKec !== callerKecamatan) {
+        return res.status(403).json({
+          success: false,
+          message: 'Akses ditolak: Akun Admin Desa ini berada di luar wilayah Kecamatan Anda.',
+        });
+      }
+    }
+
+    const dbPassword = String(target.password || '').trim();
+    const isHashed =
+      !dbPassword ||
+      /^\$2[aby]\$\d{2}\$/.test(dbPassword) ||
+      /^[a-f0-9]{64}$/i.test(dbPassword) ||
+      /^\$argon2/.test(dbPassword);
+
+    // Catat log audit akses kredensial (non-blocking)
+    try {
+      await ensureActivityLogsTable(conn);
+      const actor = await resolveActorFromRequest(req);
+      await conn.query(
+        `INSERT INTO activity_logs (timestamp, ip_address, user_id, user_name, user_role, modul, aksi, keterangan)
+         VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          actor.ipAddress,
+          actor.userId,
+          actor.userName,
+          actor.userRole,
+          'Pengaturan User',
+          'KIRIM_AKUN_SEKDES',
+          `Mengambil kredensial akun Admin Desa (${target.username}) untuk pengiriman ke Sekretaris Desa.`,
+        ]
+      );
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      id_user: target.id_user,
+      username: target.username,
+      password: isHashed ? '' : dbPassword,
+      is_hashed: isHashed,
+      id_desa: target.id_desa,
+      id_kecamatan: target.id_kecamatan,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 // Endpoint untuk ganti password pengguna dengan verifikasi password lama
 app.post('/api/users/change-password', async (req, res) => {
   const { id_user, username, oldPassword, newPassword, requireOldPassword = true } = req.body;
@@ -4560,6 +4688,10 @@ app.post('/api/pendaftaran', async (req, res) => {
       });
     }
 
+    const ALLOWED_MARITAL_STATUS = ['Kawin', 'Belum Kawin', 'Cerai Hidup', 'Cerai Mati'];
+    const rawMaritalStatus = String(data.status_pernikahan || 'Kawin').trim();
+    const safeMaritalStatus = ALLOWED_MARITAL_STATUS.includes(rawMaritalStatus) ? rawMaritalStatus : 'Kawin';
+
     const [insertRes]: [any, any] = await conn.query(
       `INSERT INTO pendaftaran_perangkat_desa (
         nik, nama_lengkap, gelar_depan, gelar_belakang, tempat_lahir, tanggal_lahir, jenis_kelamin, agama,
@@ -4580,7 +4712,7 @@ app.post('/api/pendaftaran', async (req, res) => {
         data.no_hp_wa,
         data.email || null,
         data.alamat_rumah || 'Kabupaten Bandung',
-        data.status_pernikahan || 'Kawin',
+        safeMaritalStatus,
         cleanKecId,
         validDesaId,
         effectivePendaftaranJabId,

@@ -2967,14 +2967,38 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (matchByToken) return matchByToken;
     }
 
+    // 1b. Try extracting id_anggota / v query param when a full verification URL is scanned or pasted
+    if (/^https?:\/\//i.test(rawTrimmed) || rawTrimmed.includes('id_anggota=')) {
+      try {
+        const parsedUrl = new URL(
+          rawTrimmed.startsWith('http') ? rawTrimmed : `https://verify.local/${rawTrimmed.replace(/^\?/, '?')}`
+        );
+        const paramVal = (
+          parsedUrl.searchParams.get('id_anggota') ||
+          parsedUrl.searchParams.get('v') ||
+          parsedUrl.searchParams.get('token') ||
+          ''
+        ).trim();
+        if (paramVal) {
+          const matchByParam = fullMembers.find(
+            (m) =>
+              String(m.anggota.id_anggota).toLowerCase() === paramVal.toLowerCase() ||
+              (m.keanggotaan?.no_kta && m.keanggotaan.no_kta.toLowerCase() === paramVal.toLowerCase()) ||
+              m.anggota.nik.toLowerCase() === paramVal.toLowerCase()
+          );
+          if (matchByParam) return matchByParam;
+        }
+      } catch (_) {}
+    }
+
     // 2. Standard search query (No KTA, NIK, ID, or Nama)
     const cleanQuery = rawTrimmed.toLowerCase();
     return (
       fullMembers.find(
         (m) =>
+          String(m.anggota.id_anggota).toLowerCase() === cleanQuery ||
           m.anggota.nik.toLowerCase() === cleanQuery ||
           (m.keanggotaan?.no_kta && m.keanggotaan.no_kta.toLowerCase() === cleanQuery) ||
-          m.anggota.id_anggota.toLowerCase() === cleanQuery ||
           m.anggota.nama_lengkap.toLowerCase().includes(cleanQuery)
       ) || null
     );

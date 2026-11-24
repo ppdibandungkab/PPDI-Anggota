@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   Send,
@@ -14,6 +14,7 @@ import {
   Search,
   RefreshCw,
   ShieldAlert,
+  Database,
 } from 'lucide-react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, UserAccount } from '../types/ppdi';
@@ -23,6 +24,7 @@ import {
   formatPhoneForWhatsApp,
   isFonnteWebhookActive,
   isSekretarisDesaJabatan,
+  safeFetchJson,
 } from '../utils/ppdiHelpers';
 import {
   PRIMARY_DEFAULT_PASSWORD,
@@ -130,13 +132,67 @@ export const SendSekdesUserModal: React.FC<SendSekdesUserModalProps> = ({
   const [sekdesIdAnggota, setSekdesIdAnggota] = useState<string | undefined>(undefined);
   const [phone, setPhone] = useState('');
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState(PRIMARY_DEFAULT_PASSWORD);
-  const [hasCustomPasswordWarning, setHasCustomPasswordWarning] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordSource, setPasswordSource] = useState<'loading' | 'database' | 'hashed' | 'fallback' | 'manual'>('manual');
+  const [passwordNotice, setPasswordNotice] = useState<string>('');
+  const credentialFetchSeqRef = useRef(0);
 
   // Action states
   const [copied, setCopied] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [sendFeedback, setSendFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchDbPasswordForAccount = async (acc: UserAccount) => {
+    const seq = ++credentialFetchSeqRef.current;
+    setPasswordSource('loading');
+    setPasswordNotice('');
+    try {
+      const res = await safeFetchJson<{
+        success: boolean;
+        username?: string;
+        password?: string;
+        is_hashed?: boolean;
+        message?: string;
+      }>(`/api/users/${encodeURIComponent(String(acc.id_user))}/admin-desa-credential`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      if (seq !== credentialFetchSeqRef.current) return;
+
+      if (res.ok && res.data?.success) {
+        if (res.data.username) {
+          setUsername(res.data.username);
+        }
+        if (res.data.password && !res.data.is_hashed) {
+          setPassword(res.data.password);
+          setPasswordSource('database');
+          setPasswordNotice('');
+        } else if (res.data.is_hashed) {
+          setPassword(isDefaultPasswordRequired(acc) ? PRIMARY_DEFAULT_PASSWORD : '');
+          setPasswordSource('hashed');
+          setPasswordNotice(
+            'Password akun ini tersimpan dalam bentuk terenkripsi (hash) di database. Silakan masukkan password aktif secara manual atau lakukan reset password terlebih dahulu.'
+          );
+        } else {
+          setPassword(PRIMARY_DEFAULT_PASSWORD);
+          setPasswordSource('fallback');
+          setPasswordNotice('Kolom password di database kosong, menggunakan password default sistem.');
+        }
+      } else {
+        setPassword(acc.password && !isHashedPassword(acc.password) ? acc.password : PRIMARY_DEFAULT_PASSWORD);
+        setPasswordSource('fallback');
+        setPasswordNotice(
+          res.data?.message || res.error || 'Tidak dapat mengambil password dari server database. Pastikan password sesuai sebelum mengirim.'
+        );
+      }
+    } catch {
+      if (seq !== credentialFetchSeqRef.current) return;
+      setPassword(acc.password && !isHashedPassword(acc.password) ? acc.password : PRIMARY_DEFAULT_PASSWORD);
+      setPasswordSource('fallback');
+      setPasswordNotice('Koneksi ke server database gagal saat memuat password. Periksa dan sesuaikan password secara manual.');
+    }
+  };
 
   const populateFromAccount = (acc: UserAccount | null, forcedMember?: AnggotaFullDetail | null) => {
     const matchedMember = forcedMember || (acc ? findSekdesForDesa(acc.id_desa) : null);
@@ -161,14 +217,18 @@ export const SendSekdesUserModal: React.FC<SendSekdesUserModalProps> = ({
     setPhone(matchedMember?.anggota.no_hp_wa || '');
 
     setUsername(acc?.username || '');
-    if (acc && acc.password && !isHashedPassword(acc.password)) {
-      setPassword(acc.password);
-      setHasCustomPasswordWarning(false);
-    } else {
-      setPassword(PRIMARY_DEFAULT_PASSWORD);
-      setHasCustomPasswordWarning(Boolean(acc && !isDefaultPasswordRequired(acc)));
-    }
     setSendFeedback(null);
+
+    if (acc && acc.id_user) {
+      // Ambil password aktual langsung dari database (tabel users)
+      setPassword('');
+      fetchDbPasswordForAccount(acc);
+    } else {
+      credentialFetchSeqRef.current += 1;
+      setPassword(PRIMARY_DEFAULT_PASSWORD);
+      setPasswordSource('manual');
+      setPasswordNotice('');
+    }
   };
 
   useEffect(() => {
@@ -225,7 +285,9 @@ export const SendSekdesUserModal: React.FC<SendSekdesUserModalProps> = ({
   const fonnteActive = isFonnteWebhookActive(appSettings?.whatsappSettings);
   const cleanPhone = formatPhoneForWhatsApp(phone);
   const waMeDirectUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(messagePreview)}`;
+  const isLoadingDbPassword = passwordSource === 'loading';
   const canSend = Boolean(
+    !isLoadingDbPassword &&
     cleanPhone.length >= 8 &&
     namaDesa.trim() &&
     namaKecamatan.trim() &&
@@ -473,21 +535,45 @@ export const SendSekdesUserModal: React.FC<SendSekdesUserModalProps> = ({
             </div>
 
             <div className="space-y-1 sm:col-span-2">
-              <label className="text-[11px] font-bold text-neutral-700 uppercase flex items-center gap-1">
-                <KeyRound className="w-3 h-3 text-amber-600" />
-                <span>Password Akun Admin Desa</span>
-                <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="text-[11px] font-bold text-neutral-700 uppercase flex items-center gap-1">
+                  <KeyRound className="w-3 h-3 text-amber-600" />
+                  <span>Password Akun Admin Desa (Database)</span>
+                  <span className="text-red-500">*</span>
+                </label>
+                {passwordSource === 'loading' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-sans font-semibold text-emerald-700">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Mengambil password dari database...</span>
+                  </span>
+                )}
+                {passwordSource === 'database' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-sans font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                    <Database className="w-3 h-3 text-emerald-700" />
+                    <span>Sesuai Password di Database</span>
+                  </span>
+                )}
+                {passwordSource === 'hashed' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-sans font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                    <span>Terenkripsi (Isi Manual)</span>
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={PRIMARY_DEFAULT_PASSWORD}
-                className="w-full p-2.5 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#064E3B]/20 focus:border-[#064E3B] text-neutral-900 font-bold"
+                disabled={isLoadingDbPassword}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (passwordSource !== 'database') setPasswordSource('manual');
+                }}
+                placeholder={isLoadingDbPassword ? 'Memuat password dari database...' : 'Masukkan password akun Admin Desa'}
+                className="w-full p-2.5 border border-neutral-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#064E3B]/20 focus:border-[#064E3B] text-neutral-900 font-bold disabled:bg-neutral-100 disabled:text-neutral-500"
               />
-              {hasCustomPasswordWarning && (
+              {passwordNotice && (
                 <p className="text-[10px] font-sans text-amber-700 mt-1">
-                  Catatan: Akun ini tercatat sudah pernah mengganti password dari default sistem ({PRIMARY_DEFAULT_PASSWORD}). Pastikan Anda mengisi password aktif atau melakukan reset password terlebih dahulu jika diperlukan.
+                  {passwordNotice}
                 </p>
               )}
             </div>

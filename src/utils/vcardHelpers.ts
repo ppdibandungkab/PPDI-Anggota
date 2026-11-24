@@ -261,3 +261,135 @@ export function buildSafeFileSlug(name: string): string {
     .replace(/^_+|_+$/g, '')
     .slice(0, 48) || 'anggota';
 }
+
+/**
+ * Generates high-error-correction scannable QR code PNG data URL for a member's public KTA verification URL.
+ */
+export async function generateKtaVerifyQrDataUrl(verifyUrl: string): Promise<string> {
+  return QRCode.toDataURL(verifyUrl, {
+    width: 440,
+    margin: 2,
+    errorCorrectionLevel: 'H',
+    color: {
+      dark: '#064e3b',
+      light: '#ffffff',
+    },
+  });
+}
+
+/**
+ * Composes an official printable/shareable PNG card containing the unique member KTA verification QR Code
+ * keyed by ID Anggota.
+ */
+export async function composeKtaVerifyQrCardPng(
+  qrDataUrl: string,
+  member: AnggotaFullDetail,
+  verifyUrl: string
+): Promise<string> {
+  const width = 720;
+  const height = 960;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return qrDataUrl;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = '#a7f3d0';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, width - 4, height - 4);
+
+  // Top emerald header band
+  ctx.fillStyle = '#064e3b';
+  ctx.fillRect(0, 0, width, 134);
+
+  // Gold accent bar
+  ctx.fillStyle = '#f59e0b';
+  ctx.fillRect(0, 134, width, 6);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#a7f3d0';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('PERSATUAN PERANGKAT DESA INDONESIA (PPDI)', width / 2, 46);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText('QR VERIFIKASI KEABSAHAN E-KTA', width / 2, 86);
+
+  ctx.fillStyle = '#d1fae5';
+  ctx.font = '15px sans-serif';
+  ctx.fillText('Kabupaten Bandung · Pindai untuk cek keabsahan anggota resmi', width / 2, 114);
+
+  // Member Name & Position
+  const fullName = getFullNameWithTitles(member).toUpperCase();
+  ctx.fillStyle = '#111827';
+  ctx.font = 'bold 26px sans-serif';
+  const nameLines = wrapCanvasText(ctx, fullName, width - 96).slice(0, 2);
+  let cursorY = 188;
+  for (const line of nameLines) {
+    ctx.fillText(line, width / 2, cursorY);
+    cursorY += 32;
+  }
+
+  const jabatan = member.jabatanRef?.nama_jabatan || 'Perangkat Desa';
+  const wilayah = [
+    member.desa?.nama_desa ? `Desa ${member.desa.nama_desa}` : '',
+    member.kecamatan?.nama_kecamatan ? `Kec. ${member.kecamatan.nama_kecamatan}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  ctx.fillStyle = '#047857';
+  ctx.font = 'bold 19px sans-serif';
+  ctx.fillText(jabatan, width / 2, cursorY + 4);
+
+  if (wilayah) {
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(wilayah, width / 2, cursorY + 30);
+  }
+
+  // QR Container Frame
+  const qrSize = 420;
+  const qrX = (width - qrSize) / 2;
+  const qrY = cursorY + 56;
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#d1fae5';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(qrX - 24, qrY - 24, qrSize + 48, qrSize + 48, 20);
+  ctx.fill();
+  ctx.stroke();
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = qrDataUrl;
+  });
+  ctx.drawImage(img, qrX, qrY, qrSize, qrSize);
+
+  // Footer details
+  const footerStartY = qrY + qrSize + 56;
+  ctx.fillStyle = '#065f46';
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(
+    `ID ANGGOTA: #${member.anggota.id_anggota}  |  NO. KTA: ${member.keanggotaan?.no_kta || 'PENDING'}`,
+    width / 2,
+    footerStartY
+  );
+
+  ctx.fillStyle = '#374151';
+  ctx.font = '13px monospace';
+  const truncatedUrl = verifyUrl.length > 74 ? `${verifyUrl.slice(0, 71)}...` : verifyUrl;
+  ctx.fillText(truncatedUrl, width / 2, footerStartY + 30);
+
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('Pindai dengan Kamera Ponsel untuk membuka Portal Verifikasi Resmi PPDI', width / 2, height - 28);
+
+  return canvas.toDataURL('image/png');
+}

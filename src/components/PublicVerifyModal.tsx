@@ -115,7 +115,7 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
           <form onSubmit={handleSearch} className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-semibold text-neutral-700">
-                Scan QR Code, Masukkan Token / Short URL, No KTA, atau NIK:
+                Scan QR Code, Masukkan URL Verifikasi, ID Anggota, No KTA, atau NIK:
               </label>
               {isEncryptedToken && (
                 <span className="text-[10px] text-emerald-700 font-mono font-bold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded">
@@ -130,7 +130,7 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
                 <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Scan QR / Tempel URL / v_... / No KTA / NIK"
+                  placeholder="Scan QR / Tempel URL / ID Anggota / No KTA / NIK"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-neutral-300 rounded-lg font-mono focus:outline-hidden focus:ring-1 focus:ring-emerald-700 text-neutral-900"
@@ -205,9 +205,9 @@ export const PublicVerifyModal: React.FC<PublicVerifyModalProps> = ({
                   <p className="text-emerald-800 text-xs">
                     Data keanggotaan terdaftar secara sah di Pangkalan Data Resmi PPDI Kabupaten Bandung.
                   </p>
-                  <div className="text-[10px] text-emerald-700 font-mono pt-0.5 flex items-center justify-between">
-                    <span>Nomor KTA: {result.keanggotaan?.no_kta}</span>
-                    <span className="text-emerald-600">Status: {result.keanggotaan?.status_kta}</span>
+                  <div className="text-[10px] text-emerald-700 font-mono pt-0.5 flex flex-wrap items-center justify-between gap-2">
+                    <span>ID Anggota: #{result.anggota.id_anggota} · No. KTA: {result.keanggotaan?.no_kta || 'Pending'}</span>
+                    <span className="text-emerald-600">Status: {result.keanggotaan?.status_kta || 'Aktif'}</span>
                   </div>
                 </div>
               </div>

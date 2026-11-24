@@ -1,12 +1,21 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, StatusAktifJabatan, StatusKTA } from '../types/ppdi';
-import { formatDateIndo, formatRupiah, formatNIPDDisplay, safeFetchJson, isSekretarisDesaJabatan } from '../utils/ppdiHelpers';
+import {
+  formatDateIndo,
+  formatRupiah,
+  formatNIPDDisplay,
+  safeFetchJson,
+  isSekretarisDesaJabatan,
+  getMemberKtaVerifyByIdUrl,
+} from '../utils/ppdiHelpers';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import {
   buildMemberVCard,
   generateRawVCardQrDataUrl,
   composeVCardQrCardPng,
+  generateKtaVerifyQrDataUrl,
+  composeKtaVerifyQrCardPng,
   buildSafeFileSlug,
 } from '../utils/vcardHelpers';
 import {
@@ -32,6 +41,7 @@ import {
   ChevronDown,
   ChevronUp,
   Send,
+  ExternalLink,
 } from 'lucide-react';
 import { exportMemberProfileToPDF } from '../utils/pdfProfileExport';
 import { SendSekdesUserModal } from './SendSekdesUserModal';
@@ -96,6 +106,14 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   const [showRawVcard, setShowRawVcard] = useState(false);
   const [copiedVcard, setCopiedVcard] = useState(false);
   const [isSendSekdesModalOpen, setIsSendSekdesModalOpen] = useState(false);
+
+  // Unique Member ID -> Public KTA Verification QR Code modal state
+  const [showKtaVerifyQrPanel, setShowKtaVerifyQrPanel] = useState(false);
+  const [ktaVerifyQrUrl, setKtaVerifyQrUrl] = useState<string>('');
+  const [ktaVerifyQrDataUrl, setKtaVerifyQrDataUrl] = useState<string>('');
+  const [isGeneratingKtaQr, setIsGeneratingKtaQr] = useState(false);
+  const [isDownloadingKtaQrCard, setIsDownloadingKtaQrCard] = useState(false);
+  const [copiedKtaVerifyUrl, setCopiedKtaVerifyUrl] = useState(false);
 
   const canSendSekdesAccount =
     (currentUser.role === 'Superadmin_Kabupaten' ||
@@ -170,17 +188,23 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   useEffect(() => {
     if (!isOpen || !member) {
       setShowQrPanel(false);
+      setShowKtaVerifyQrPanel(false);
       setShowRawVcard(false);
       setCopiedVcard(false);
+      setCopiedKtaVerifyUrl(false);
       setActionFeedback(null);
       return;
     }
     setActiveTab('bio');
     setActivityFilter('all');
     setShowQrPanel(false);
+    setShowKtaVerifyQrPanel(false);
     setShowRawVcard(false);
     setQrRawDataUrl('');
     setVcardText('');
+    setKtaVerifyQrUrl('');
+    setKtaVerifyQrDataUrl('');
+    setCopiedKtaVerifyUrl(false);
     setNewDesa(member.jabatanTerkini?.id_desa || '32.04.05.2001');
     setNewJabatan(member.jabatanTerkini?.id_jabatan || 2);
     setNewPeriode(
@@ -268,6 +292,61 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
       await navigator.clipboard.writeText(vcardText);
       setCopiedVcard(true);
       setTimeout(() => setCopiedVcard(false), 2000);
+    } catch (_) {}
+  };
+
+  // Generate unique QR Code based on ID Anggota pointing directly to Public KTA Verification page
+  const handleOpenKtaVerifyQrGenerator = useCallback(async () => {
+    if (!member) return;
+    setShowKtaVerifyQrPanel(true);
+    setCopiedKtaVerifyUrl(false);
+    setIsGeneratingKtaQr(true);
+    try {
+      const verifyUrl = getMemberKtaVerifyByIdUrl(member.anggota.id_anggota);
+      setKtaVerifyQrUrl(verifyUrl);
+      const dataUrl = await generateKtaVerifyQrDataUrl(verifyUrl);
+      setKtaVerifyQrDataUrl(dataUrl);
+    } catch (err: any) {
+      console.error('Error generating KTA verification QR code:', err);
+      setActionFeedback({
+        type: 'error',
+        message: 'Gagal membuat QR Code Verifikasi KTA: ' + (err?.message || 'Error'),
+      });
+    } finally {
+      setIsGeneratingKtaQr(false);
+    }
+  }, [member]);
+
+  const handleDownloadKtaVerifyQrCard = async () => {
+    if (!member || !ktaVerifyQrDataUrl || !ktaVerifyQrUrl) return;
+    setIsDownloadingKtaQrCard(true);
+    try {
+      const cardDataUrl = await composeKtaVerifyQrCardPng(ktaVerifyQrDataUrl, member, ktaVerifyQrUrl);
+      const slug = buildSafeFileSlug(member.anggota.nama_lengkap);
+      triggerDownload(cardDataUrl, `QR_Verifikasi_KTA_ID${member.anggota.id_anggota}_${slug}.png`);
+    } catch (err: any) {
+      console.error('Error downloading KTA verify QR card:', err);
+      setActionFeedback({
+        type: 'error',
+        message: 'Gagal mengunduh kartu QR Verifikasi KTA.',
+      });
+    } finally {
+      setIsDownloadingKtaQrCard(false);
+    }
+  };
+
+  const handleDownloadRawKtaVerifyQr = () => {
+    if (!member || !ktaVerifyQrDataUrl) return;
+    const slug = buildSafeFileSlug(member.anggota.nama_lengkap);
+    triggerDownload(ktaVerifyQrDataUrl, `QR_Verifikasi_Polos_ID${member.anggota.id_anggota}_${slug}.png`);
+  };
+
+  const handleCopyKtaVerifyUrl = async () => {
+    if (!ktaVerifyQrUrl) return;
+    try {
+      await navigator.clipboard.writeText(ktaVerifyQrUrl);
+      setCopiedKtaVerifyUrl(true);
+      setTimeout(() => setCopiedKtaVerifyUrl(false), 2000);
     } catch (_) {}
   };
 
@@ -505,6 +584,15 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                 <span>Kirim User Desa</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleOpenKtaVerifyQrGenerator}
+              title={`Generate QR Code unik verifikasi KTA publik berdasarkan ID Anggota #${member.anggota.id_anggota}`}
+              className="px-3 py-1.5 text-xs font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+              <span>QR Verifikasi KTA</span>
+            </button>
             <button
               onClick={handleOpenQrGenerator}
               title="Buat & Unduh QR Code Kontak (vCard) Anggota"
@@ -1523,6 +1611,150 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                   </pre>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unique ID Anggota -> Public KTA Verification QR Code Sub-Modal */}
+      {showKtaVerifyQrPanel && (
+        <div
+          className="fixed inset-0 z-60 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowKtaVerifyQrPanel(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-4 bg-[#064E3B] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-emerald-800 border border-emerald-700">
+                  <ShieldCheck className="w-4 h-4 text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold leading-tight">
+                    QR Code Verifikasi KTA Publik (ID #{member.anggota.id_anggota})
+                  </h3>
+                  <p className="text-[11px] text-emerald-200">
+                    Scan langsung membuka halaman publik verifikasi keabsahan KTA
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowKtaVerifyQrPanel(false)}
+                className="p-1 text-emerald-200 hover:text-white rounded-lg cursor-pointer"
+                aria-label="Tutup modal QR Verifikasi KTA"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
+              <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-xl bg-emerald-50/40 border border-emerald-200">
+                <div className="bg-white p-3 rounded-xl border border-emerald-200 shadow-xs shrink-0 flex items-center justify-center w-48 h-48">
+                  {isGeneratingKtaQr || !ktaVerifyQrDataUrl ? (
+                    <div className="flex flex-col items-center gap-2 text-neutral-400">
+                      <RefreshCw className="w-5 h-5 animate-spin text-emerald-700" />
+                      <span className="text-[11px]">Membuat QR...</span>
+                    </div>
+                  ) : (
+                    <img
+                      src={ktaVerifyQrDataUrl}
+                      alt={`QR Code Verifikasi KTA ID ${member.anggota.id_anggota}`}
+                      className="w-44 h-44 object-contain"
+                    />
+                  )}
+                </div>
+
+                <div className="flex-1 space-y-2 text-left w-full">
+                  <div>
+                    <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-sm border border-emerald-200">
+                      <span>ID Anggota Unik: #{member.anggota.id_anggota}</span>
+                    </div>
+                    <div className="font-bold text-neutral-900 text-sm uppercase mt-1.5 leading-snug">
+                      {fullNameWithTitles}
+                    </div>
+                    <div className="text-[11px] text-neutral-600 mt-0.5">
+                      {member.jabatanRef?.nama_jabatan || 'Perangkat Desa'} · Desa {member.desa?.nama_desa || '-'}
+                    </div>
+                    <div className="text-[11px] text-neutral-500">
+                      Kec. {member.kecamatan?.nama_kecamatan || '-'}, Kab. Bandung
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-emerald-200/70 space-y-1 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-neutral-700">
+                      <CreditCard className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-mono font-semibold">{member.keanggotaan?.no_kta || 'KTA Pending'}</span>
+                    </div>
+                    <div className="text-[10px] text-emerald-800 font-medium">
+                      Status Keanggotaan: <strong>{member.keanggotaan?.status_kta || 'Aktif'}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* URL Tujuan Verifikasi Publik */}
+              <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-600">
+                    Link Publik Verifikasi KTA (Tujuan Scan QR)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyKtaVerifyUrl}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                    >
+                      {copiedKtaVerifyUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedKtaVerifyUrl ? 'Tersalin' : 'Salin Link'}</span>
+                    </button>
+                    {ktaVerifyQrUrl && (
+                      <a
+                        href={ktaVerifyQrUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Uji Link</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div className="p-2 bg-white border border-neutral-200 rounded-lg font-mono text-[11px] text-neutral-700 break-all select-all">
+                  {ktaVerifyQrUrl || '-'}
+                </div>
+              </div>
+
+              {/* Download Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadKtaVerifyQrCard}
+                  disabled={!ktaVerifyQrDataUrl || isDownloadingKtaQrCard}
+                  className="px-3.5 py-2.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs disabled:opacity-50"
+                >
+                  {isDownloadingKtaQrCard ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 text-amber-300" />
+                  )}
+                  <span>{isDownloadingKtaQrCard ? 'Menyiapkan PNG...' : 'Unduh Kartu QR (PNG)'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadRawKtaVerifyQr}
+                  disabled={!ktaVerifyQrDataUrl}
+                  className="px-3.5 py-2.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <QrCode className="w-4 h-4 text-emerald-700" />
+                  <span>Unduh QR Polos (PNG)</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

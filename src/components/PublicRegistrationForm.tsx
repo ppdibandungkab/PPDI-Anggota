@@ -87,6 +87,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
     tempatLahir: '',
     tanggalLahir: '',
     jenisKelamin: 'L' as 'L' | 'P',
+    statusPernikahan: 'Kawin' as 'Kawin' | 'Belum Kawin' | 'Cerai Hidup' | 'Cerai Mati',
     pendidikanTerakhir: 'SMA/SMK',
     noHpWa: '',
     email: '',
@@ -163,6 +164,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
       tempatLahir: '',
       tanggalLahir: '',
       jenisKelamin: 'L',
+      statusPernikahan: 'Kawin',
       pendidikanTerakhir: 'SMA/SMK',
       noHpWa: '',
       email: '',
@@ -453,7 +455,7 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
         no_hp_wa: formData.noHpWa.trim(),
         email: formData.email.trim() || undefined,
         alamat_rumah: 'Kabupaten Bandung',
-        status_pernikahan: 'Kawin',
+        status_pernikahan: formData.statusPernikahan || 'Kawin',
         id_kecamatan: formData.selectedKecamatan,
         id_desa: formData.selectedDesa,
         id_jabatan: formData.selectedJabatan,
@@ -637,6 +639,29 @@ export const PublicRegistrationForm: React.FC<PublicRegistrationFormProps> = ({ 
                 >
                   <option value="L">Laki-laki</option>
                   <option value="P">Perempuan</option>
+                </select>
+              </div>
+
+              {/* Status Pernikahan */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase">
+                  Status Pernikahan <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full p-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none text-neutral-900 bg-white"
+                  value={formData.statusPernikahan}
+                  onChange={e =>
+                    setFormData({
+                      ...formData,
+                      statusPernikahan: e.target.value as 'Kawin' | 'Belum Kawin' | 'Cerai Hidup' | 'Cerai Mati',
+                    })
+                  }
+                  required
+                >
+                  <option value="Kawin">Kawin</option>
+                  <option value="Belum Kawin">Belum Kawin</option>
+                  <option value="Cerai Hidup">Cerai Hidup</option>
+                  <option value="Cerai Mati">Cerai Mati</option>
                 </select>
               </div>
 
