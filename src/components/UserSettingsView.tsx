@@ -19,9 +19,11 @@ import {
   HelpCircle,
   Search,
   Filter,
+  Send,
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types/ppdi';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import { SendSekdesUserModal } from './SendSekdesUserModal';
 import {
   PRIMARY_DEFAULT_PASSWORD,
   isDefaultPasswordRequired,
@@ -37,6 +39,10 @@ export const UserSettingsView: React.FC = () => {
   // Change Password Modal state
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [passwordTargetUser, setPasswordTargetUser] = useState<UserAccount | null>(null);
+
+  // Kirim Akun Admin Desa khusus Sekretaris Desa Modal state
+  const [isSendSekdesModalOpen, setIsSendSekdesModalOpen] = useState(false);
+  const [sekdesTargetUser, setSekdesTargetUser] = useState<UserAccount | null>(null);
 
   // Form states
   const [username, setUsername] = useState('');
@@ -387,15 +393,31 @@ export const UserSettingsView: React.FC = () => {
             Kelola data autentikasi, hak akses operasional (CRUD), dan konfigurasi tingkatan pengguna PPDI Kabupaten Bandung.
           </p>
         </div>
-        {isKabupatenLevel && (
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-white text-[#064E3B] hover:bg-emerald-50 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer uppercase shrink-0"
-          >
-            <Plus className="w-4 h-4 text-[#064E3B]" />
-            <span>Tambah Akun Pengguna</span>
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {(isKabupatenLevel || currentUser.role === 'Admin_Kecamatan') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSekdesTargetUser(null);
+                setIsSendSekdesModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-400 hover:bg-amber-300 text-[#064E3B] rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer uppercase"
+              title="Kirim Akses Akun Admin Desa khusus untuk Sekretaris Desa"
+            >
+              <Send className="w-4 h-4 text-[#064E3B]" />
+              <span>Kirim User Desa (Sekdes)</span>
+            </button>
+          )}
+          {isKabupatenLevel && (
+            <button
+              onClick={handleOpenAdd}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-[#064E3B] hover:bg-emerald-50 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer uppercase"
+            >
+              <Plus className="w-4 h-4 text-[#064E3B]" />
+              <span>Tambah Akun Pengguna</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Feedback Alert */}
@@ -818,6 +840,22 @@ export const UserSettingsView: React.FC = () => {
                               </button>
                             )}
 
+                            {/* Kirim Akun Admin Desa khusus ke Sekretaris Desa */}
+                            {u.role === 'Admin_Desa' && (isKabupatenLevel || currentUser.role === 'Admin_Kecamatan') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSekdesTargetUser(u);
+                                  setIsSendSekdesModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-700 hover:text-white border border-emerald-300 rounded-md transition-colors cursor-pointer"
+                                title={`Kirim Akun Admin Desa (${u.username}) ke Sekretaris Desa`}
+                              >
+                                <Send className="w-3 h-3" />
+                                <span>Kirim Sekdes</span>
+                              </button>
+                            )}
+
                             {/* Hapus Akun */}
                             {isAdminKabupatenBlocked ? (
                               <span
@@ -1171,6 +1209,16 @@ export const UserSettingsView: React.FC = () => {
           (passwordTargetUser ? passwordTargetUser.id_user === currentUser.id_user : true) ||
           !isKabupatenLevel
         }
+      />
+
+      {/* Modal Kirim User Admin Desa khusus Sekretaris Desa */}
+      <SendSekdesUserModal
+        isOpen={isSendSekdesModalOpen}
+        onClose={() => {
+          setIsSendSekdesModalOpen(false);
+          setSekdesTargetUser(null);
+        }}
+        initialUser={sekdesTargetUser}
       />
     </div>
   );

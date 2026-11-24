@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, StatusAktifJabatan, StatusKTA } from '../types/ppdi';
-import { formatDateIndo, formatRupiah, formatNIPDDisplay, safeFetchJson } from '../utils/ppdiHelpers';
+import { formatDateIndo, formatRupiah, formatNIPDDisplay, safeFetchJson, isSekretarisDesaJabatan } from '../utils/ppdiHelpers';
 import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
 import {
   buildMemberVCard,
@@ -31,8 +31,10 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  Send,
 } from 'lucide-react';
 import { exportMemberProfileToPDF } from '../utils/pdfProfileExport';
+import { SendSekdesUserModal } from './SendSekdesUserModal';
 
 interface MemberActivityItem {
   id: string;
@@ -93,6 +95,13 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   const [isDownloadingQrCard, setIsDownloadingQrCard] = useState(false);
   const [showRawVcard, setShowRawVcard] = useState(false);
   const [copiedVcard, setCopiedVcard] = useState(false);
+  const [isSendSekdesModalOpen, setIsSendSekdesModalOpen] = useState(false);
+
+  const canSendSekdesAccount =
+    (currentUser.role === 'Superadmin_Kabupaten' ||
+      currentUser.role === 'Admin_Kabupaten' ||
+      currentUser.role === 'Admin_Kecamatan') &&
+    isSekretarisDesaJabatan(member?.jabatanRef?.nama_jabatan);
 
   const memberId = member?.anggota.id_anggota ? String(member.anggota.id_anggota) : '';
   const memberNik = member?.anggota.nik ? String(member.anggota.nik) : '';
@@ -485,6 +494,17 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            {canSendSekdesAccount && (
+              <button
+                type="button"
+                onClick={() => setIsSendSekdesModalOpen(true)}
+                title="Kirim Akun Admin Desa khusus untuk Sekretaris Desa via WhatsApp"
+                className="px-3 py-1.5 text-xs font-bold text-purple-900 bg-purple-50 hover:bg-purple-700 hover:text-white border border-purple-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Kirim User Desa</span>
+              </button>
+            )}
             <button
               onClick={handleOpenQrGenerator}
               title="Buat & Unduh QR Code Kontak (vCard) Anggota"
@@ -1507,6 +1527,12 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
           </div>
         </div>
       )}
+
+      <SendSekdesUserModal
+        isOpen={isSendSekdesModalOpen}
+        onClose={() => setIsSendSekdesModalOpen(false)}
+        initialMember={member}
+      />
     </div>
   );
 };

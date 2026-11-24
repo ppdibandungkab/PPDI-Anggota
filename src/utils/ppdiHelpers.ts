@@ -487,13 +487,39 @@ export function formatNIPDDisplay(nipd?: string | null): string {
 const API_BASE_URL_KEY = 'ppdi_custom_api_url';
 const AUTH_TOKEN_KEY = 'ppdi_auth_token';
 
+export function isCloudPreviewHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = (window.location.hostname || '').toLowerCase();
+  return (
+    host.endsWith('.run.app') ||
+    host.endsWith('.googleusercontent.com') ||
+    host.endsWith('.web.app') ||
+    host.endsWith('.firebaseapp.com')
+  );
+}
+
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
-  const stored = localStorage.getItem(API_BASE_URL_KEY);
-  if (stored) return stored.replace(/\/+$/, '');
+  const isPreview = isCloudPreviewHost();
+  const isLocalTarget = (u: string) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(u.trim());
+
+  const stored = (localStorage.getItem(API_BASE_URL_KEY) || '').trim();
+  if (stored) {
+    // On HTTPS AI Studio Preview (*.run.app), ignore stale localhost overrides so requests hit the integrated Express backend
+    if (isPreview && isLocalTarget(stored)) {
+      try {
+        localStorage.removeItem(API_BASE_URL_KEY);
+      } catch (_) {}
+    } else {
+      return stored.replace(/\/+$/, '');
+    }
+  }
   const envUrl = (import.meta as any).env?.VITE_API_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim()) {
-    return envUrl.trim().replace(/\/+$/, '');
+    const cleanEnv = envUrl.trim().replace(/\/+$/, '');
+    if (!(isPreview && isLocalTarget(cleanEnv))) {
+      return cleanEnv;
+    }
   }
   return '';
 }
@@ -629,6 +655,25 @@ export async function safeFetchJson<T = any>(
     let res = await fetch(targetUrl, secureInit);
     let text = await res.text();
 
+    // Auto-fallback to same-origin /api/* if a configured custom/env baseUrl returns HTML or 404 (e.g. in AI Studio Preview)
+    if (
+      (res.status === 404 || isHtml(text)) &&
+      baseUrl &&
+      rawUrl.startsWith('/api')
+    ) {
+      try {
+        const sameOriginRes = await fetch(rawUrl, secureInit);
+        const sameOriginText = await sameOriginRes.text();
+        if (!isHtml(sameOriginText) && (sameOriginRes.ok || sameOriginRes.status !== 404)) {
+          setApiBaseUrl('');
+          res = sameOriginRes;
+          text = sameOriginText;
+        }
+      } catch (_) {
+        // Keep original response if same-origin fallback also fails
+      }
+    }
+
     // Auto-probe local port 3000 ONLY during localhost development when no VITE_API_URL is configured
     if (
       (res.status === 404 || isHtml(text)) &&
@@ -700,6 +745,19 @@ export async function safeFetchJson<T = any>(
       };
     }
   } catch (netErr: any) {
+    // Auto-fallback to same-origin /api/* when custom/external baseUrl fails with network/CORS error
+    if (baseUrl && rawUrl.startsWith('/api')) {
+      try {
+        const sameOriginRes = await fetch(rawUrl, secureInit);
+        const sameOriginText = await sameOriginRes.text();
+        if (!isHtml(sameOriginText)) {
+          setApiBaseUrl('');
+          const parsed = sameOriginText.trim() ? JSON.parse(sameOriginText) : { success: sameOriginRes.ok };
+          return { ok: sameOriginRes.ok, status: sameOriginRes.status, data: parsed };
+        }
+      } catch (_) {}
+    }
+
     if (
       isLocalDevHost &&
       !baseUrl &&
@@ -1195,4 +1253,62 @@ export async function dispatchWhatsAppNotification(params: {
     waMeUrl,
     detail: res.data,
   };
+}
+
+/**
+ * Mengecek apakah nama jabatan termasuk Sekretaris Desa (Sekdes)
+ */
+export function isSekretarisDesaJabatan(namaJabatan?: string | null): boolean {
+  const normalized = String(namaJabatan || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.includes('sekretaris desa') || normalized === 'sekdes';
+}
+
+/**
+ * Membangun pesan resmi pengiriman akses akun Admin Desa khusus untuk Sekretaris Desa
+ * sesuai format baku PPDI Kabupaten Bandung.
+ */
+export function buildSekdesAdminDesaAccountMessage(params: {
+  namaDesa: string;
+  namaKecamatan: string;
+  username: string;
+  password: string;
+}): string {
+  const cleanDesa = (params.namaDesa || '-')
+    .replace(/^desa\s+/i, '')
+    .trim() || '-';
+  const cleanKecamatan = (params.namaKecamatan || '-')
+    .replace(/^kec(amatan)?\.?\s+/i, '')
+    .trim() || '-';
+  const cleanUsername = (params.username || '-').trim();
+  const cleanPassword = (params.password || '-').trim();
+
+  return [
+    '*Assalamu’alaikum Warahmatullahi Wabarakatuh.*',
+    '*Sampurasun.*',
+    '',
+    `Yth. Bapak/Ibu Sekretaris Desa *${cleanDesa}*,`,
+    `Kecamatan *${cleanKecamatan}*.`,
+    '',
+    `Dalam rangka pengelolaan dan pemutakhiran data perangkat desa pada **Sistem Informasi Database & E-KTA PPDI Kabupaten Bandung**, bersama ini kami sampaikan akses akun **Admin Desa** untuk wilayah Desa *${cleanDesa}*:`,
+    '',
+    '🌐 *Link Login:* https://anggota.ppdibandungkab.or.id/',
+    `👤 *Username:* \`${cleanUsername}\``,
+    `🔑 *Password:* \`${cleanPassword}\``,
+    '',
+    '*Catatan Penting & Keamanan Akun:*',
+    '1️⃣ Demi keamanan data, mohon untuk **segera mengganti password** setelah berhasil login pertama kali melalui menu Pengaturan/Ubah Password.',
+    '2️⃣ Mohon menjaga kerahasiaan akun ini dan **tidak membagikannya** ke grup umum.',
+    '3️⃣ Silakan gunakan akun ini untuk memverifikasi, melengkapi, atau memperbarui data perangkat desa di wilayah Anda.',
+    '',
+    'Apabila mengalami kendala saat login atau pengelolaan data, silakan hubungi Admin Kabupaten di nomor *081223418088*.',
+    '',
+    'Atas perhatian dan kerja samanya, kami ucapkan terima kasih.',
+    '',
+    '*Wassalamu’alaikum Warahmatullahi Wabarakatuh.*',
+    '*Salam Satu Komando!*',
+    '',
+    'Hormat kami,',
+    '*Admin PPDI Kabupaten Bandung*',
+  ].join('\n');
 }

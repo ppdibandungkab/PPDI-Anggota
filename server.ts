@@ -45,6 +45,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const app = express();
+app.set('trust proxy', true);
 
 // Parse CLI arguments if provided, e.g. --port 3000 from npm run dev
 const cliArgs = process.argv.slice(2);
@@ -57,11 +58,11 @@ const PORT = cliPort || (process.env.PORT && process.env.PORT !== '8080' ? Numbe
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Enable CORS for local cross-port development (e.g. Vite on 5173/4173 connecting to Express on 3000)
+// Enable CORS for local cross-port development and AI Studio Preview hosts
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-role, user-role');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-id, x-user-role, x-user-name, user-role');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -7998,9 +7999,9 @@ async function startServer() {
   const activeDistPath = candidateDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || candidateDistPaths[0];
   const hasDist = fs.existsSync(path.join(activeDistPath, 'index.html'));
 
-  // Detect if running as compiled bundle (e.g. node server.js on hosting/cPanel)
+  // Detect if running as compiled bundle (e.g. node server.js on hosting/cPanel or AI Studio Shared Preview)
   const isCompiledBundle = process.argv[1]?.endsWith('.js');
-  const isProduction = process.env.NODE_ENV === 'production' && isCompiledBundle;
+  const isProduction = (process.env.NODE_ENV === 'production' || isCompiledBundle) && hasDist;
 
   if (!isProduction) {
     let viteMiddleware: express.RequestHandler | null = null;
@@ -8011,6 +8012,7 @@ async function startServer() {
         createViteServer({
           server: {
             middlewareMode: true,
+            allowedHosts: true,
             hmr: false,
             watch: null,
             proxy: {},

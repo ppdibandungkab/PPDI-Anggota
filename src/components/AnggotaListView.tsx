@@ -12,6 +12,7 @@ import {
   dispatchWhatsAppNotification,
   isFonnteWebhookActive,
   formatNIPDDisplay,
+  isSekretarisDesaJabatan,
 } from '../utils/ppdiHelpers';
 import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
 import { exportAnggotaToExcel, exportAnggotaToCSV, exportAnggotaToSheetJS } from '../utils/excelExport';
@@ -41,12 +42,14 @@ import {
   ChevronRight,
   Printer,
   Hash,
+  KeyRound,
 } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 import { QrLabelPrintModal } from './QrLabelPrintModal';
 import { BulkKtaExportModal } from './BulkKtaExportModal';
 import { BulkWhatsAppModal } from './BulkWhatsAppModal';
 import { BulkGenerateNipdModal } from './BulkGenerateNipdModal';
+import { SendSekdesUserModal } from './SendSekdesUserModal';
 import { PermissionGate } from './PermissionGate';
 
 interface AnggotaListViewProps {
@@ -106,6 +109,13 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
   const [waModalMember, setWaModalMember] = useState<AnggotaFullDetail | null>(null);
   const [waType, setWaType] = useState<'kta' | 'iuran'>('kta');
   const [isSendingWa, setIsSendingWa] = useState(false);
+
+  // Kirim Akun Admin Desa khusus Sekretaris Desa Modal State
+  const [sekdesUserModalMember, setSekdesUserModalMember] = useState<AnggotaFullDetail | null>(null);
+  const canSendUserDesa =
+    currentUser.role === 'Superadmin_Kabupaten' ||
+    currentUser.role === 'Admin_Kabupaten' ||
+    currentUser.role === 'Admin_Kecamatan';
 
   const handleConfirmDelete = async () => {
     if (!memberToDelete) return;
@@ -1303,6 +1313,17 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                               <MessageSquare className="w-4 h-4 text-emerald-700" />
                             </button>
                           )}
+                          {canSendUserDesa && isSekretarisDesaJabatan(item.jabatanRef?.nama_jabatan) && (
+                            <button
+                              type="button"
+                              onClick={() => setSekdesUserModalMember(item)}
+                              title="Kirim User Admin Desa (Khusus Sekretaris Desa)"
+                              className="inline-flex items-center gap-1 px-1.5 py-1 text-[10px] font-bold text-purple-800 bg-purple-50 hover:bg-purple-700 hover:text-white border border-purple-200 rounded-md transition-colors cursor-pointer"
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                              <span className="hidden xl:inline">User Desa</span>
+                            </button>
+                          )}
                           <PermissionGate module="anggota" action="update">
                             <button
                               onClick={() => onOpenEditModal(item)}
@@ -1795,6 +1816,12 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
           text: `Generate Massal NIPD selesai: ${updated} NIPD diperbarui, ${unchanged} sudah sesuai, ${skipped} dilewati.`,
         });
       }}
+    />
+
+    <SendSekdesUserModal
+      isOpen={Boolean(sekdesUserModalMember)}
+      onClose={() => setSekdesUserModalMember(null)}
+      initialMember={sekdesUserModalMember}
     />
     </>
   );

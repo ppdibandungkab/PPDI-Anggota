@@ -15,12 +15,14 @@ export default defineConfig(() => {
     server: {
       port: 3000,
       strictPort: false,
+      allowedHosts: true,
       // HMR is disabled in AI Studio container to prevent WebSocket errors and startup delays.
       hmr: false,
       watch: null,
     },
     preview: {
       port: 3000,
+      allowedHosts: true,
     },
   };
 });
