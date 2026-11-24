@@ -4604,6 +4604,300 @@ app.post('/api/pendaftaran', async (req, res) => {
   }
 });
 
+// Edit Registration Data (accessible to all admin levels within their territorial jurisdiction)
+app.put('/api/pendaftaran/:id', async (req, res) => {
+  const pendaftaranId = isValidInt32Id(req.params.id);
+  if (!pendaftaranId) {
+    return res.status(400).json({ success: false, message: 'ID pendaftaran tidak valid.' });
+  }
+
+  const userRole = String(req.headers['x-user-role'] || req.headers['user-role'] || '').trim();
+  const allowedAdminRoles = new Set([
+    'Superadmin_Kabupaten',
+    'Admin_Kabupaten',
+    'Admin_Kecamatan',
+    'Admin_Desa',
+  ]);
+  if (!allowedAdminRoles.has(userRole)) {
+    return res.status(403).json({
+      success: false,
+      error: 'FORBIDDEN',
+      message: 'Akses ditolak: Hanya admin yang berwenang memperbaiki data pendaftaran.',
+    });
+  }
+
+  const data = req.body || {};
+  const cleanNik = String(data.nik || '').replace(/\D/g, '').trim();
+  const cleanNama = String(data.nama_lengkap || '').trim().toUpperCase();
+  if (!/^\d{16}$/.test(cleanNik)) {
+    return res.status(400).json({ success: false, message: 'NIK wajib berupa 16 digit angka yang valid.' });
+  }
+  if (!cleanNama) {
+    return res.status(400).json({ success: false, message: 'Nama lengkap wajib diisi.' });
+  }
+  if (!data.id_desa) {
+    return res.status(400).json({ success: false, message: 'Desa penempatan wajib dipilih.' });
+  }
+  const cleanJk = data.jenis_kelamin === 'P' ? 'P' : 'L';
+
+  let conn: mysql.PoolConnection | null = null;
+  try {
+    if (!pool) throw new Error('Pool not ready');
+    conn = await pool.getConnection();
+    await ensureSignatureColumns(conn);
+
+    const [existingRows]: [any[], any] = await conn.query(
+      'SELECT * FROM pendaftaran_perangkat_desa WHERE id_pendaftaran = ? LIMIT 1',
+      [pendaftaranId]
+    );
+    if (!existingRows || existingRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Data pendaftaran tidak ditemukan.' });
+    }
+    const existing = existingRows[0];
+
+    // Enforce territorial scoping on server for Admin_Kecamatan and Admin_Desa
+    const callerUserId = isValidInt32Id(req.headers['x-user-id']);
+    let scopeKecClean = '';
+    let scopeDesaClean = '';
+    if ((userRole === 'Admin_Kecamatan' || userRole === 'Admin_Desa') && callerUserId) {
+      const [userRows]: [any[], any] = await conn.query(
+        'SELECT id_kecamatan, id_desa FROM users WHERE id_user = ? LIMIT 1',
+        [callerUserId]
+      );
+      if (userRows && userRows.length > 0) {
+        scopeKecClean = String(userRows[0].id_kecamatan || '').replace(/\./g, '').trim();
+        scopeDesaClean = String(userRows[0].id_desa || '').replace(/\./g, '').trim();
+      }
+    }
+
+    const existingKecClean = String(existing.id_kecamatan || '').replace(/\./g, '').trim();
+    const existingDesaClean = String(existing.id_desa || '').replace(/\./g, '').trim();
+
+    if (userRole === 'Admin_Kecamatan' && scopeKecClean) {
+      const inKec =
+        existingKecClean === scopeKecClean ||
+        (existingDesaClean.length >= 6 && existingDesaClean.startsWith(scopeKecClean));
+      if (!inKec) {
+        return res.status(403).json({
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'Akses ditolak: Data pendaftaran ini berada di luar wilayah Kecamatan Anda.',
+        });
+      }
+    }
+
+    if (userRole === 'Admin_Desa' && scopeDesaClean) {
+      if (existingDesaClean !== scopeDesaClean) {
+        return res.status(403).json({
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'Akses ditolak: Data pendaftaran ini berada di luar wilayah Desa Anda.',
+        });
+      }
+    }
+
+    // Validate duplicate NIK against other pending registrations (and active anggota if not yet approved)
+    const [dupPending]: [any[], any] = await conn.query(
+      'SELECT id_pendaftaran, nama_lengkap FROM pendaftaran_perangkat_desa WHERE nik = ? AND status_approval = "Menunggu" AND id_pendaftaran <> ? LIMIT 1',
+      [cleanNik, pendaftaranId]
+    );
+    if (dupPending.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `NIK ${cleanNik} sudah digunakan pada pengajuan menunggu lainnya atas nama ${dupPending[0].nama_lengkap}.`,
+      });
+    }
+
+    if (existing.status_approval !== 'Disetujui' || cleanNik !== String(existing.nik || '').trim()) {
+      const [dupAnggota]: [any[], any] = await conn.query(
+        'SELECT nama_lengkap FROM anggota WHERE nik = ? LIMIT 1',
+        [cleanNik]
+      );
+      if (dupAnggota.length > 0 && existing.status_approval !== 'Disetujui') {
+        return res.status(409).json({
+          success: false,
+          message: `NIK ${cleanNik} sudah terdaftar aktif sebagai anggota atas nama ${dupAnggota[0].nama_lengkap}.`,
+        });
+      }
+    }
+
+    const validDesaId = await resolveDesaId(conn, data.id_desa);
+    const cleanTargetDesa = String(validDesaId || '').replace(/\./g, '').trim();
+    const cleanTargetKec = String(data.id_kecamatan || validDesaId.slice(0, 6)).trim();
+    const cleanTargetKecDigits = cleanTargetKec.replace(/\./g, '').trim();
+
+    if (userRole === 'Admin_Kecamatan' && scopeKecClean) {
+      const targetInKec =
+        cleanTargetKecDigits === scopeKecClean ||
+        (cleanTargetDesa.length >= 6 && cleanTargetDesa.startsWith(scopeKecClean));
+      if (!targetInKec) {
+        return res.status(403).json({
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'Admin Kecamatan tidak dapat memindahkan pendaftar ke luar wilayah Kecamatannya.',
+        });
+      }
+    }
+
+    if (userRole === 'Admin_Desa' && scopeDesaClean && cleanTargetDesa !== scopeDesaClean) {
+      return res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'Admin Desa tidak dapat memindahkan pendaftar ke desa lain.',
+      });
+    }
+
+    const effectiveJabId = Number(data.id_jabatan) || Number(existing.id_jabatan) || 1;
+    const periodeCheck = validateAndNormalizePeriode(effectiveJabId, data.periode);
+    if (!periodeCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: periodeCheck.message,
+      });
+    }
+
+    // Handle optional updated attachments (foto, file_sk, tanda_tangan)
+    const isSafeMediaRef = (val: string) =>
+      val.startsWith('/') ||
+      /^https?:\/\//i.test(val) ||
+      (!val.includes(':') && !val.includes('..'));
+
+    let savedFotoPath: string | null =
+      data.foto !== undefined ? (data.foto ? String(data.foto).trim() : null) : existing.foto;
+    if (savedFotoPath && savedFotoPath.startsWith('data:')) {
+      if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(savedFotoPath)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format foto tidak valid. Gunakan gambar JPG, PNG, atau WebP.',
+        });
+      }
+      const saved = saveBase64UploadToDisk('foto', savedFotoPath, 'pendaftaran_foto', cleanNik);
+      savedFotoPath = saved.url;
+    } else if (savedFotoPath && !isSafeMediaRef(savedFotoPath)) {
+      return res.status(400).json({ success: false, message: 'Path/URL foto tidak valid.' });
+    }
+
+    let savedSkPath: string | null =
+      data.file_sk !== undefined ? (data.file_sk ? String(data.file_sk).trim() : null) : existing.file_sk;
+    if (savedSkPath && savedSkPath !== existing.file_sk) {
+      if (savedSkPath.startsWith('data:')) {
+        if (!isValidPdfBase64Upload(savedSkPath, 'pendaftaran_sk.pdf')) {
+          return res.status(400).json({
+            success: false,
+            message: 'Hanya file berformat PDF (.pdf) yang diperbolehkan untuk berkas SK.',
+          });
+        }
+        const saved = saveBase64UploadToDisk('sk', savedSkPath, 'pendaftaran_sk.pdf', cleanNik);
+        savedSkPath = saved.url;
+      } else if (!isSafeMediaRef(savedSkPath) || !savedSkPath.toLowerCase().split('?')[0].endsWith('.pdf')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Hanya file berformat PDF (.pdf) yang diperbolehkan untuk berkas SK.',
+        });
+      }
+    }
+
+    let savedTtdPath: string | null =
+      data.tanda_tangan !== undefined
+        ? (data.tanda_tangan ? String(data.tanda_tangan).trim() : null)
+        : existing.tanda_tangan;
+    if (savedTtdPath && savedTtdPath.startsWith('data:')) {
+      const saved = saveBase64UploadToDisk('ttd', savedTtdPath, 'pendaftaran_ttd', cleanNik);
+      savedTtdPath = saved.url;
+    } else if (savedTtdPath && !isSafeMediaRef(savedTtdPath)) {
+      return res.status(400).json({ success: false, message: 'Path/URL tanda tangan tidak valid.' });
+    }
+
+    await conn.query(
+      `UPDATE pendaftaran_perangkat_desa SET
+        nik = ?,
+        nama_lengkap = ?,
+        gelar_depan = ?,
+        gelar_belakang = ?,
+        tempat_lahir = ?,
+        tanggal_lahir = ?,
+        jenis_kelamin = ?,
+        agama = ?,
+        pendidikan_terakhir = ?,
+        no_hp_wa = ?,
+        email = ?,
+        alamat_rumah = ?,
+        status_pernikahan = ?,
+        id_kecamatan = ?,
+        id_desa = ?,
+        id_jabatan = ?,
+        periode = ?,
+        no_sk_pengangkatan = ?,
+        tgl_sk_pengangkatan = ?,
+        tmt_jabatan = ?,
+        foto = ?,
+        file_sk = ?,
+        tanda_tangan = ?
+      WHERE id_pendaftaran = ?`,
+      [
+        cleanNik,
+        cleanNama,
+        data.gelar_depan ? String(data.gelar_depan).trim() : null,
+        data.gelar_belakang ? String(data.gelar_belakang).trim() : null,
+        String(data.tempat_lahir || existing.tempat_lahir || 'Bandung').trim(),
+        data.tanggal_lahir || existing.tanggal_lahir || '1990-01-01',
+        cleanJk,
+        String(data.agama || existing.agama || 'Islam').trim(),
+        String(data.pendidikan_terakhir || existing.pendidikan_terakhir || 'SMA/SMK').trim(),
+        String(data.no_hp_wa || existing.no_hp_wa || '').trim(),
+        data.email ? String(data.email).trim() : null,
+        String(data.alamat_rumah || existing.alamat_rumah || 'Kabupaten Bandung').trim(),
+        String(data.status_pernikahan || existing.status_pernikahan || 'Kawin').trim(),
+        cleanTargetKec,
+        validDesaId,
+        effectiveJabId,
+        periodeCheck.value,
+        data.no_sk_pengangkatan ? String(data.no_sk_pengangkatan).trim() : null,
+        data.tgl_sk_pengangkatan || null,
+        data.tmt_jabatan || null,
+        savedFotoPath,
+        savedSkPath,
+        savedTtdPath,
+        pendaftaranId,
+      ]
+    );
+
+    const [updatedRows]: [any[], any] = await conn.query(
+      `SELECT
+        p.*,
+        DATE_FORMAT(p.tanggal_lahir, '%Y-%m-%d') as tanggal_lahir,
+        DATE_FORMAT(p.tgl_sk_pengangkatan, '%Y-%m-%d') as tgl_sk_pengangkatan,
+        DATE_FORMAT(p.tmt_jabatan, '%Y-%m-%d') as tmt_jabatan,
+        DATE_FORMAT(p.tgl_pendaftaran, '%Y-%m-%d %H:%i:%s') as tgl_pendaftaran,
+        DATE_FORMAT(p.tgl_approval, '%Y-%m-%d %H:%i:%s') as tgl_approval,
+        k.nama_kecamatan,
+        d.nama_desa,
+        j.nama_jabatan
+      FROM pendaftaran_perangkat_desa p
+      LEFT JOIN ref_kecamatan k ON p.id_kecamatan = k.id_kecamatan
+      LEFT JOIN ref_desa d ON p.id_desa = d.id_desa
+      LEFT JOIN ref_jabatan j ON p.id_jabatan = j.id_jabatan
+      WHERE p.id_pendaftaran = ?
+      LIMIT 1`,
+      [pendaftaranId]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Data formulir pendaftaran berhasil diperbarui.',
+      pendaftaran: updatedRows?.[0] || null,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Gagal memperbarui data pendaftaran.', error: err.message });
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch (_) {}
+    }
+  }
+});
+
 // Approve Registration and Migrate directly into Anggota, Riwayat, and Keanggotaan
 app.put('/api/pendaftaran/:id/approve', async (req, res) => {
   const { id } = req.params;

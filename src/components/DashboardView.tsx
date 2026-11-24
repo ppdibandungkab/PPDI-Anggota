@@ -61,6 +61,7 @@ import {
 import { StatistikWilayahView } from './StatistikWilayahView';
 import { QuickSkVerifyModal } from './QuickSkVerifyModal';
 import { KalenderAcaraSection } from './KalenderAcaraSection';
+import { KecamatanDistributionChart } from './KecamatanDistributionChart';
 
 // Custom Tooltip for Recharts
 const CustomChartTooltip = ({ active, payload, label }: any) => {
@@ -114,6 +115,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     iuranList,
     activityLogs,
     setActiveTab,
+    setSelectedKecamatanFilter,
     hasPermission,
     appSettings,
   } = usePPDI();
@@ -1217,6 +1219,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
           </div>
         </div>
       </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* GRAFIK BATANG DISTRIBUSI ANGGOTA PER KECAMATAN (RECHARTS)     */}
+      {/* ------------------------------------------------------------- */}
+      <KecamatanDistributionChart
+        members={visibleMembers}
+        kecamatanList={kecamatanList}
+        desaList={desaList}
+        onNavigateToKecamatan={(idKec) => {
+          setSelectedKecamatanFilter(idKec);
+          setActiveTab('anggota');
+        }}
+      />
 
       {/* ------------------------------------------------------------- */}
       {/* MODUL KALENDER ACARA & SINKRONISASI KALENDER EKSTERNAL        */}

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { DbConnectionModal } from './DbConnectionModal';
 import { ChairmanGreetingCard } from './ChairmanGreetingCard';
+import { PublicAgendaCard } from './PublicAgendaCard';
 
 interface LoginFormProps {
   onOpenPublicVerify: () => void;
@@ -51,6 +52,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({
     setIsDbModalOpen,
     dbAlertVisible,
     setDbAlertVisible,
+    sessionExpiredNotice,
+    clearSessionExpiredNotice,
   } = usePPDI();
 
   // Dynamically update document title & favicon based on uploaded logo & title settings
@@ -358,6 +361,33 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       <div
         className="w-full max-w-[1200px] grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-12 items-start relative z-10"
       >
+        {/* Auto-Logout Idle Session Expiration Banner */}
+        {sessionExpiredNotice && (
+          <div className="col-span-1 lg:col-span-2 p-4 rounded-xl bg-amber-950/85 border border-amber-400/60 backdrop-blur-md text-amber-50 shadow-2xl flex items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center shrink-0 mt-0.5">
+                <ClockAlert className="w-4 h-4 text-amber-300" />
+              </div>
+              <div>
+                <div className="font-bold text-sm text-amber-200">
+                  Sesi Berakhir Otomatis (Keamanan Idle 30 Menit)
+                </div>
+                <p className="text-xs text-amber-100/90 mt-0.5 leading-relaxed">
+                  {sessionExpiredNotice}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={clearSessionExpiredNotice}
+              className="p-1.5 text-amber-200/70 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer shrink-0"
+              title="Tutup pemberitahuan"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Startup Alert Banner if Disconnected in Hosting */}
         {dbAlertVisible && !dbStatus?.success && !isCheckingDb && (
           <div className="col-span-1 lg:col-span-2 p-4 rounded-xl bg-red-950/85 border border-red-500/60 backdrop-blur-md text-white shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in duration-200">
@@ -833,6 +863,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
               </button>
             )}
           </div>
+
+          {/* Agenda Kegiatan Publik (Di bawah Pustaka Regulasi Publik) */}
+          <PublicAgendaCard />
         </div>
       </div>
 

@@ -40,6 +40,10 @@ import {
   Bell,
   BellOff,
   BellRing,
+  Pencil,
+  GraduationCap,
+  Save,
+  Upload,
 } from 'lucide-react';
 import { PendaftaranPerangkatDesa } from '../types/ppdi';
 import {
@@ -58,6 +62,7 @@ interface PendaftaranApprovalViewProps {
 export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = ({ onOpenPublicForm }) => {
   const {
     pendaftaranList,
+    updatePendaftaran,
     approvePendaftaran,
     rejectPendaftaran,
     deletePendaftaran,
@@ -69,6 +74,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
     refreshDataFromMySQL,
     kecamatanList,
     desaList,
+    jabatanList,
     currentUser,
     setActiveTab,
     hasPermission,
@@ -88,6 +94,7 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   // Permission rights strictly bound to centralized Role Permissions
   const canApprove = hasPermission('pendaftaran', 'edit') && (isKabupatenLevel || isAdminKecamatan);
   const canReject = hasPermission('pendaftaran', 'edit') && (isKabupatenLevel || isAdminKecamatan);
+  const canEditData = !isAnggota && (isKabupatenLevel || isAdminKecamatan || isAdminDesa);
   const canDelete = hasPermission('pendaftaran', 'delete');
   const canInput = hasPermission('pendaftaran', 'add');
 
@@ -212,6 +219,208 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
   const [rejectingItem, setRejectingItem] = useState<PendaftaranPerangkatDesa | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+
+  // Modal Edit Data Pendaftaran (perbaikan salah input untuk semua tingkatan admin)
+  const [editingItem, setEditingItem] = useState<PendaftaranPerangkatDesa | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editFotoFileName, setEditFotoFileName] = useState('');
+  const [editSkFileName, setEditSkFileName] = useState('');
+  const [editForm, setEditForm] = useState({
+    nik: '',
+    nama_lengkap: '',
+    gelar_depan: '',
+    gelar_belakang: '',
+    tempat_lahir: '',
+    tanggal_lahir: '',
+    jenis_kelamin: 'L' as 'L' | 'P',
+    agama: 'Islam',
+    pendidikan_terakhir: 'SMA/SMK',
+    no_hp_wa: '',
+    email: '',
+    alamat_rumah: '',
+    status_pernikahan: 'Kawin',
+    id_kecamatan: '',
+    id_desa: '',
+    id_jabatan: 1,
+    periode: '' as string,
+    no_sk_pengangkatan: '',
+    tgl_sk_pengangkatan: '',
+    tmt_jabatan: '',
+    foto: '',
+    file_sk: '',
+  });
+
+  const openEditModal = (item: PendaftaranPerangkatDesa) => {
+    const cleanItemKec = (item.id_kecamatan || '').replace(/\./g, '').trim();
+    const cleanItemDesa = (item.id_desa || '').replace(/\./g, '').trim();
+    const matchedKec = kecamatanList.find(
+      (k) => k.id_kecamatan.replace(/\./g, '').trim() === cleanItemKec
+    );
+    const matchedDesa = desaList.find(
+      (d) => d.id_desa.replace(/\./g, '').trim() === cleanItemDesa
+    );
+    const toDateInput = (val?: string) => (val ? String(val).slice(0, 10) : '');
+
+    setEditForm({
+      nik: item.nik || '',
+      nama_lengkap: (item.nama_lengkap || '').toUpperCase(),
+      gelar_depan: item.gelar_depan || '',
+      gelar_belakang: item.gelar_belakang || '',
+      tempat_lahir: item.tempat_lahir || '',
+      tanggal_lahir: toDateInput(item.tanggal_lahir),
+      jenis_kelamin: item.jenis_kelamin === 'P' ? 'P' : 'L',
+      agama: item.agama || 'Islam',
+      pendidikan_terakhir: item.pendidikan_terakhir || 'SMA/SMK',
+      no_hp_wa: item.no_hp_wa || '',
+      email: item.email || '',
+      alamat_rumah: item.alamat_rumah || '',
+      status_pernikahan: item.status_pernikahan || 'Kawin',
+      id_kecamatan: matchedKec?.id_kecamatan || item.id_kecamatan || '',
+      id_desa: matchedDesa?.id_desa || item.id_desa || '',
+      id_jabatan: Number(item.id_jabatan) || 1,
+      periode: item.periode !== undefined && item.periode !== null ? String(item.periode) : '',
+      no_sk_pengangkatan: item.no_sk_pengangkatan || '',
+      tgl_sk_pengangkatan: toDateInput(item.tgl_sk_pengangkatan),
+      tmt_jabatan: toDateInput(item.tmt_jabatan),
+      foto: item.foto || '',
+      file_sk: item.file_sk || '',
+    });
+    setEditFotoFileName('');
+    setEditSkFileName('');
+    setEditError(null);
+    setEditingItem(item);
+  };
+
+  const editAvailableDesaList = useMemo(() => {
+    const targetKecClean = (editForm.id_kecamatan || '').replace(/\./g, '').trim();
+    if (!targetKecClean) return desaList;
+    return desaList.filter(
+      (d) => d.id_kecamatan.replace(/\./g, '').trim() === targetKecClean
+    );
+  }, [desaList, editForm.id_kecamatan]);
+
+  const handleEditFotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
+      setEditError('Format foto harus JPG, PNG, atau WebP.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setEditError('Ukuran foto maksimal 2 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setEditForm((prev) => ({ ...prev, foto: String(reader.result || '') }));
+      setEditFotoFileName(file.name);
+      setEditError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEditSkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setEditError('Berkas SK wajib berformat PDF (.pdf).');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setEditError('Ukuran berkas SK maksimal 5 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setEditForm((prev) => ({ ...prev, file_sk: String(reader.result || '') }));
+      setEditSkFileName(file.name);
+      setEditError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+
+    const cleanNik = editForm.nik.replace(/\D/g, '').trim();
+    if (!/^\d{16}$/.test(cleanNik)) {
+      setEditError('NIK harus terdiri dari 16 digit angka.');
+      return;
+    }
+    if (!editForm.nama_lengkap.trim()) {
+      setEditError('Nama lengkap wajib diisi.');
+      return;
+    }
+    if (!editForm.id_desa) {
+      setEditError('Desa penempatan wajib dipilih.');
+      return;
+    }
+    const isKades = Number(editForm.id_jabatan) === 10;
+    if (isKades && !['1', '2', '3'].includes(String(editForm.periode))) {
+      setEditError('Periode jabatan (Ke-1 / Ke-2 / Ke-3) wajib dipilih untuk Kepala Desa.');
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      const payload: Partial<PendaftaranPerangkatDesa> = {
+        nik: cleanNik,
+        nama_lengkap: editForm.nama_lengkap.trim().toUpperCase(),
+        gelar_depan: editForm.gelar_depan.trim() || undefined,
+        gelar_belakang: editForm.gelar_belakang.trim() || undefined,
+        tempat_lahir: editForm.tempat_lahir.trim(),
+        tanggal_lahir: editForm.tanggal_lahir,
+        jenis_kelamin: editForm.jenis_kelamin,
+        agama: editForm.agama,
+        pendidikan_terakhir: editForm.pendidikan_terakhir,
+        no_hp_wa: editForm.no_hp_wa.trim(),
+        email: editForm.email.trim() || undefined,
+        alamat_rumah: editForm.alamat_rumah.trim(),
+        status_pernikahan: editForm.status_pernikahan,
+        id_kecamatan: editForm.id_kecamatan,
+        id_desa: editForm.id_desa,
+        id_jabatan: Number(editForm.id_jabatan),
+        periode: isKades ? Number(editForm.periode) : null,
+        no_sk_pengangkatan: editForm.no_sk_pengangkatan.trim() || undefined,
+        tgl_sk_pengangkatan: editForm.tgl_sk_pengangkatan || undefined,
+        tmt_jabatan: editForm.tmt_jabatan || undefined,
+        foto: editForm.foto || undefined,
+        file_sk: editForm.file_sk || undefined,
+      };
+
+      const res = await updatePendaftaran(editingItem.id_pendaftaran, payload);
+      if (selectedItem && selectedItem.id_pendaftaran === editingItem.id_pendaftaran) {
+        if (res?.pendaftaran) {
+          setSelectedItem(res.pendaftaran);
+        } else {
+          const matchedKec = kecamatanList.find((k) => k.id_kecamatan === editForm.id_kecamatan);
+          const matchedDesa = desaList.find((d) => d.id_desa === editForm.id_desa);
+          const matchedJab = jabatanList.find((j) => Number(j.id_jabatan) === Number(editForm.id_jabatan));
+          setSelectedItem({
+            ...selectedItem,
+            ...payload,
+            nama_kecamatan: matchedKec?.nama_kecamatan || selectedItem.nama_kecamatan,
+            nama_desa: matchedDesa?.nama_desa || selectedItem.nama_desa,
+            nama_jabatan: matchedJab?.nama_jabatan || selectedItem.nama_jabatan,
+          });
+        }
+      }
+
+      pushToast({
+        type: 'success',
+        title: 'Data Pendaftaran Diperbarui',
+        message: `Perubahan data formulir atas nama ${editForm.nama_lengkap.trim().toUpperCase()} berhasil disimpan.`,
+      });
+      setEditingItem(null);
+    } catch (err: any) {
+      setEditError(err?.message || 'Gagal menyimpan perubahan data pendaftaran.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -1436,24 +1645,37 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                       </td>
                       <td className="p-3 text-center text-neutral-400 font-bold">{index + 1}</td>
                       <td className="p-3 text-center">
-                        <button
-                          type="button"
-                          onClick={(e) => handleToggleRowDropdown(e, item)}
-                          aria-haspopup="menu"
-                          aria-expanded={isDropdownOpen}
-                          className={`inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
-                            isDropdownOpen
-                              ? 'bg-[#064E3B] text-white border-[#064E3B]'
-                              : 'bg-white text-neutral-800 border-neutral-300 hover:bg-neutral-100 hover:border-[#064E3B]/50'
-                          }`}
-                          title="Buka menu Aksi Verifikasi"
-                        >
-                          <MoreVertical className={`w-3.5 h-3.5 ${isDropdownOpen ? 'text-amber-300' : 'text-[#064E3B]'}`} />
-                          <span>Aksi</span>
-                          <ChevronDown
-                            className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180 text-white' : 'text-neutral-500'}`}
-                          />
-                        </button>
+                        <div className="inline-flex items-center justify-center gap-1.5">
+                          {canEditData && (
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(item)}
+                              title="Edit / Perbaiki Data Pendaftaran"
+                              className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:border-amber-400 text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                              <span>Edit</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleRowDropdown(e, item)}
+                            aria-haspopup="menu"
+                            aria-expanded={isDropdownOpen}
+                            className={`inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
+                              isDropdownOpen
+                                ? 'bg-[#064E3B] text-white border-[#064E3B]'
+                                : 'bg-white text-neutral-800 border-neutral-300 hover:bg-neutral-100 hover:border-[#064E3B]/50'
+                            }`}
+                            title="Buka menu Aksi Verifikasi"
+                          >
+                            <MoreVertical className={`w-3.5 h-3.5 ${isDropdownOpen ? 'text-amber-300' : 'text-[#064E3B]'}`} />
+                            <span>Aksi</span>
+                            <ChevronDown
+                              className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180 text-white' : 'text-neutral-500'}`}
+                            />
+                          </button>
+                        </div>
                       </td>
                       <td className="p-3">
                         <div className="font-bold text-neutral-900">{item.nik}</div>
@@ -1578,6 +1800,22 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
               <Eye className="w-4 h-4 text-neutral-500 shrink-0" />
               <span>Lihat Detail Formulir</span>
             </button>
+
+            {canEditData && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const target = openDropdown.item;
+                  setOpenDropdown(null);
+                  openEditModal(target);
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left text-amber-800 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer font-bold"
+              >
+                <Pencil className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Edit Data Pendaftaran</span>
+              </button>
+            )}
 
             {openDropdown.item.status_approval === 'Menunggu' && canApprove && (
               <>
@@ -1763,6 +2001,21 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                       </span>
                     </div>
                     <div className="p-2.5 bg-neutral-50 rounded border border-neutral-100">
+                      <span className="text-neutral-500 flex items-center gap-1 text-[10px]">
+                        <GraduationCap className="w-3 h-3 text-[#064E3B]" />
+                        <span>Pendidikan Terakhir</span>
+                      </span>
+                      <span className="font-bold text-neutral-900">
+                        {selectedItem.pendidikan_terakhir || linkedMember?.anggota.pendidikan_terakhir || '-'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 bg-neutral-50 rounded border border-neutral-100">
+                      <span className="text-neutral-500 block text-[10px]">Agama / Status Pernikahan</span>
+                      <span className="font-semibold text-neutral-800">
+                        {selectedItem.agama || 'Islam'} • {selectedItem.status_pernikahan || 'Kawin'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 bg-neutral-50 rounded border border-neutral-100">
                       <span className="text-neutral-500 block text-[10px]">No. HP / WhatsApp</span>
                       <span className="font-semibold text-neutral-800">{selectedItem.no_hp_wa}</span>
                     </div>
@@ -1770,6 +2023,12 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                       <span className="text-neutral-500 block text-[10px]">Email</span>
                       <span className="font-semibold text-neutral-800">{selectedItem.email || '-'}</span>
                     </div>
+                    {selectedItem.alamat_rumah && (
+                      <div className="sm:col-span-2 p-2.5 bg-neutral-50 rounded border border-neutral-100">
+                        <span className="text-neutral-500 block text-[10px]">Alamat Rumah</span>
+                        <span className="font-semibold text-neutral-800">{selectedItem.alamat_rumah}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2095,13 +2354,23 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                 )}
               </div>
 
-              <div className="px-6 py-4 bg-neutral-50 border-t flex justify-end gap-2">
+              <div className="px-6 py-4 bg-neutral-50 border-t flex flex-wrap justify-end gap-2">
                 <button
                   onClick={() => setSelectedItem(null)}
                   className="px-4 py-2 bg-neutral-200 hover:bg-neutral-300 rounded-lg text-xs font-semibold cursor-pointer"
                 >
                   Tutup
                 </button>
+                {canEditData && (
+                  <button
+                    type="button"
+                    onClick={() => openEditModal(selectedItem)}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    <span>Edit Data</span>
+                  </button>
+                )}
                 {selectedItem.status_approval === 'Disetujui' && selectedItem.no_hp_wa && (
                   <button
                     type="button"
@@ -2162,6 +2431,425 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
           </div>
         );
       })()}
+
+      {/* Modal Edit Data Pendaftaran (Semua Tingkatan Admin Sesuai Wilayah) */}
+      {editingItem && (
+        <div className="fixed inset-0 z-[55] bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden text-neutral-900 my-auto">
+            <div className="px-6 py-4 bg-[#064E3B] text-white flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold uppercase flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-amber-300" />
+                  <span>Edit Data Formulir Pendaftaran</span>
+                </h3>
+                <p className="text-xs text-emerald-200 font-mono">
+                  ID Registrasi #{editingItem.id_pendaftaran} • Perbaikan Data Salah Input ({userRole.replace(/_/g, ' ')})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSavingEdit && setEditingItem(null)}
+                className="text-white/80 hover:text-white p-1 rounded-md hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="flex flex-col max-h-[82vh]">
+              <div className="p-6 space-y-5 overflow-y-auto font-mono text-xs">
+                {editingItem.status_approval === 'Disetujui' && (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Pengajuan ini berstatus <b>Disetujui</b>. Perubahan di sini memperbarui arsip formulir pendaftaran.
+                      Jika diperlukan, perbarui juga profil anggota aktif pada menu Data Induk Anggota.
+                    </span>
+                  </div>
+                )}
+
+                {editError && (
+                  <div className="p-3 rounded-lg bg-red-50 border border-red-300 text-red-800 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{editError}</span>
+                  </div>
+                )}
+
+                {/* Bagian 1: Biodata & Identitas */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-neutral-700 uppercase tracking-wider text-[11px] border-b pb-1.5">
+                    1. Biodata & Identitas Kependudukan
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        NIK KTP (16 Digit) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={16}
+                        required
+                        value={editForm.nik}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, nik: e.target.value.replace(/\D/g, '').slice(0, 16) }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Nama Lengkap (Tanpa Gelar) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editForm.nama_lengkap}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, nama_lengkap: e.target.value.toUpperCase() }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white uppercase"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Gelar Depan</label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: H., Drs., Ir."
+                        value={editForm.gelar_depan}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, gelar_depan: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Gelar Belakang</label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: S.IP., S.Pd., M.Si."
+                        value={editForm.gelar_belakang}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, gelar_belakang: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Tempat Lahir <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editForm.tempat_lahir}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, tempat_lahir: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Tanggal Lahir <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={editForm.tanggal_lahir}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, tanggal_lahir: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Jenis Kelamin <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.jenis_kelamin}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, jenis_kelamin: e.target.value === 'P' ? 'P' : 'L' }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      >
+                        <option value="L">Laki-laki</option>
+                        <option value="P">Perempuan</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Pendidikan Terakhir <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.pendidikan_terakhir}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, pendidikan_terakhir: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      >
+                        <option value="SD">SD / Sederajat</option>
+                        <option value="SMP">SMP / Sederajat</option>
+                        <option value="SMA/SMK">SMA / SMK / Sederajat</option>
+                        <option value="D1">D1 (Diploma)</option>
+                        <option value="D2">D2 (Diploma)</option>
+                        <option value="D3">D3 (Diploma)</option>
+                        <option value="S1">D4/S1 (Sarjana)</option>
+                        <option value="S2">S2 (Magister)</option>
+                        <option value="S3">S3 (Doktor)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Agama</label>
+                      <select
+                        value={editForm.agama}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, agama: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      >
+                        <option value="Islam">Islam</option>
+                        <option value="Kristen">Kristen</option>
+                        <option value="Katolik">Katolik</option>
+                        <option value="Hindu">Hindu</option>
+                        <option value="Buddha">Buddha</option>
+                        <option value="Konghucu">Konghucu</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Status Pernikahan</label>
+                      <select
+                        value={editForm.status_pernikahan}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, status_pernikahan: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      >
+                        <option value="Kawin">Kawin</option>
+                        <option value="Belum Kawin">Belum Kawin</option>
+                        <option value="Cerai Hidup">Cerai Hidup</option>
+                        <option value="Cerai Mati">Cerai Mati</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        No. HP / WhatsApp <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editForm.no_hp_wa}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, no_hp_wa: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Email</label>
+                      <input
+                        type="email"
+                        value={editForm.email}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="sm:col-span-2 space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Alamat Rumah</label>
+                      <input
+                        type="text"
+                        value={editForm.alamat_rumah}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, alamat_rumah: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bagian 2: Wilayah, Jabatan & SK */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-neutral-700 uppercase tracking-wider text-[11px] border-b pb-1.5">
+                    2. Penempatan Wilayah, Jabatan & SK Pengangkatan
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Kecamatan <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.id_kecamatan}
+                        disabled={isAdminKecamatan || isAdminDesa}
+                        onChange={(e) => {
+                          const nextKec = e.target.value;
+                          const nextClean = nextKec.replace(/\./g, '').trim();
+                          const firstDesa = desaList.find(
+                            (d) => d.id_kecamatan.replace(/\./g, '').trim() === nextClean
+                          );
+                          setEditForm((prev) => ({
+                            ...prev,
+                            id_kecamatan: nextKec,
+                            id_desa: firstDesa?.id_desa || '',
+                          }));
+                        }}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white disabled:bg-neutral-100 disabled:text-neutral-600"
+                      >
+                        <option value="">-- Pilih Kecamatan --</option>
+                        {kecamatanList.map((k) => (
+                          <option key={k.id_kecamatan} value={k.id_kecamatan}>
+                            Kec. {k.nama_kecamatan}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Desa <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        required
+                        value={editForm.id_desa}
+                        disabled={isAdminDesa}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, id_desa: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white disabled:bg-neutral-100 disabled:text-neutral-600"
+                      >
+                        <option value="">-- Pilih Desa --</option>
+                        {editAvailableDesaList.map((d) => (
+                          <option key={d.id_desa} value={d.id_desa}>
+                            Desa {d.nama_desa}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">
+                        Jabatan Formasi <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.id_jabatan}
+                        onChange={(e) => {
+                          const nextJab = Number(e.target.value);
+                          setEditForm((prev) => ({
+                            ...prev,
+                            id_jabatan: nextJab,
+                            periode: nextJab === 10 ? (prev.periode || '1') : '',
+                          }));
+                        }}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      >
+                        {jabatanList.map((j) => (
+                          <option key={j.id_jabatan} value={j.id_jabatan}>
+                            {j.nama_jabatan}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {Number(editForm.id_jabatan) === 10 && (
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-amber-800">
+                          Periode Kepala Desa <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          required
+                          value={editForm.periode}
+                          onChange={(e) => setEditForm((prev) => ({ ...prev, periode: e.target.value }))}
+                          className="w-full px-3 py-2 border border-amber-400 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none bg-amber-50/40"
+                        >
+                          <option value="">-- Pilih Periode --</option>
+                          <option value="1">Periode Ke-1</option>
+                          <option value="2">Periode Ke-2</option>
+                          <option value="3">Periode Ke-3</option>
+                        </select>
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">No. SK Pengangkatan</label>
+                      <input
+                        type="text"
+                        value={editForm.no_sk_pengangkatan}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, no_sk_pengangkatan: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">Tanggal SK Pengangkatan</label>
+                      <input
+                        type="date"
+                        value={editForm.tgl_sk_pengangkatan}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, tgl_sk_pengangkatan: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-700">TMT Jabatan</label>
+                      <input
+                        type="date"
+                        value={editForm.tmt_jabatan}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, tmt_jabatan: e.target.value }))}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-[#064E3B] outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bagian 3: Perbarui Lampiran (Opsional) */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-neutral-700 uppercase tracking-wider text-[11px] border-b pb-1.5">
+                    3. Ganti Lampiran Foto / Berkas SK (Opsional)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-2">
+                      <label className="text-[11px] font-bold text-neutral-700 block">Foto Resmi (JPG/PNG/WebP, maks 2MB)</label>
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-[11px] font-semibold cursor-pointer">
+                        <Upload className="w-3.5 h-3.5 text-[#064E3B]" />
+                        <span>Pilih Foto Baru</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={handleEditFotoUpload}
+                          className="hidden"
+                        />
+                      </label>
+                      <div className="text-[10px] text-neutral-500 truncate">
+                        {editFotoFileName
+                          ? `File baru: ${editFotoFileName}`
+                          : editForm.foto
+                          ? `Saat ini: ${getFileNameDisplay(editForm.foto, 'Foto terlampir')}`
+                          : 'Belum ada foto'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-2">
+                      <label className="text-[11px] font-bold text-neutral-700 block">Berkas SK Pengangkatan (PDF, maks 5MB)</label>
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-[11px] font-semibold cursor-pointer">
+                        <Upload className="w-3.5 h-3.5 text-[#064E3B]" />
+                        <span>Pilih Berkas SK (PDF)</span>
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={handleEditSkUpload}
+                          className="hidden"
+                        />
+                      </label>
+                      <div className="text-[10px] text-neutral-500 truncate">
+                        {editSkFileName
+                          ? `File baru: ${editSkFileName}`
+                          : editForm.file_sk
+                          ? `Saat ini: ${getFileNameDisplay(editForm.file_sk, 'SK terlampir')}`
+                          : 'Belum ada berkas SK'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-4 bg-neutral-50 border-t flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 bg-neutral-200 hover:bg-neutral-300 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="px-4 py-2 bg-[#064E3B] hover:bg-[#043d2e] text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-60"
+                >
+                  {isSavingEdit ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Simpan Perubahan</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox Modal Pratinjau Foto & Berkas SK */}
       {previewAttachment && (

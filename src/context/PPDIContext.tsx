@@ -89,6 +89,7 @@ interface PPDIContextType {
   visiblePendaftaran: PendaftaranPerangkatDesa[];
   pendingPendaftaranCount: number;
   submitPendaftaran: (data: any) => Promise<{ success: boolean; message: string; id_pendaftaran?: number }>;
+  updatePendaftaran: (id: number, data: Partial<PendaftaranPerangkatDesa>) => Promise<{ success: boolean; message: string; pendaftaran?: PendaftaranPerangkatDesa }>;
   approvePendaftaran: (id: number, noKtaCustom?: string) => Promise<{ success: boolean; message: string; id_anggota?: number; no_kta?: string }>;
   rejectPendaftaran: (id: number, catatan: string) => Promise<{ success: boolean; message: string }>;
   deletePendaftaran: (id: number) => Promise<{ success: boolean; message: string }>;
@@ -204,7 +205,9 @@ interface PPDIContextType {
   // Authentication
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  logout: () => void;
+  logout: (options?: { reason?: 'manual' | 'idle' }) => void;
+  sessionExpiredNotice: string | null;
+  clearSessionExpiredNotice: () => void;
   
   // MySQL Database Status & Hosting Diagnostics
   dbStatus: DbStatusInfo | null;
@@ -251,7 +254,12 @@ const STORAGE_KEYS = {
   ACTIVITY_LOGS: 'ppdi_activity_logs_v1',
   MUST_CHANGE_PASS: 'ppdi_must_change_pass_v1',
   USER_SESSION: 'ppdi_user_session_v1',
+  LAST_ACTIVITY: 'ppdi_last_activity_at_v1',
 };
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 menit tidak aktif -> auto-logout
+const IDLE_LOGOUT_NOTICE =
+  'Sesi Anda telah berakhir secara otomatis karena tidak ada aktivitas selama 30 menit demi keamanan data anggota. Silakan login kembali.';
 
 function isUserActivelyEditingForm(): boolean {
   if (typeof document === 'undefined') return false;
@@ -581,9 +589,38 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return saved ? Number(saved) : 1;
   });
 
+  const initialIdleExpired = (() => {
+    try {
+      if (localStorage.getItem(STORAGE_KEYS.AUTH) !== 'true') return false;
+      const lastRaw = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVITY);
+      if (!lastRaw) return false;
+      const lastTs = Number(lastRaw);
+      return Number.isFinite(lastTs) && lastTs > 0 && Date.now() - lastTs >= IDLE_TIMEOUT_MS;
+    } catch {
+      return false;
+    }
+  })();
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (initialIdleExpired) {
+      try {
+        clearAuthSessionStorage();
+        localStorage.removeItem(STORAGE_KEYS.AUTH);
+        localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
+        localStorage.removeItem(STORAGE_KEYS.USER_SESSION);
+        localStorage.removeItem(STORAGE_KEYS.LAST_ACTIVITY);
+        clearAllMemberCaches();
+      } catch (_) {}
+      return false;
+    }
     return localStorage.getItem(STORAGE_KEYS.AUTH) === 'true';
   });
+
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState<string | null>(() =>
+    initialIdleExpired ? IDLE_LOGOUT_NOTICE : null
+  );
+  const clearSessionExpiredNotice = useCallback(() => setSessionExpiredNotice(null), []);
+  const lastActivityAtRef = useRef<number>(Date.now());
 
   // Web Notifications API state & preferences
   const [browserNotifPermission, setBrowserNotifPermission] = useState<BrowserNotificationPermissionState>(() =>
@@ -2357,6 +2394,36 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return json;
   };
 
+  const updatePendaftaran = async (id: number, data: Partial<PendaftaranPerangkatDesa>) => {
+    const res = await safeFetchJson(`/api/pendaftaran/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(currentUser?.role ? { 'x-user-role': currentUser.role } : {}),
+        ...(currentUser?.id_user ? { 'x-user-id': String(currentUser.id_user) } : {}),
+      },
+      body: JSON.stringify({
+        ...data,
+        ...(data.nama_lengkap ? { nama_lengkap: data.nama_lengkap.trim().toUpperCase() } : {}),
+      }),
+    });
+    const json = res.data;
+    if (!res.ok || json?.success === false) {
+      throw new Error(json?.message || json?.error || res.error || 'Gagal memperbarui data pendaftaran');
+    }
+
+    addActivityLog({
+      aksi: 'EDIT',
+      modul: 'Registrasi & Approval',
+      target_id: String(id),
+      target_nama: (data.nama_lengkap || json?.pendaftaran?.nama_lengkap || `Registrasi #${id}`).toUpperCase(),
+      deskripsi: `Memperbaiki data formulir pendaftaran ID #${id} (NIK: ${data.nik || json?.pendaftaran?.nik || '-'}).`,
+    });
+
+    await refreshDataFromMySQL({ silent: true, force: true });
+    return json;
+  };
+
   const approvePendaftaran = async (id: number, noKtaCustom?: string) => {
     const res = await safeFetchJson(`/api/pendaftaran/${id}/approve`, {
       method: 'PUT',
@@ -2598,7 +2665,11 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setHasLoadedUsersFromServer(true);
 
         setIsAuthenticated(true);
+        setSessionExpiredNotice(null);
+        const loginNow = Date.now();
+        lastActivityAtRef.current = loginNow;
         localStorage.setItem(STORAGE_KEYS.AUTH, 'true');
+        localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY, String(loginNow));
         setCurrentUserId(loggedUser.id_user);
         setActiveTab('dashboard');
 
@@ -2653,7 +2724,11 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const isPassValid = cleanPass === storedPass || cleanPass === PRIMARY_DEFAULT_PASSWORD;
         if (isPassValid) {
           setIsAuthenticated(true);
+          setSessionExpiredNotice(null);
+          const offlineLoginNow = Date.now();
+          lastActivityAtRef.current = offlineLoginNow;
           localStorage.setItem(STORAGE_KEYS.AUTH, 'true');
+          localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY, String(offlineLoginNow));
           setCurrentUserId(matched.id_user);
           setActiveTab('dashboard');
           persistUserSessionSnapshot({ ...matched, password: cleanPass });
@@ -2689,7 +2764,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = useCallback((options?: { reason?: 'manual' | 'idle' }) => {
     // Informasikan backend (Laravel / Express) secara non-blocking jika token sesi aktif
     if (getAuthToken()) {
       void safeFetchJson('/api/auth/logout', { method: 'POST' });
@@ -2698,13 +2773,160 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     knownPendingPendaftaranIdsRef.current = null;
     knownPendingUserIdRef.current = null;
     clearAuthSessionStorage();
-    localStorage.removeItem(STORAGE_KEYS.AUTH);
-    localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
-    localStorage.removeItem(STORAGE_KEYS.USER_SESSION);
+    try {
+      localStorage.removeItem(STORAGE_KEYS.AUTH);
+      localStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASS);
+      localStorage.removeItem(STORAGE_KEYS.USER_SESSION);
+      localStorage.removeItem(STORAGE_KEYS.LAST_ACTIVITY);
+      if (options?.reason === 'idle') {
+        clearAllMemberCaches();
+      }
+    } catch (_) {}
     setMustChangeDefaultPassword(false);
     setIsChangePasswordModalOpen(false);
     setActiveTab('dashboard');
-  };
+    if (options?.reason === 'idle') {
+      setSessionExpiredNotice(IDLE_LOGOUT_NOTICE);
+    } else {
+      setSessionExpiredNotice(null);
+    }
+  }, []);
+
+  // Auto-logout otomatis setelah 30 menit tidak aktif (idle) demi keamanan data anggota
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === 'undefined') return;
+
+    let idleTimerId: number | null = null;
+    let lastPersistedAt = 0;
+
+    const persistActivityTimestamp = (ts: number, force = false) => {
+      lastActivityAtRef.current = ts;
+      if (force || ts - lastPersistedAt >= 5000) {
+        lastPersistedAt = ts;
+        try {
+          localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY, String(ts));
+        } catch (_) {}
+      }
+    };
+
+    const scheduleIdleTimer = () => {
+      if (idleTimerId !== null) {
+        window.clearTimeout(idleTimerId);
+      }
+      const elapsed = Date.now() - lastActivityAtRef.current;
+      const remaining = Math.max(0, IDLE_TIMEOUT_MS - elapsed);
+      idleTimerId = window.setTimeout(() => {
+        // Re-check against cross-tab localStorage timestamp before logging out
+        try {
+          const storedRaw = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVITY);
+          const storedTs = storedRaw ? Number(storedRaw) : 0;
+          if (Number.isFinite(storedTs) && storedTs > lastActivityAtRef.current) {
+            lastActivityAtRef.current = storedTs;
+          }
+        } catch (_) {}
+
+        if (Date.now() - lastActivityAtRef.current >= IDLE_TIMEOUT_MS) {
+          logout({ reason: 'idle' });
+        } else {
+          scheduleIdleTimer();
+        }
+      }, remaining);
+    };
+
+    const checkIdleExpirationNow = (): boolean => {
+      try {
+        const storedRaw = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVITY);
+        const storedTs = storedRaw ? Number(storedRaw) : 0;
+        if (Number.isFinite(storedTs) && storedTs > lastActivityAtRef.current) {
+          lastActivityAtRef.current = storedTs;
+        }
+      } catch (_) {}
+
+      if (Date.now() - lastActivityAtRef.current >= IDLE_TIMEOUT_MS) {
+        logout({ reason: 'idle' });
+        return true;
+      }
+      return false;
+    };
+
+    // Initialize timestamp from storage (or now) when authenticated session mounts
+    try {
+      const storedRaw = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVITY);
+      const storedTs = storedRaw ? Number(storedRaw) : 0;
+      if (Number.isFinite(storedTs) && storedTs > 0) {
+        if (Date.now() - storedTs >= IDLE_TIMEOUT_MS) {
+          logout({ reason: 'idle' });
+          return;
+        }
+        lastActivityAtRef.current = storedTs;
+      } else {
+        persistActivityTimestamp(Date.now(), true);
+      }
+    } catch (_) {
+      persistActivityTimestamp(Date.now(), true);
+    }
+
+    scheduleIdleTimer();
+
+    const handleUserActivity = () => {
+      const now = Date.now();
+      // Only throttle high-frequency pointer/scroll events to avoid extra work
+      if (now - lastActivityAtRef.current < 1000) return;
+      persistActivityTimestamp(now, false);
+      scheduleIdleTimer();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (!checkIdleExpirationNow()) {
+          scheduleIdleTimer();
+        }
+      }
+    };
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.LAST_ACTIVITY && e.newValue) {
+        const syncedTs = Number(e.newValue);
+        if (Number.isFinite(syncedTs) && syncedTs > lastActivityAtRef.current) {
+          lastActivityAtRef.current = syncedTs;
+          scheduleIdleTimer();
+        }
+      } else if (e.key === STORAGE_KEYS.AUTH && e.newValue !== 'true') {
+        setIsAuthenticated(false);
+      }
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'scroll',
+      'touchstart',
+      'click',
+      'wheel',
+    ];
+
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('storage', handleStorageSync);
+
+    // Fallback periodic check every 30s in case browser throttles long timeouts during sleep
+    const heartbeatIntervalId = window.setInterval(() => {
+      checkIdleExpirationNow();
+    }, 30_000);
+
+    return () => {
+      if (idleTimerId !== null) window.clearTimeout(idleTimerId);
+      window.clearInterval(heartbeatIntervalId);
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, handleUserActivity);
+      });
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('storage', handleStorageSync);
+    };
+  }, [isAuthenticated, logout]);
 
   const resetAllData = () => {
     setAnggotaList([]);
@@ -2780,6 +3002,7 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       visiblePendaftaran,
       pendingPendaftaranCount,
       submitPendaftaran,
+      updatePendaftaran,
       approvePendaftaran,
       rejectPendaftaran,
       deletePendaftaran,
@@ -2824,6 +3047,8 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAuthenticated,
       login,
       logout,
+      sessionExpiredNotice,
+      clearSessionExpiredNotice,
       dbStatus,
       isCheckingDb,
       initialDbCheckDone,
@@ -2876,6 +3101,9 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       memberCacheUpdatedAt,
       invalidateMemberCache,
       isAuthenticated,
+      logout,
+      sessionExpiredNotice,
+      clearSessionExpiredNotice,
       dbStatus,
       isCheckingDb,
       initialDbCheckDone,
