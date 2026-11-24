@@ -9,7 +9,7 @@ import {
   isSekretarisDesaJabatan,
   getMemberKtaVerifyByIdUrl,
 } from '../utils/ppdiHelpers';
-import { getPhotoUrl, handleImageError } from '../utils/fileHelpers';
+import { getPhotoUrl, getSkFileUrl, getFileNameDisplay, handleImageError } from '../utils/fileHelpers';
 import {
   buildMemberVCard,
   generateRawVCardQrDataUrl,
@@ -42,9 +42,23 @@ import {
   ChevronUp,
   Send,
   ExternalLink,
+  Eye,
 } from 'lucide-react';
 import { exportMemberProfileToPDF } from '../utils/pdfProfileExport';
 import { SendSekdesUserModal } from './SendSekdesUserModal';
+
+interface SkPreviewState {
+  rawFileSk: string;
+  displayUrl: string;
+  downloadUrl: string;
+  fileName: string;
+  title: string;
+  noSk?: string;
+  tglSk?: string;
+  isPdf: boolean;
+  isImage: boolean;
+  isBlobUrl: boolean;
+}
 
 interface MemberActivityItem {
   id: string;
@@ -114,6 +128,34 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   const [isGeneratingKtaQr, setIsGeneratingKtaQr] = useState(false);
   const [isDownloadingKtaQrCard, setIsDownloadingKtaQrCard] = useState(false);
   const [copiedKtaVerifyUrl, setCopiedKtaVerifyUrl] = useState(false);
+
+  // SK File Preview modal state
+  const [previewSk, setPreviewSk] = useState<SkPreviewState | null>(null);
+  const [isDownloadingSk, setIsDownloadingSk] = useState(false);
+
+  const closeSkPreview = useCallback(() => {
+    setPreviewSk((prev) => {
+      if (prev?.isBlobUrl && prev.displayUrl.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(prev.displayUrl);
+        } catch (_) {}
+      }
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      setPreviewSk((prev) => {
+        if (prev?.isBlobUrl && prev.displayUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(prev.displayUrl);
+          } catch (_) {}
+        }
+        return null;
+      });
+    };
+  }, []);
 
   const canSendSekdesAccount =
     (currentUser.role === 'Superadmin_Kabupaten' ||
@@ -186,6 +228,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
 
   // Reset modal sub-states when member changes or closes
   useEffect(() => {
+    closeSkPreview();
     if (!isOpen || !member) {
       setShowQrPanel(false);
       setShowKtaVerifyQrPanel(false);
@@ -212,7 +255,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
         ? String(member.jabatanTerkini.periode)
         : ''
     );
-  }, [isOpen, memberId]);
+  }, [isOpen, memberId, closeSkPreview]);
 
   // Fetch activity logs whenever the user opens the Riwayat Aktivitas tab
   useEffect(() => {
@@ -252,6 +295,157 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     link.click();
     document.body.removeChild(link);
   };
+
+  const resolveSafeSkPreview = useCallback(
+    (rawFileSk: string, title: string, noSk?: string, tglSk?: string): SkPreviewState | null => {
+      const resolved = getSkFileUrl(rawFileSk);
+      if (!resolved) return null;
+
+      const lower = resolved.toLowerCase();
+      const isHttpUrl = lower.startsWith('http://') || lower.startsWith('https://');
+      const isSafeRelative = resolved.startsWith('/') && !resolved.startsWith('//');
+      const isDataPdf =
+        lower.startsWith('data:application/pdf;base64,') ||
+        lower.startsWith('data:application/x-pdf;base64,');
+      const isDataImage = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(resolved);
+
+      if (!isHttpUrl && !isSafeRelative && !isDataPdf && !isDataImage) {
+        return null;
+      }
+
+      const fallbackSlug = buildSafeFileSlug(member?.anggota.nama_lengkap || 'Anggota');
+      const fallbackName = `SK_${fallbackSlug}${isDataImage ? '.png' : '.pdf'}`;
+      const displayFileName = getFileNameDisplay(rawFileSk, fallbackName);
+      const cleanPathWithoutQuery = lower.split('?')[0].split('#')[0];
+
+      const isImage =
+        isDataImage ||
+        /\.(png|jpe?g|webp|gif)$/i.test(cleanPathWithoutQuery);
+      const isPdf =
+        isDataPdf ||
+        cleanPathWithoutQuery.endsWith('.pdf') ||
+        (!isImage && (isSafeRelative || isHttpUrl));
+
+      if (isDataPdf) {
+        try {
+          const base64Part = resolved.split(',')[1] || '';
+          const binaryStr = atob(base64Part);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i += 1) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'application/pdf' });
+          const blobUrl = URL.createObjectURL(blob);
+          return {
+            rawFileSk,
+            displayUrl: blobUrl,
+            downloadUrl: blobUrl,
+            fileName: displayFileName.toLowerCase().endsWith('.pdf')
+              ? displayFileName
+              : `${displayFileName}.pdf`,
+            title,
+            noSk,
+            tglSk,
+            isPdf: true,
+            isImage: false,
+            isBlobUrl: true,
+          };
+        } catch {
+          return null;
+        }
+      }
+
+      return {
+        rawFileSk,
+        displayUrl: resolved,
+        downloadUrl: resolved,
+        fileName: displayFileName,
+        title,
+        noSk,
+        tglSk,
+        isPdf,
+        isImage,
+        isBlobUrl: false,
+      };
+    },
+    [member?.anggota.nama_lengkap]
+  );
+
+  const handleOpenSkFile = useCallback(
+    (rawFileSk?: string | null, title = 'File SK Pengangkatan', noSk?: string, tglSk?: string) => {
+      if (!rawFileSk || !rawFileSk.trim()) {
+        setActionFeedback({
+          type: 'error',
+          message: 'File SK belum diunggah untuk riwayat jabatan ini.',
+        });
+        return;
+      }
+      const nextPreview = resolveSafeSkPreview(rawFileSk, title, noSk, tglSk);
+      if (!nextPreview) {
+        setActionFeedback({
+          type: 'error',
+          message: 'Format file SK tidak valid atau tidak dapat dibuka.',
+        });
+        return;
+      }
+      setPreviewSk((prev) => {
+        if (prev?.isBlobUrl && prev.displayUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(prev.displayUrl);
+          } catch (_) {}
+        }
+        return nextPreview;
+      });
+    },
+    [resolveSafeSkPreview]
+  );
+
+  const handleDownloadSkFile = useCallback(
+    async (rawFileSk?: string | null, fallbackTitle?: string) => {
+      const resolved = getSkFileUrl(rawFileSk);
+      if (!resolved) {
+        setActionFeedback({ type: 'error', message: 'File SK tidak ditemukan.' });
+        return;
+      }
+      const lower = resolved.toLowerCase();
+      const isAllowed =
+        lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        (resolved.startsWith('/') && !resolved.startsWith('//')) ||
+        lower.startsWith('data:application/pdf;base64,') ||
+        lower.startsWith('data:application/x-pdf;base64,') ||
+        /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(resolved);
+
+      if (!isAllowed) {
+        setActionFeedback({ type: 'error', message: 'URL file SK tidak valid.' });
+        return;
+      }
+
+      const safeSlug = buildSafeFileSlug(fallbackTitle || member?.anggota.nama_lengkap || 'Dokumen_SK');
+      const rawName = getFileNameDisplay(rawFileSk, `SK_${safeSlug}.pdf`);
+      const finalName = rawName.includes('.') ? rawName : `${rawName}.pdf`;
+
+      if (resolved.startsWith('data:')) {
+        triggerDownload(resolved, finalName);
+        return;
+      }
+
+      setIsDownloadingSk(true);
+      try {
+        const resp = await fetch(resolved);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        triggerDownload(blobUrl, finalName);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      } catch {
+        triggerDownload(resolved, finalName);
+      } finally {
+        setIsDownloadingSk(false);
+      }
+    },
+    [member?.anggota.nama_lengkap]
+  );
 
   const handleDownloadQrCard = async () => {
     if (!member || !qrRawDataUrl) return;
@@ -498,6 +692,19 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
 
   const memberRiwayats = riwayatList.filter((r) => r.id_anggota === member.anggota.id_anggota);
   const memberIurans = iuranList.filter((i) => i.id_anggota === member.anggota.id_anggota);
+  const skRiwayatsWithFiles = memberRiwayats.filter((r) => Boolean(r.file_sk && r.file_sk.trim()));
+  const primarySkRecord =
+    (member.jabatanTerkini?.file_sk && member.jabatanTerkini.file_sk.trim()
+      ? member.jabatanTerkini
+      : null) ||
+    skRiwayatsWithFiles.find((r) => r.status_aktif === 'Aktif') ||
+    skRiwayatsWithFiles[0] ||
+    null;
+  const primarySkJabatanName = primarySkRecord
+    ? jabatanList.find((j) => j.id_jabatan === primarySkRecord.id_jabatan)?.nama_jabatan ||
+      member.jabatanRef?.nama_jabatan ||
+      'Perangkat Desa'
+    : member.jabatanRef?.nama_jabatan || 'Perangkat Desa';
 
   const handleCreateNewRiwayat = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -601,6 +808,24 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               <QrCode className="w-3.5 h-3.5 text-emerald-700" />
               <span>QR Kontak (vCard)</span>
             </button>
+            {primarySkRecord?.file_sk && (
+              <button
+                type="button"
+                onClick={() =>
+                  handleOpenSkFile(
+                    primarySkRecord.file_sk,
+                    `File SK - ${primarySkJabatanName}`,
+                    primarySkRecord.no_sk_pengangkatan,
+                    primarySkRecord.tgl_sk_pengangkatan
+                  )
+                }
+                title="Buka dan lihat dokumen File SK Pengangkatan anggota"
+                className="px-3 py-1.5 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-700 hover:text-white border border-blue-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Buka File SK</span>
+              </button>
+            )}
             <button
               onClick={handleDownloadPDF}
               disabled={isExportingPDF}
@@ -1043,9 +1268,42 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         </div>
                         <div>
                           <div className="text-neutral-400">Berkas SK</div>
-                          <span className={rw.file_sk ? 'text-emerald-700 font-medium' : 'text-neutral-400 italic'}>
-                            {rw.file_sk ? rw.file_sk.split('/').pop() : 'Belum Diunggah'}
-                          </span>
+                          {rw.file_sk && rw.file_sk.trim() ? (
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleOpenSkFile(
+                                    rw.file_sk,
+                                    `File SK - ${j?.nama_jabatan || 'Perangkat Desa'}`,
+                                    rw.no_sk_pengangkatan,
+                                    rw.tgl_sk_pengangkatan
+                                  )
+                                }
+                                title={`Buka File SK (${getFileNameDisplay(rw.file_sk)})`}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-blue-800 bg-blue-50 hover:bg-blue-700 hover:text-white border border-blue-200 rounded-md transition-colors cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Buka File SK</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDownloadSkFile(
+                                    rw.file_sk,
+                                    `${member.anggota.nama_lengkap}_${j?.nama_jabatan || 'SK'}`
+                                  )
+                                }
+                                disabled={isDownloadingSk}
+                                title="Unduh File SK"
+                                className="inline-flex items-center gap-1 px-1.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <Download className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-neutral-400 italic">Belum Diunggah</span>
+                          )}
                         </div>
                       </div>
                       {rw.keterangan && (
@@ -1241,6 +1499,165 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
           {/* TAB 5: E-ARSIP BERKAS SK */}
           {activeTab === 'dokumen' && (
             <div className="space-y-4">
+              {/* Daftar Berkas Digital SK Terunggah */}
+              <div className="p-4 border border-neutral-200 rounded-xl bg-white space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-neutral-100">
+                  <div>
+                    <h3 className="font-bold text-neutral-900 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-blue-700" />
+                      <span>Berkas Digital SK Terunggah</span>
+                    </h3>
+                    <p className="text-[11px] text-neutral-500">
+                      Klik tombol Buka File SK untuk melihat pratinjau dokumen atau mengunduh salinan resmi SK
+                    </p>
+                  </div>
+                  {primarySkRecord?.file_sk && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleOpenSkFile(
+                          primarySkRecord.file_sk,
+                          `File SK - ${primarySkJabatanName}`,
+                          primarySkRecord.no_sk_pengangkatan,
+                          primarySkRecord.tgl_sk_pengangkatan
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors cursor-pointer shadow-xs"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Buka File SK Utama</span>
+                    </button>
+                  )}
+                </div>
+
+                {skRiwayatsWithFiles.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {skRiwayatsWithFiles.map((rw) => {
+                      const jab = jabatanList.find((j) => j.id_jabatan === rw.id_jabatan);
+                      const ds = desaList.find((d) => d.id_desa === rw.id_desa);
+                      return (
+                        <div
+                          key={rw.id_riwayat}
+                          className="p-3 rounded-lg border border-neutral-200 bg-neutral-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-neutral-900">
+                                {jab?.nama_jabatan || 'Perangkat Desa'}
+                              </span>
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-sm ${
+                                  rw.status_aktif === 'Aktif'
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                    : 'bg-neutral-100 text-neutral-600 border border-neutral-200'
+                                }`}
+                              >
+                                {rw.status_aktif}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-neutral-600 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span className="font-mono">No. SK: {rw.no_sk_pengangkatan || '-'}</span>
+                              <span>·</span>
+                              <span>Tgl SK: {formatDateIndo(rw.tgl_sk_pengangkatan)}</span>
+                              {ds?.nama_desa && (
+                                <>
+                                  <span>·</span>
+                                  <span>Desa {ds.nama_desa}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-emerald-700 font-medium truncate">
+                              Berkas: {getFileNameDisplay(rw.file_sk)}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenSkFile(
+                                  rw.file_sk,
+                                  `File SK - ${jab?.nama_jabatan || 'Perangkat Desa'}`,
+                                  rw.no_sk_pengangkatan,
+                                  rw.tgl_sk_pengangkatan
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-700 hover:text-white border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Buka File SK</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDownloadSkFile(
+                                  rw.file_sk,
+                                  `${member.anggota.nama_lengkap}_${jab?.nama_jabatan || 'SK'}`
+                                )
+                              }
+                              disabled={isDownloadingSk}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Unduh</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : primarySkRecord?.file_sk ? (
+                  <div className="p-3 rounded-lg border border-neutral-200 bg-neutral-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="font-bold text-neutral-900">{primarySkJabatanName}</div>
+                      <div className="text-[11px] text-neutral-600 font-mono">
+                        No. SK: {primarySkRecord.no_sk_pengangkatan || '-'}
+                      </div>
+                      <div className="text-[11px] text-emerald-700 font-medium truncate">
+                        Berkas: {getFileNameDisplay(primarySkRecord.file_sk)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenSkFile(
+                            primarySkRecord.file_sk,
+                            `File SK - ${primarySkJabatanName}`,
+                            primarySkRecord.no_sk_pengangkatan,
+                            primarySkRecord.tgl_sk_pengangkatan
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-700 hover:text-white border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Buka File SK</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDownloadSkFile(
+                            primarySkRecord.file_sk,
+                            `${member.anggota.nama_lengkap}_${primarySkJabatanName}`
+                          )
+                        }
+                        disabled={isDownloadingSk}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 text-center space-y-1">
+                    <div className="font-semibold text-neutral-700">Belum ada File SK digital yang diunggah</div>
+                    <div className="text-[11px] text-neutral-500">
+                      Silakan unggah berkas PDF SK melalui menu Edit Data Anggota agar dapat dibuka di sini.
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="p-5 border border-neutral-200 rounded-xl bg-neutral-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1754,6 +2171,105 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                   <QrCode className="w-4 h-4 text-emerald-700" />
                   <span>Unduh QR Polos (PNG)</span>
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SK Document File Viewer Sub-Modal */}
+      {previewSk && (
+        <div
+          className="fixed inset-0 z-[65] bg-neutral-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={closeSkPreview}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-neutral-200 overflow-hidden my-4 flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold tracking-tight truncate">{previewSk.title}</h3>
+                  <p className="text-[11px] text-blue-100/90 truncate">
+                    {fullNameWithTitles}
+                    {previewSk.noSk ? ` · No. SK: ${previewSk.noSk}` : ''}
+                    {previewSk.tglSk ? ` · Tgl: ${formatDateIndo(previewSk.tglSk)}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={previewSk.displayUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Buka di Tab Baru</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (previewSk.isBlobUrl) {
+                      triggerDownload(previewSk.downloadUrl, previewSk.fileName);
+                    } else {
+                      handleDownloadSkFile(previewSk.rawFileSk, previewSk.fileName);
+                    }
+                  }}
+                  disabled={isDownloadingSk}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-950 bg-amber-300 hover:bg-amber-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{isDownloadingSk ? 'Mengunduh...' : 'Unduh File SK'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={closeSkPreview}
+                  aria-label="Tutup pratinjau File SK"
+                  className="p-1.5 rounded-lg text-blue-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewer Content */}
+            <div className="p-4 bg-neutral-100 flex-1 overflow-auto flex flex-col gap-3">
+              {previewSk.isImage ? (
+                <div className="bg-white rounded-xl border border-neutral-200 p-3 flex items-center justify-center min-h-[55vh]">
+                  <img
+                    src={previewSk.displayUrl}
+                    alt={previewSk.title}
+                    className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                  />
+                </div>
+              ) : previewSk.isPdf ? (
+                <iframe
+                  title={previewSk.title}
+                  src={previewSk.displayUrl}
+                  className="w-full h-[70vh] rounded-xl border border-neutral-200 bg-white shadow-xs"
+                />
+              ) : (
+                <div className="bg-white rounded-xl border border-neutral-200 p-8 text-center space-y-3">
+                  <FileText className="w-10 h-10 text-blue-700 mx-auto" />
+                  <div className="font-bold text-neutral-900">{previewSk.fileName}</div>
+                  <p className="text-xs text-neutral-500">
+                    Pratinjau langsung tidak tersedia untuk format berkas ini. Silakan buka di tab baru atau unduh berkas.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-600 px-1">
+                <span className="truncate font-medium">Nama Berkas: {previewSk.fileName}</span>
+                <span>
+                  Jika pratinjau tidak muncul pada perangkat Anda, klik <strong>Buka di Tab Baru</strong> atau{' '}
+                  <strong>Unduh File SK</strong>.
+                </span>
               </div>
             </div>
           </div>

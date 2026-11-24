@@ -1646,17 +1646,6 @@ export const PendaftaranApprovalView: React.FC<PendaftaranApprovalViewProps> = (
                       <td className="p-3 text-center text-neutral-400 font-bold">{index + 1}</td>
                       <td className="p-3 text-center">
                         <div className="inline-flex items-center justify-center gap-1.5">
-                          {canEditData && (
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(item)}
-                              title="Edit / Perbaiki Data Pendaftaran"
-                              className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:border-amber-400 text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
-                            >
-                              <Pencil className="w-3.5 h-3.5 text-amber-700" />
-                              <span>Edit</span>
-                            </button>
-                          )}
                           <button
                             type="button"
                             onClick={(e) => handleToggleRowDropdown(e, item)}

@@ -1658,7 +1658,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
 
                         {uploadingNewRwSk && (
                           <span className="text-xs font-mono text-emerald-800 animate-pulse">
-                            Menyimpan ke /uploads/sk/...
+                            Menyimpan Berkas...
                           </span>
                         )}
 
@@ -1668,9 +1668,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                               <FileCheck className="w-4 h-4 text-emerald-600" />
                               <span className="font-semibold">{newRwFileSkName}</span>
                             </span>
-                            <span className="text-[10px] font-mono text-neutral-500">
-                              Folder Server: <strong className="text-emerald-700">/uploads/sk/</strong>
-                            </span>
+                            
                           </div>
                         ) : !uploadingNewRwSk && (
                           <span className="text-xs text-neutral-400">Belum ada file SK dipilih</span>
@@ -1872,7 +1870,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
 
                         {uploadingSk && (
                           <span className="text-xs font-mono text-emerald-800 animate-pulse">
-                            Menyimpan ke /uploads/sk/...
+                            Menyimpan Berkas...
                           </span>
                         )}
                       </div>
@@ -1884,9 +1882,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                               <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                               <span className="truncate font-semibold">{fileSkName}</span>
                             </span>
-                            <span className="text-[10px] text-neutral-500">
-                              Folder Server: <strong className="text-emerald-700">/uploads/sk/</strong>
-                            </span>
+                            
                           </div>
                           {(fileSk.startsWith('data:') || fileSk.startsWith('/uploads/') || fileSk.startsWith('http')) && (
                             <a
@@ -1901,7 +1897,7 @@ export const AnggotaFormModal: React.FC<AnggotaFormModalProps> = ({
                         </div>
                       ) : !uploadingSk && (
                         <span className="text-[10px] text-neutral-400">
-                          Format: Hanya berkas PDF (.pdf) resmi (maks 10MB). Tersimpan di folder <code className="text-neutral-600">/uploads/sk/</code>
+                          Format: Hanya berkas PDF (.pdf) resmi (maks 10MB). Tersimpan di folder <code className="text-neutral-600"></code>
                         </span>
                       )}
                     </div>
