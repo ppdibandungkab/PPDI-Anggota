@@ -3222,6 +3222,8 @@ app.put('/api/anggota/:id', requirePermission('anggota', 'edit'), async (req, re
         ['Gelar Belakang', beforeMember.gelar_belakang, data.gelar_belakang],
         ['Tempat Lahir', beforeMember.tempat_lahir, data.tempat_lahir],
         ['Tanggal Lahir', beforeMember.tanggal_lahir ? String(beforeMember.tanggal_lahir).slice(0, 10) : '', data.tanggal_lahir ? String(data.tanggal_lahir).slice(0, 10) : undefined],
+        ['Jenis Kelamin', beforeMember.jenis_kelamin, data.jenis_kelamin],
+        ['Agama', beforeMember.agama, data.agama],
         ['Pendidikan', beforeMember.pendidikan_terakhir, data.pendidikan_terakhir],
         ['No. HP/WA', beforeMember.no_hp_wa, data.no_hp_wa],
         ['Email', beforeMember.email, data.email],

@@ -418,5 +418,60 @@
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+
+  #kta-modal-front,
+  #kta-modal-back {
+    width: 85.6mm !important;
+    height: 54.0mm !important;
+    min-height: 54.0mm !important;
+    max-width: 85.6mm !important;
+    max-height: 54.0mm !important;
+    margin: 0 !important;
+    border-radius: 3.18mm !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #kta-modal-print-sheet {
+    display: flex !important;
+    width: 100% !important;
+    min-height: 277mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #kta-modal-print-sheet.kta-print-portrait {
+    page: kta-a4-portrait;
+    min-height: 277mm !important;
+  }
+
+  #kta-modal-print-sheet.kta-print-landscape {
+    page: kta-a4-landscape;
+    min-height: 190mm !important;
+  }
+
+  .kta-print-cut-frame {
+    padding: 1.5mm !important;
+    border: 0.25mm dashed #94a3b8 !important;
+    border-radius: 4mm !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+
+@page kta-a4-portrait {
+  size: A4 portrait;
+  margin: 10mm;
+}
+
+@page kta-a4-landscape {
+  size: A4 landscape;
+  margin: 10mm;
 }
 

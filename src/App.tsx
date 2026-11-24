@@ -209,7 +209,7 @@ const MainAppContent: React.FC = () => {
       />
 
       {/* Main Body Layout: Sidebar + Main Stage */}
-      <div className="relative z-10 flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row print:max-w-none">
+      <div className={`relative z-10 flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row print:max-w-none ${detailMember ? 'no-print' : ''}`}>
         {/* Navigation Sidebar */}
         <div className="no-print relative">
           <Sidebar

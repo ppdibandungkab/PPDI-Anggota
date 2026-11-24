@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { usePPDI } from '../context/PPDIContext';
 import { AnggotaFullDetail, StatusAktifJabatan, StatusKTA } from '../types/ppdi';
 import {
@@ -43,6 +44,9 @@ import {
   Send,
   ExternalLink,
   Eye,
+  Printer,
+  Shield,
+  ArrowRight,
 } from 'lucide-react';
 import { exportMemberProfileToPDF } from '../utils/pdfProfileExport';
 import { SendSekdesUserModal } from './SendSekdesUserModal';
@@ -80,12 +84,22 @@ interface AnggotaDetailModalProps {
   onOpenAddIuranForMember?: (memberId: string) => void;
 }
 
+const DETAIL_TAB_ORDER = ['bio', 'karir', 'kta', 'iuran', 'dokumen', 'riwayat'] as const;
+type DetailTabId = (typeof DETAIL_TAB_ORDER)[number];
+
 export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
-  member,
+  member: memberProp,
   isOpen,
   onClose,
   onSelectForKTA,
 }) => {
+  // Preserve last non-null member while AnimatePresence plays the exit animation
+  const lastMemberRef = useRef<AnggotaFullDetail | null>(null);
+  if (memberProp) {
+    lastMemberRef.current = memberProp;
+  }
+  const member = memberProp ?? lastMemberRef.current;
+
   const {
     riwayatList,
     iuranList,
@@ -101,15 +115,36 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     hasPermission,
   } = usePPDI();
 
-  const [activeTab, setActiveTab] = useState<'bio' | 'karir' | 'kta' | 'iuran' | 'dokumen' | 'aktivitas'>('bio');
+  const [activeTab, setActiveTab] = useState<DetailTabId>('bio');
+  const [tabDirection, setTabDirection] = useState<number>(1);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  const handleSelectTab = useCallback((nextTab: DetailTabId) => {
+    setActiveTab((prevTab) => {
+      if (prevTab === nextTab) return prevTab;
+      const prevIdx = DETAIL_TAB_ORDER.indexOf(prevTab);
+      const nextIdx = DETAIL_TAB_ORDER.indexOf(nextTab);
+      setTabDirection(nextIdx >= prevIdx ? 1 : -1);
+      return nextTab;
+    });
+  }, []);
 
   // Member Activity History state
   const [serverActivityLogs, setServerActivityLogs] = useState<MemberActivityItem[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [activityFilter, setActivityFilter] = useState<'all' | 'profil' | 'jabatan' | 'kta'>('all');
+
+  // Direct Cetak KTA (A4 Layout Simulation + window.print CR-80 standard card) state
+  const [showKtaPrintPreview, setShowKtaPrintPreview] = useState(false);
+  const [ktaPrintSide, setKtaPrintSide] = useState<'both' | 'front' | 'back'>('both');
+  const [ktaPrintOrientation, setKtaPrintOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [ktaPrintLayout, setKtaPrintLayout] = useState<'vertical' | 'horizontal'>('vertical');
+  const [ktaPrintAlignment, setKtaPrintAlignment] = useState<'top-center' | 'top-left' | 'center'>('top-center');
+  const [showKtaCutGuides, setShowKtaCutGuides] = useState(true);
+  const [ktaCardQrDataUrl, setKtaCardQrDataUrl] = useState<string>('');
+  const [isPreparingKtaPrint, setIsPreparingKtaPrint] = useState(false);
 
   // vCard QR Code generator modal state
   const [showQrPanel, setShowQrPanel] = useState(false);
@@ -230,6 +265,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
   useEffect(() => {
     closeSkPreview();
     if (!isOpen || !member) {
+      setShowKtaPrintPreview(false);
       setShowQrPanel(false);
       setShowKtaVerifyQrPanel(false);
       setShowRawVcard(false);
@@ -240,6 +276,12 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     }
     setActiveTab('bio');
     setActivityFilter('all');
+    setShowKtaPrintPreview(false);
+    setKtaPrintSide('both');
+    setKtaPrintOrientation('portrait');
+    setKtaPrintLayout('vertical');
+    setKtaPrintAlignment('top-center');
+    setShowKtaCutGuides(true);
     setShowQrPanel(false);
     setShowKtaVerifyQrPanel(false);
     setShowRawVcard(false);
@@ -257,12 +299,67 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     );
   }, [isOpen, memberId, closeSkPreview]);
 
-  // Fetch activity logs whenever the user opens the Riwayat Aktivitas tab
+  // Fetch activity logs when modal opens or switches to Riwayat tab
   useEffect(() => {
-    if (isOpen && member && activeTab === 'aktivitas') {
+    if (isOpen && member) {
+      fetchMemberActivity();
+    }
+  }, [isOpen, memberId, fetchMemberActivity]);
+
+  useEffect(() => {
+    if (isOpen && member && activeTab === 'riwayat') {
       fetchMemberActivity();
     }
   }, [isOpen, member, activeTab, fetchMemberActivity]);
+
+  // Pre-generate KTA verification QR Code whenever modal opens so Cetak KTA is instant
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !member) {
+      setKtaCardQrDataUrl('');
+      return;
+    }
+    const verifyUrl = getMemberKtaVerifyByIdUrl(member.anggota.id_anggota);
+    generateKtaVerifyQrDataUrl(verifyUrl)
+      .then((dataUrl) => {
+        if (!cancelled) setKtaCardQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setKtaCardQrDataUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, memberId]);
+
+  const handleOpenKtaPrintMode = useCallback(() => {
+    if (!member) return;
+    setShowKtaPrintPreview(true);
+  }, [member]);
+
+  const handlePrintKta = useCallback(async () => {
+    if (!member) return;
+    setIsPreparingKtaPrint(true);
+    try {
+      if (!ktaCardQrDataUrl) {
+        const verifyUrl = getMemberKtaVerifyByIdUrl(member.anggota.id_anggota);
+        const dataUrl = await generateKtaVerifyQrDataUrl(verifyUrl);
+        setKtaCardQrDataUrl(dataUrl);
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      } else {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      }
+      window.print();
+    } catch (err: any) {
+      console.error('Error preparing KTA print:', err);
+      setActionFeedback({
+        type: 'error',
+        message: 'Gagal menyiapkan cetak KTA: ' + (err?.message || 'Error'),
+      });
+    } finally {
+      setIsPreparingKtaPrint(false);
+    }
+  }, [member, ktaCardQrDataUrl]);
 
   // Generate vCard & QR code whenever QR panel opens for current member
   const handleOpenQrGenerator = useCallback(async () => {
@@ -670,13 +767,52 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     return allItems;
   }, [member, serverActivityLogs, activityLogs, riwayatList, jabatanList, desaList]);
 
+  const parseProfileDiffChanges = useCallback(
+    (deskripsi: string): Array<{ field: string; oldVal?: string; newVal?: string; raw?: string }> => {
+      if (!deskripsi) return [];
+      const colonIdx = deskripsi.indexOf(':');
+      if (colonIdx === -1 || !deskripsi.includes('→')) return [];
+      const afterColon = deskripsi.slice(colonIdx + 1).trim().replace(/\.$/, '');
+      if (!afterColon) return [];
+      const segments = afterColon.split(';').map((s) => s.trim()).filter(Boolean);
+      const parsed: Array<{ field: string; oldVal?: string; newVal?: string; raw?: string }> = [];
+      for (const seg of segments) {
+        const match = seg.match(/^(.+?)\s*\((.+?)\s*→\s*(.+?)\)$/);
+        if (match) {
+          parsed.push({
+            field: match[1].trim(),
+            oldVal: match[2].trim(),
+            newVal: match[3].trim(),
+          });
+        } else if (seg.includes('→')) {
+          const [left, right] = seg.split('→').map((s) => s.trim());
+          parsed.push({ field: 'Perubahan', oldVal: left, newVal: right });
+        } else {
+          parsed.push({ field: 'Pembaruan', raw: seg });
+        }
+      }
+      return parsed;
+    },
+    []
+  );
+
   const filteredMemberActivities = useMemo(() => {
     if (activityFilter === 'all') return combinedMemberActivities;
     return combinedMemberActivities.filter((item) => {
       const mod = item.modul.toLowerCase();
       const desc = item.deskripsi.toLowerCase();
       if (activityFilter === 'profil') {
-        return mod.includes('profil') || mod.includes('data induk') || mod.includes('pendaftaran');
+        return (
+          mod.includes('profil') ||
+          mod.includes('data induk') ||
+          mod.includes('pendaftaran') ||
+          desc.includes('perubahan profil') ||
+          desc.includes('status pernikahan') ||
+          desc.includes('nip') ||
+          desc.includes('niap') ||
+          desc.includes('pendidikan') ||
+          desc.includes('alamat')
+        );
       }
       if (activityFilter === 'jabatan') {
         return mod.includes('jabatan') || mod.includes('sk') || desc.includes('jabatan') || desc.includes('sk');
@@ -688,7 +824,7 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     });
   }, [combinedMemberActivities, activityFilter]);
 
-  if (!isOpen || !member) return null;
+  if (!member) return null;
 
   const memberRiwayats = riwayatList.filter((r) => r.id_anggota === member.anggota.id_anggota);
   const memberIurans = iuranList.filter((i) => i.id_anggota === member.anggota.id_anggota);
@@ -749,9 +885,303 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
     (member.anggota.gelar_belakang ? `, ${member.anggota.gelar_belakang}` : '')
   ).toUpperCase();
 
+  const appLogo = appSettings?.logoUrl || '/logo_kabupaten_bandung.svg';
+  const watermarkLogo = appSettings?.watermarkLogoUrl?.trim() || appLogo;
+  const fallbackOpacity =
+    typeof appSettings?.watermarkOpacity === 'number'
+      ? Math.min(1, Math.max(0, appSettings.watermarkOpacity))
+      : 0.08;
+  const watermarkOpacityFront =
+    typeof appSettings?.watermarkOpacityFront === 'number'
+      ? Math.min(1, Math.max(0, appSettings.watermarkOpacityFront))
+      : fallbackOpacity;
+  const watermarkOpacityBack =
+    typeof appSettings?.watermarkOpacityBack === 'number'
+      ? Math.min(1, Math.max(0, appSettings.watermarkOpacityBack))
+      : fallbackOpacity;
+  const ketuaNama = appSettings?.chairman_name?.trim() || 'DADANG IYAS, S.Ip.';
+
+  const renderKtaFrontCard = (cardId?: string) => (
+    <div
+      id={cardId}
+      className="w-full aspect-[85.6/54] text-white rounded-2xl shadow-xl relative overflow-hidden p-4 sm:p-5 flex flex-col justify-between"
+      style={{
+        minHeight: '240px',
+        backgroundColor: '#064e3b',
+        backgroundImage: 'linear-gradient(135deg, #064e3b 0%, #065f46 50%, #042f2e 100%)',
+        border: '1px solid rgba(5, 150, 105, 0.4)',
+        color: '#ffffff',
+      }}
+    >
+      <div
+        className="absolute inset-0 opacity-10 pointer-events-none"
+        style={{
+          backgroundImage: 'radial-gradient(circle, #fde047 1px, transparent 1px)',
+          backgroundSize: '16px 16px',
+        }}
+      />
+      <div
+        className="absolute -top-12 -right-12 w-48 h-48 rounded-full blur-2xl pointer-events-none"
+        style={{ backgroundColor: 'rgba(251, 191, 36, 0.1)' }}
+      />
+      {watermarkLogo && watermarkOpacityFront > 0 && (
+        <div
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-44 h-44 pointer-events-none select-none flex items-center justify-center"
+          style={{ opacity: watermarkOpacityFront }}
+        >
+          <img
+            src={watermarkLogo}
+            alt=""
+            className="w-full h-full object-contain filter grayscale brightness-200"
+          />
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="relative z-10 flex items-center justify-between pb-2 border-b border-amber-400/40">
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className="w-9 h-9 rounded-full p-0.5 shadow-md shrink-0 flex items-center justify-center overflow-hidden"
+            style={{
+              background: 'linear-gradient(180deg, #fcd34d 0%, #fbbf24 50%, #f59e0b 100%)',
+            }}
+          >
+            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden p-0.5">
+              {appLogo ? (
+                <img src={appLogo} alt="Logo PPDI" className="w-full h-full object-contain" />
+              ) : (
+                <div className="w-full h-full rounded-full bg-emerald-950 flex items-center justify-center">
+                  <Shield className="w-4 h-4 text-amber-300" />
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[9.5px] font-extrabold tracking-wider text-amber-300 uppercase leading-none truncate">
+              {appSettings?.appName || 'PERSATUAN PERANGKAT DESA INDONESIA'}
+            </div>
+            <div className="text-[7.5px] tracking-widest text-emerald-100 font-semibold uppercase mt-0.5 truncate">
+              PENGURUS DAERAH KAB. BANDUNG
+            </div>
+          </div>
+        </div>
+        <div className="text-right shrink-0 pl-2">
+          <div className="text-[8.5px] font-bold text-amber-300 tracking-wider">E-KTA DIGITAL</div>
+          <div className="text-[7.5px] text-emerald-200">JAWA BARAT</div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="relative z-10 grid grid-cols-12 gap-3 items-center py-1.5">
+        <div className="col-span-4 flex flex-col items-center justify-center">
+          <div className="w-24 aspect-[3/4] rounded-xl overflow-hidden border-2 border-amber-300 shadow-lg bg-neutral-900 flex items-center justify-center p-0.5">
+            <img
+              src={getPhotoUrl(member.anggota.foto, member.anggota.jenis_kelamin)}
+              alt={member.anggota.nama_lengkap}
+              className="w-full h-full object-cover object-top rounded-lg"
+              onError={(e) => handleImageError(e, member.anggota.jenis_kelamin)}
+              referrerPolicy="no-referrer"
+            />
+          </div>
+        </div>
+
+        <div className="col-span-8 space-y-1 text-left min-w-0">
+          <div>
+            <div className="text-[7.5px] text-emerald-200 uppercase tracking-widest font-semibold">
+              Nama Perangkat Desa
+            </div>
+            <div className="font-extrabold text-amber-300 leading-tight uppercase truncate text-[11px]">
+              {fullNameWithTitles}
+            </div>
+          </div>
+
+          {member.anggota.nipd && (
+            <div className="text-[9.5px]">
+              <span className="text-emerald-200 text-[7.5px] uppercase tracking-wider block">NIPD</span>
+              <span className="font-mono font-medium text-white">{formatNIPDDisplay(member.anggota.nipd)}</span>
+            </div>
+          )}
+
+          <div className="text-[9.5px]">
+            <span className="text-emerald-200 text-[7.5px] uppercase tracking-wider block">Jabatan SOTK</span>
+            <span className="font-mono font-medium text-white truncate block">
+              {member.jabatanRef?.nama_jabatan || 'Perangkat Desa'}
+            </span>
+          </div>
+
+          <div className="text-[9.5px]">
+            <span className="text-emerald-200 text-[7.5px] uppercase tracking-wider block">Wilayah Tugas</span>
+            <div className="font-medium text-emerald-100 leading-tight truncate">
+              Desa {member.desa?.nama_desa}, Kec. {member.kecamatan?.nama_kecamatan}
+            </div>
+          </div>
+
+          <div className="mt-1 p-1.5 rounded-lg bg-gradient-to-r from-emerald-950 via-[#022c22] to-emerald-950 border-2 border-amber-400/90 shadow-md">
+            <span className="text-[7px] text-amber-200 font-bold uppercase tracking-widest block leading-none mb-0.5">
+              NOMOR KTA DIGITAL PPDI
+            </span>
+            <span className="font-mono text-[11px] font-black text-amber-300 tracking-widest truncate block">
+              {member.keanggotaan?.no_kta || '-'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="relative z-10 pt-1 border-t border-amber-400/30 flex items-center justify-between text-[7.5px] text-emerald-200">
+        <div>
+          <span>Status: </span>
+          <strong className="text-amber-300 font-bold uppercase">
+            {member.keanggotaan?.status_kta || 'Aktif'}
+          </strong>
+        </div>
+        <div>Masa Berlaku: Selama Menjabat (Batas Usia 60 Thn)</div>
+      </div>
+    </div>
+  );
+
+  const renderKtaBackCard = (cardId?: string) => (
+    <div
+      id={cardId}
+      className="w-full aspect-[85.6/54] text-white rounded-2xl shadow-xl relative overflow-hidden p-4 sm:p-5 flex flex-col justify-between"
+      style={{
+        minHeight: '240px',
+        backgroundColor: '#064e3b',
+        backgroundImage: 'linear-gradient(315deg, #022c22 0%, #064e3b 50%, #065f46 100%)',
+        border: '1px solid rgba(5, 150, 105, 0.4)',
+        color: '#ffffff',
+      }}
+    >
+      <div
+        className="absolute inset-0 opacity-10 pointer-events-none"
+        style={{
+          backgroundImage: 'radial-gradient(circle, #fde047 1px, transparent 1px)',
+          backgroundSize: '14px 14px',
+        }}
+      />
+      <div
+        className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full blur-2xl pointer-events-none"
+        style={{ backgroundColor: 'rgba(5, 150, 105, 0.2)' }}
+      />
+      {watermarkLogo && watermarkOpacityBack > 0 && (
+        <div
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-44 h-44 pointer-events-none select-none flex items-center justify-center"
+          style={{ opacity: watermarkOpacityBack }}
+        >
+          <img
+            src={watermarkLogo}
+            alt=""
+            className="w-full h-full object-contain filter grayscale brightness-200"
+          />
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="relative z-10 flex items-center justify-between pb-1.5 border-b border-amber-400/40">
+        <div className="flex items-center gap-1.5">
+          <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center p-0.5 shrink-0 overflow-hidden shadow-xs border border-amber-300">
+            {appLogo ? (
+              <img src={appLogo} alt="Logo PPDI" className="w-full h-full object-contain" />
+            ) : (
+              <Shield className="w-3.5 h-3.5 text-emerald-900" />
+            )}
+          </div>
+          <span className="text-[9px] font-extrabold text-amber-300 uppercase tracking-wider">
+            KETENTUAN KARTU ANGGOTA PPDI
+          </span>
+        </div>
+        <div className="flex items-center gap-1 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/30">
+          <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
+          <span className="text-[7.5px] font-mono text-emerald-200 font-bold uppercase tracking-wider">
+            VERIFIED
+          </span>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="relative z-10 grid grid-cols-12 gap-2.5 items-center py-1">
+        <div className="col-span-8 text-[8px] text-emerald-100 space-y-1 leading-snug">
+          <div className="flex items-start gap-1">
+            <span className="text-amber-300 font-bold shrink-0">1.</span>
+            <p>Kartu ini merupakan tanda pengenal resmi anggota Persatuan Perangkat Desa Indonesia (PPDI) Kab. Bandung.</p>
+          </div>
+          <div className="flex items-start gap-1">
+            <span className="text-amber-300 font-bold shrink-0">2.</span>
+            <p>Berlaku sebagai bukti sah hak bantuan advokasi kelembagaan, kepesertaan organisasi, &amp; jaringan kerja perangkat desa.</p>
+          </div>
+          <div className="flex items-start gap-1">
+            <span className="text-amber-300 font-bold shrink-0">3.</span>
+            <p>Apabila perangkat desa purna tugas atau diberhentikan, keanggotaan dan keabsahan kartu ini otomatis berakhir.</p>
+          </div>
+          <div className="pt-1 border-t border-emerald-800/80 text-[7px] text-amber-300/90 flex items-center gap-1.5">
+            <span className="font-semibold text-emerald-200 shrink-0">Sekretariat:</span>
+            <span className="truncate">Jl. Parungserab No. 54, Parungserab, Soreang, Kab. Bandung 40911</span>
+          </div>
+        </div>
+
+        <div className="col-span-4 flex flex-col items-center justify-center">
+          <div className="p-1.5 bg-white rounded-xl shadow-lg border-2 border-amber-400/90">
+            {ktaCardQrDataUrl ? (
+              <img
+                src={ktaCardQrDataUrl}
+                alt="QR Code Verifikasi E-KTA"
+                className="w-16 h-16 object-contain"
+              />
+            ) : (
+              <div className="w-16 h-16 bg-neutral-200 animate-pulse rounded-md" />
+            )}
+          </div>
+          <span className="font-bold text-amber-200 mt-1 text-[6.5px] tracking-wider text-center">
+            SCAN VERIFIKASI KTA
+          </span>
+        </div>
+      </div>
+
+      {/* Signature Footer */}
+      <div className="relative z-10 pt-1.5 border-t border-amber-400/40 flex items-center justify-between text-[7.5px]">
+        <div className="flex items-center gap-1.5">
+          {appLogo && (
+            <div className="w-6 h-6 rounded-full bg-white/95 p-0.5 shadow-xs shrink-0 flex items-center justify-center overflow-hidden border border-amber-300">
+              <img src={appLogo} alt="Logo Organisasi" className="w-full h-full object-contain" />
+            </div>
+          )}
+          <div>
+            <div className="text-[7px] text-emerald-200 uppercase tracking-wider">Diterbitkan oleh:</div>
+            <div className="font-bold text-white text-[8px]">Pengurus Daerah PPDI Kab. Bandung</div>
+          </div>
+        </div>
+
+        <div className="text-right">
+          <div className="text-emerald-200 text-[7px]">Ketua Pengurus Daerah</div>
+          <div className="text-[6.5px] text-amber-300 font-mono tracking-wider font-semibold">[TTD &amp; CAP RESMI]</div>
+          <div className="font-bold text-amber-300 text-[9px] mt-0.5 tracking-wide">{ketuaNama}</div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col my-6 border border-neutral-200">
+    <>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            key="anggota-detail-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            onClick={onClose}
+            className="no-print fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div
+              key={`anggota-detail-card-${member.anggota.id_anggota}`}
+              initial={{ opacity: 0, y: 24, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 14, scale: 0.98 }}
+              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col my-6 border border-neutral-200"
+            >
         {/* Header Profile Bar */}
         <div className="p-5 border-b border-neutral-200 flex items-start justify-between bg-neutral-50/70 rounded-t-xl gap-4">
           <div className="flex items-center gap-4">
@@ -840,6 +1270,15 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               <span>{isExportingPDF ? 'Mencetak...' : 'Cetak PDF Profil'}</span>
             </button>
             <button
+              type="button"
+              onClick={handleOpenKtaPrintMode}
+              title="Buka Mode Cetak KTA dengan simulasi layout kertas A4 (standar CR-80 85,6 × 54 mm)"
+              className="px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak KTA</span>
+            </button>
+            <button
               onClick={() => {
                 onClose();
                 onSelectForKTA(member);
@@ -889,29 +1328,46 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
             { id: 'kta', label: 'Keanggotaan PPDI', icon: CreditCard },
             { id: 'iuran', label: `Histori Iuran (${memberIurans.length})`, icon: Wallet },
             { id: 'dokumen', label: 'e-Arsip Berkas SK', icon: FileText },
-            { id: 'aktivitas', label: 'Riwayat Aktivitas', icon: History },
+            { id: 'riwayat', label: `Riwayat (${combinedMemberActivities.length})`, icon: History },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 font-medium border-b-2 cursor-pointer transition-colors shrink-0 ${
+                type="button"
+                onClick={() => handleSelectTab(tab.id as DetailTabId)}
+                className={`relative flex items-center gap-1.5 px-3 py-2.5 font-medium cursor-pointer transition-colors shrink-0 ${
                   isActive
-                    ? 'border-emerald-700 text-emerald-800 font-semibold'
-                    : 'border-transparent text-neutral-500 hover:text-neutral-900'
+                    ? 'text-emerald-800 font-semibold'
+                    : 'text-neutral-500 hover:text-neutral-900'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span>{tab.label}</span>
+                {isActive && (
+                  <motion.span
+                    layoutId="anggota-detail-tab-indicator"
+                    transition={{ type: 'spring', stiffness: 460, damping: 34 }}
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-700 rounded-full"
+                  />
+                )}
               </button>
             );
           })}
         </div>
 
         {/* Tab Content */}
-        <div className="p-6 overflow-y-auto flex-1 text-xs">
+        <div className="p-6 overflow-y-auto overflow-x-hidden flex-1 text-xs">
+          <AnimatePresence mode="wait" initial={false} custom={tabDirection}>
+            <motion.div
+              key={activeTab}
+              custom={tabDirection}
+              initial={{ opacity: 0, x: tabDirection * 18 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: tabDirection * -14 }}
+              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            >
           {/* TAB 1: BIODATA */}
           {activeTab === 'bio' && (
             <div className="space-y-6">
@@ -1329,16 +1785,26 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                       Identitas resmi keanggotaan Persatuan Perangkat Desa Indonesia
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onSelectForKTA(member);
-                    }}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                  >
-                    <CreditCard className="w-3.5 h-3.5" />
-                    <span>Tampilkan Kartu & Cetak</span>
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleOpenKtaPrintMode}
+                      className="px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Mode Cetak KTA (A4)</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onSelectForKTA(member);
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Buka Halaman E-KTA</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1426,6 +1892,72 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                     <p>2. Hak pembelaan hukum, advokasi ketenagakerjaan desa, dan hak suara organisasi melekat pada status KTA Aktif.</p>
                     <p>3. Iuran bulanan teratur memastikan validitas keanggotaan tetap berlaku.</p>
                   </div>
+                </div>
+              </div>
+
+              {/* Pratinjau Kartu KTA & Cetak Langsung Ukuran Standar CR-80 */}
+              <div className="p-4 rounded-xl border border-neutral-200 bg-neutral-50/80 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-neutral-200">
+                  <div>
+                    <h4 className="font-bold text-neutral-900 flex items-center gap-1.5">
+                      <Printer className="w-4 h-4 text-emerald-700" />
+                      <span>Pratinjau &amp; Cetak KTA Standar CR-80 (85,6 mm × 54 mm)</span>
+                    </h4>
+                    <p className="text-[11px] text-neutral-500">
+                      Saat tombol Cetak KTA diklik, halaman lain disembunyikan otomatis sehingga hanya kartu KTA yang tercetak sesuai ukuran standar KTP/ATM.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="inline-flex rounded-lg bg-white border border-neutral-200 p-0.5 text-[11px]">
+                      {(
+                        [
+                          { id: 'both', label: 'Depan & Belakang' },
+                          { id: 'front', label: 'Depan' },
+                          { id: 'back', label: 'Belakang' },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setKtaPrintSide(opt.id)}
+                          className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                            ktaPrintSide === opt.id
+                              ? 'bg-emerald-800 text-white'
+                              : 'text-neutral-600 hover:text-neutral-900'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenKtaPrintMode}
+                      className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Simulasi A4 &amp; Cetak KTA</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {(ktaPrintSide === 'both' || ktaPrintSide === 'front') && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 text-center">
+                        Tampak Depan
+                      </div>
+                      {renderKtaFrontCard()}
+                    </div>
+                  )}
+                  {(ktaPrintSide === 'both' || ktaPrintSide === 'back') && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 text-center">
+                        Tampak Belakang (QR Verifikasi)
+                      </div>
+                      {renderKtaBackCard()}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1717,31 +2249,31 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               </div>
             </div>
           )}
-          {/* TAB 6: RIWAYAT AKTIVITAS ANGGOTA */}
-          {activeTab === 'aktivitas' && (
+          {/* TAB 6: RIWAYAT PERUBAHAN DATA PROFIL & AKTIVITAS */}
+          {activeTab === 'riwayat' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-200">
                 <div>
                   <h3 className="font-bold text-neutral-900 flex items-center gap-1.5">
                     <History className="w-4 h-4 text-emerald-700" />
-                    <span>Riwayat Aktivitas & Perubahan Data Anggota</span>
+                    <span>Riwayat Perubahan Data Profil &amp; Aktivitas Anggota</span>
                   </h3>
                   <p className="text-[11px] text-neutral-500 mt-0.5">
-                    Log kronologis seluruh perubahan profil, mutasi jabatan/SK, dan pembaruan status keanggotaan
+                    Log kronologis perubahan data profil (seperti status pernikahan, NIAP/NIPD, NIK, pendidikan, alamat), mutasi SK, dan status KTA
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
                   <select
-                    aria-label="Filter kategori aktivitas"
+                    aria-label="Filter kategori riwayat"
                     value={activityFilter}
                     onChange={(e) => setActivityFilter(e.target.value as any)}
                     className="text-xs bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-neutral-700 font-medium"
                   >
-                    <option value="all">Semua Aktivitas ({combinedMemberActivities.length})</option>
-                    <option value="profil">Perubahan Profil</option>
-                    <option value="jabatan">Jabatan & Mutasi SK</option>
-                    <option value="kta">Keanggotaan & E-KTA</option>
+                    <option value="all">Semua Riwayat ({combinedMemberActivities.length})</option>
+                    <option value="profil">Perubahan Profil (Pernikahan, NIP, dll)</option>
+                    <option value="jabatan">Jabatan &amp; Mutasi SK</option>
+                    <option value="kta">Keanggotaan &amp; E-KTA</option>
                   </select>
                   <button
                     type="button"
@@ -1758,21 +2290,21 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               {activityError && (
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>Tidak dapat memuat log terbaru dari server ({activityError}). Menampilkan catatan sesi & arsip lokal.</span>
+                  <span>Tidak dapat memuat log terbaru dari server ({activityError}). Menampilkan catatan sesi &amp; arsip lokal.</span>
                 </div>
               )}
 
               {isLoadingActivity && filteredMemberActivities.length === 0 ? (
                 <div className="py-10 flex flex-col items-center justify-center text-neutral-500 gap-2">
                   <RefreshCw className="w-5 h-5 animate-spin text-emerald-700" />
-                  <span>Mengambil riwayat aktivitas anggota...</span>
+                  <span>Mengambil riwayat perubahan data anggota...</span>
                 </div>
               ) : filteredMemberActivities.length === 0 ? (
                 <div className="py-10 text-center border border-dashed border-neutral-300 rounded-xl bg-neutral-50 space-y-1">
                   <History className="w-6 h-6 text-neutral-400 mx-auto" />
-                  <div className="font-semibold text-neutral-700">Belum ada catatan aktivitas untuk kategori ini</div>
+                  <div className="font-semibold text-neutral-700">Belum ada catatan riwayat untuk kategori ini</div>
                   <div className="text-[11px] text-neutral-500">
-                    Setiap perubahan profil, status jabatan, mutasi SK, atau status KTA akan otomatis tercatat di sini.
+                    Setiap perubahan data profil (seperti status pernikahan, NIAP/NIPD, alamat, pendidikan), mutasi SK, atau status KTA akan otomatis tercatat di sini.
                   </div>
                 </div>
               ) : (
@@ -1800,6 +2332,8 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                         ? 'bg-red-600'
                         : 'bg-neutral-400';
 
+                    const diffItems = parseProfileDiffChanges(item.deskripsi);
+
                     return (
                       <div
                         key={item.id}
@@ -1826,7 +2360,38 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                           </div>
                         </div>
 
-                        <p className="text-xs text-neutral-700 leading-relaxed">{item.deskripsi}</p>
+                        {diffItems.length > 0 ? (
+                          <div className="space-y-1.5 mt-1">
+                            <div className="text-[11px] font-medium text-neutral-500">
+                              Detail perubahan data yang tercatat:
+                            </div>
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {diffItems.map((diff, idx) => (
+                                <div
+                                  key={`${item.id}_diff_${idx}`}
+                                  className="px-2.5 py-1.5 rounded-lg bg-neutral-50 border border-neutral-200/80 flex flex-wrap items-center gap-1.5 text-[11px]"
+                                >
+                                  <span className="font-bold text-neutral-800">{diff.field}:</span>
+                                  {diff.raw ? (
+                                    <span className="text-emerald-800 font-medium">{diff.raw}</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 flex-wrap">
+                                      <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200/70 line-through font-mono">
+                                        {diff.oldVal || '-'}
+                                      </span>
+                                      <ArrowRight className="w-3 h-3 text-neutral-400 shrink-0" />
+                                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold font-mono">
+                                        {diff.newVal || '-'}
+                                      </span>
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-neutral-700 leading-relaxed">{item.deskripsi}</p>
+                        )}
 
                         <div className="mt-2 pt-2 border-t border-neutral-100 flex items-center justify-between text-[11px] text-neutral-500">
                           <span className="flex items-center gap-1">
@@ -1843,11 +2408,21 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
               )}
             </div>
           )}
+            </motion.div>
+          </AnimatePresence>
         </div>
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-neutral-200 flex justify-between items-center bg-neutral-50 rounded-b-xl gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleOpenKtaPrintMode}
+              className="px-3.5 py-1.5 text-xs font-bold text-amber-950 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak KTA</span>
+            </button>
             <button
               onClick={handleDownloadPDF}
               disabled={isExportingPDF}
@@ -1875,15 +2450,28 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
             Tutup
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* vCard QR Code Sub-Modal */}
+      <AnimatePresence>
       {showQrPanel && (
-        <div
+        <motion.div
+          key="vcard-qr-submodal"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
           className="fixed inset-0 z-60 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setShowQrPanel(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowQrPanel(false);
+          }}
         >
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
@@ -2029,17 +2617,31 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* Unique ID Anggota -> Public KTA Verification QR Code Sub-Modal */}
+      <AnimatePresence>
       {showKtaVerifyQrPanel && (
-        <div
+        <motion.div
+          key="kta-verify-qr-submodal"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
           className="fixed inset-0 z-60 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setShowKtaVerifyQrPanel(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowKtaVerifyQrPanel(false);
+          }}
         >
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
@@ -2173,17 +2775,31 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* SK Document File Viewer Sub-Modal */}
+      <AnimatePresence>
       {previewSk && (
-        <div
+        <motion.div
+          key="sk-preview-submodal"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
           className="fixed inset-0 z-[65] bg-neutral-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
-          onClick={closeSkPreview}
+          onClick={(e) => {
+            e.stopPropagation();
+            closeSkPreview();
+          }}
         >
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-neutral-200 overflow-hidden my-4 flex flex-col max-h-[92vh]"
             onClick={(e) => e.stopPropagation()}
           >
@@ -2272,15 +2888,390 @@ export const AnggotaDetailModal: React.FC<AnggotaDetailModalProps> = ({
                 </span>
               </div>
             </div>
+          </motion.div>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+      {/* Mode Cetak KTA: Simulasi Layout Kertas A4 (Preview Posisi KTA CR-80 Sebelum Cetak) */}
+      <AnimatePresence>
+      {showKtaPrintPreview && (
+        <motion.div
+          key="kta-a4-preview-submodal"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-[70] bg-neutral-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowKtaPrintPreview(false);
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full border border-neutral-200 overflow-hidden my-3 flex flex-col max-h-[94vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Bar */}
+            <div className="px-5 py-3.5 bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-900 text-white flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
+                  <Printer className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold tracking-tight truncate">
+                    Mode Cetak KTA — Simulasi Layout Kertas A4
+                  </h3>
+                  <p className="text-[11px] text-emerald-100/90 truncate">
+                    Skala proporsional kartu CR-80 (85,6 × 54 mm) di atas kertas A4 (
+                    {ktaPrintOrientation === 'portrait' ? '210 × 297 mm Portrait' : '297 × 210 mm Landscape'}) · Margin 10 mm
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handlePrintKta}
+                  disabled={isPreparingKtaPrint}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-emerald-950 bg-amber-300 hover:bg-amber-200 rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  {isPreparingKtaPrint ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Printer className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isPreparingKtaPrint ? 'Menyiapkan...' : 'Cetak Sekarang'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowKtaPrintPreview(false)}
+                  aria-label="Tutup simulasi layout A4"
+                  className="p-1.5 rounded-lg text-emerald-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Print Layout Control Bar */}
+            <div className="px-5 py-3 bg-neutral-50 border-b border-neutral-200 flex flex-wrap items-center gap-3 text-[11px]">
+              {/* Sisi Kartu */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-neutral-500">Sisi:</span>
+                <div className="inline-flex rounded-lg bg-white border border-neutral-200 p-0.5">
+                  {(
+                    [
+                      { id: 'both', label: 'Depan & Belakang' },
+                      { id: 'front', label: 'Depan' },
+                      { id: 'back', label: 'Belakang' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setKtaPrintSide(opt.id)}
+                      className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        ktaPrintSide === opt.id
+                          ? 'bg-emerald-800 text-white'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Orientasi Kertas A4 */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-neutral-500">Kertas A4:</span>
+                <div className="inline-flex rounded-lg bg-white border border-neutral-200 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setKtaPrintOrientation('portrait')}
+                    className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                      ktaPrintOrientation === 'portrait'
+                        ? 'bg-emerald-800 text-white'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    Portrait
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setKtaPrintOrientation('landscape')}
+                    className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                      ktaPrintOrientation === 'landscape'
+                        ? 'bg-emerald-800 text-white'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    Landscape
+                  </button>
+                </div>
+              </div>
+
+              {/* Susunan Kartu */}
+              {ktaPrintSide === 'both' && (
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-neutral-500">Susunan:</span>
+                  <div className="inline-flex rounded-lg bg-white border border-neutral-200 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setKtaPrintLayout('vertical')}
+                      className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        ktaPrintLayout === 'vertical'
+                          ? 'bg-emerald-800 text-white'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Atas-Bawah
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setKtaPrintLayout('horizontal')}
+                      className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        ktaPrintLayout === 'horizontal'
+                          ? 'bg-emerald-800 text-white'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Berdampingan
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Posisi di A4 */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-neutral-500">Posisi:</span>
+                <div className="inline-flex rounded-lg bg-white border border-neutral-200 p-0.5">
+                  {(
+                    [
+                      { id: 'top-center', label: 'Atas Tengah' },
+                      { id: 'top-left', label: 'Kiri Atas' },
+                      { id: 'center', label: 'Tengah Kertas' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setKtaPrintAlignment(opt.id)}
+                      className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        ktaPrintAlignment === opt.id
+                          ? 'bg-emerald-800 text-white'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Garis Potong */}
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none ml-auto font-semibold text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={showKtaCutGuides}
+                  onChange={(e) => setShowKtaCutGuides(e.target.checked)}
+                  className="rounded border-neutral-300 text-emerald-700 focus:ring-emerald-600"
+                />
+                <span>Garis Potong</span>
+              </label>
+            </div>
+
+            {/* A4 Paper Simulation Canvas */}
+            <div className="flex-1 overflow-auto bg-neutral-200/80 p-5 sm:p-8 flex flex-col items-center justify-start gap-4">
+              {(() => {
+                // Exact millimeter-to-pixel virtual scale so card size (85.6x54mm) is 100% proportional to A4 (210x297mm)
+                const isPortrait = ktaPrintOrientation === 'portrait';
+                const pxPerMm = isPortrait ? 2.5 : 2.2;
+                const sheetWidthPx = Math.round((isPortrait ? 210 : 297) * pxPerMm);
+                const sheetHeightPx = Math.round((isPortrait ? 297 : 210) * pxPerMm);
+                const marginPx = Math.round(10 * pxPerMm);
+                const baseCardWidth = 428; // exact 85.6 * 5
+                const baseCardHeight = 270; // exact 54.0 * 5
+                const cardScale = (85.6 * pxPerMm) / baseCardWidth;
+                const scaledCardWidth = Math.round(baseCardWidth * cardScale);
+                const scaledCardHeight = Math.round(baseCardHeight * cardScale);
+
+                const alignContainerClass =
+                  ktaPrintAlignment === 'top-left'
+                    ? 'items-start justify-start'
+                    : ktaPrintAlignment === 'center'
+                    ? 'items-center justify-center'
+                    : 'items-center justify-start';
+
+                const cardStackDirection =
+                  ktaPrintSide === 'both' && ktaPrintLayout === 'horizontal'
+                    ? 'flex-row flex-wrap'
+                    : 'flex-col';
+
+                const renderScaledPreviewCard = (side: 'front' | 'back') => (
+                  <div className="flex flex-col items-center gap-1">
+                    <div
+                      className={
+                        showKtaCutGuides
+                          ? 'p-1 border border-dashed border-neutral-400 rounded-md bg-white'
+                          : ''
+                      }
+                    >
+                      <div
+                        className="relative overflow-hidden"
+                        style={{
+                          width: `${scaledCardWidth}px`,
+                          height: `${scaledCardHeight}px`,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${baseCardWidth}px`,
+                            height: `${baseCardHeight}px`,
+                            transform: `scale(${cardScale})`,
+                            transformOrigin: 'top left',
+                          }}
+                        >
+                          {side === 'front' ? renderKtaFrontCard() : renderKtaBackCard()}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-neutral-400">
+                      {side === 'front' ? 'Depan' : 'Belakang'} · 85,6 × 54,0 mm
+                    </span>
+                  </div>
+                );
+
+                return (
+                  <div className="flex flex-col items-center gap-2 max-w-full">
+                    {/* Top Width Ruler Label */}
+                    <div className="flex items-center justify-between text-[10px] font-mono text-neutral-600 px-1" style={{ width: `${sheetWidthPx}px` }}>
+                      <span>0 mm</span>
+                      <span className="font-bold text-neutral-700">
+                        Kertas A4 {isPortrait ? 'Portrait (210 × 297 mm)' : 'Landscape (297 × 210 mm)'}
+                      </span>
+                      <span>{isPortrait ? '210 mm' : '297 mm'}</span>
+                    </div>
+
+                    {/* Simulated Physical A4 Paper Sheet */}
+                    <div
+                      className="bg-white shadow-2xl border border-neutral-300 relative shrink-0 transition-all"
+                      style={{
+                        width: `${sheetWidthPx}px`,
+                        height: `${sheetHeightPx}px`,
+                        padding: `${marginPx}px`,
+                      }}
+                    >
+                      {/* Printable Safe Area (10 mm margin box) */}
+                      <div
+                        className={`w-full h-full border border-dashed border-emerald-300/80 relative flex flex-col ${alignContainerClass}`}
+                      >
+                        <span className="absolute -top-2.5 left-2 bg-white px-1.5 text-[9px] font-mono text-emerald-700/80">
+                          Area Cetak (Margin 10 mm)
+                        </span>
+
+                        <div
+                          className={`flex ${cardStackDirection} gap-3 p-2 ${
+                            ktaPrintAlignment === 'top-left' ? 'items-start justify-start' : 'items-center justify-center'
+                          }`}
+                        >
+                          {(ktaPrintSide === 'both' || ktaPrintSide === 'front') &&
+                            renderScaledPreviewCard('front')}
+                          {(ktaPrintSide === 'both' || ktaPrintSide === 'back') &&
+                            renderScaledPreviewCard('back')}
+                        </div>
+                      </div>
+
+                      {/* Bottom Paper Watermark Info */}
+                      <div className="absolute bottom-1.5 right-3 text-[9px] font-mono text-neutral-400 pointer-events-none">
+                        A4 · Skala 1:{(1 / (pxPerMm / 3.78)).toFixed(1)} · CR-80 (ISO/IEC 7810 ID-1)
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer Info Bar */}
+            <div className="px-5 py-3 bg-white border-t border-neutral-200 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-600">
+              <span>
+                Tip Printer: Pada dialog cetak browser, pilih ukuran kertas <strong>A4</strong>, skala <strong>100% (Actual Size)</strong>, dan aktifkan <strong>Background Graphics</strong>.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowKtaPrintPreview(false)}
+                  className="px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg cursor-pointer"
+                >
+                  Kembali
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintKta}
+                  disabled={isPreparingKtaPrint}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  <Printer className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Cetak KTA Sekarang</span>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="no-print">
+        <SendSekdesUserModal
+          isOpen={isOpen && isSendSekdesModalOpen}
+          onClose={() => setIsSendSekdesModalOpen(false)}
+          initialMember={member}
+        />
+      </div>
+
+      {/* Dedicated Standard CR-80 (85.6mm × 54.0mm) Print-Only KTA Card Sheet */}
+      {isOpen && (
+        <div
+          id="kta-modal-print-sheet"
+          className={`hidden print:flex flex-col bg-white ${
+            ktaPrintOrientation === 'landscape' ? 'kta-print-landscape' : 'kta-print-portrait'
+          } ${
+            ktaPrintAlignment === 'top-left'
+              ? 'items-start justify-start'
+              : ktaPrintAlignment === 'center'
+              ? 'items-center justify-center'
+              : 'items-center justify-start'
+          }`}
+          aria-hidden="true"
+        >
+          <div
+            className={`flex gap-[6mm] ${
+              ktaPrintSide === 'both' && ktaPrintLayout === 'horizontal'
+                ? 'flex-row flex-wrap items-start justify-center'
+                : 'flex-col items-center'
+            }`}
+          >
+            {(ktaPrintSide === 'both' || ktaPrintSide === 'front') && (
+              <div className={showKtaCutGuides ? 'kta-print-cut-frame' : ''}>
+                {renderKtaFrontCard('kta-modal-front')}
+              </div>
+            )}
+            {(ktaPrintSide === 'both' || ktaPrintSide === 'back') && (
+              <div className={showKtaCutGuides ? 'kta-print-cut-frame' : ''}>
+                {renderKtaBackCard('kta-modal-back')}
+              </div>
+            )}
           </div>
         </div>
       )}
-
-      <SendSekdesUserModal
-        isOpen={isSendSekdesModalOpen}
-        onClose={() => setIsSendSekdesModalOpen(false)}
-        initialMember={member}
-      />
-    </div>
+    </>
   );
 };

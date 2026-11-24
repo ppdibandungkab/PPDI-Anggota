@@ -1933,6 +1933,40 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (updated.nama_lengkap) {
       formattedUpdated.nama_lengkap = updated.nama_lengkap.trim().toUpperCase();
     }
+
+    const existingMember = anggotaList.find((item) => String(item.id_anggota) === String(id));
+    const existingKta = keanggotaanList.find((k) => String(k.id_anggota) === String(id));
+    const changedParts: string[] = [];
+    const normVal = (v: any) => (v === null || v === undefined ? '' : String(v).trim());
+
+    if (existingMember) {
+      const checks: Array<[string, any, any]> = [
+        ['Nama', existingMember.nama_lengkap, formattedUpdated.nama_lengkap],
+        ['NIK', existingMember.nik, formattedUpdated.nik],
+        ['NIAP/NIPD', existingMember.nipd, formattedUpdated.nipd],
+        ['Gelar Depan', existingMember.gelar_depan, formattedUpdated.gelar_depan],
+        ['Gelar Belakang', existingMember.gelar_belakang, formattedUpdated.gelar_belakang],
+        ['Tempat Lahir', existingMember.tempat_lahir, formattedUpdated.tempat_lahir],
+        ['Tanggal Lahir', existingMember.tanggal_lahir?.slice(0, 10), formattedUpdated.tanggal_lahir?.slice(0, 10)],
+        ['Jenis Kelamin', existingMember.jenis_kelamin, formattedUpdated.jenis_kelamin],
+        ['Agama', existingMember.agama, formattedUpdated.agama],
+        ['Pendidikan', existingMember.pendidikan_terakhir, formattedUpdated.pendidikan_terakhir],
+        ['No. HP/WA', existingMember.no_hp_wa, formattedUpdated.no_hp_wa],
+        ['Email', existingMember.email, formattedUpdated.email],
+        ['Alamat', existingMember.alamat_rumah, formattedUpdated.alamat_rumah],
+        ['Status Pernikahan', existingMember.status_pernikahan, formattedUpdated.status_pernikahan],
+        ['Jabatan Pengurus PPDI', existingKta?.jabatan_pengurus, jabatanPengurus],
+      ];
+      for (const [label, oldVal, newVal] of checks) {
+        if (newVal !== undefined && normVal(oldVal) !== normVal(newVal)) {
+          changedParts.push(`${label} (${normVal(oldVal) || '-'} → ${normVal(newVal) || '-'})`);
+        }
+      }
+      if (formattedUpdated.foto && normVal(formattedUpdated.foto) !== normVal(existingMember.foto)) {
+        changedParts.push('Foto Profil diperbarui');
+      }
+    }
+
     setAnggotaList((prev) =>
       prev.map((item) => (String(item.id_anggota) === String(id) ? { ...item, ...formattedUpdated, updated_at: new Date().toISOString() } : item))
     );
@@ -1945,12 +1979,16 @@ export const PPDIProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
+    const displayMemberName = String(formattedUpdated.nama_lengkap || existingMember?.nama_lengkap || id);
     addActivityLog({
       aksi: 'EDIT',
-      modul: 'Data Induk Anggota',
+      modul: 'Profil Anggota',
       target_id: String(id),
-      target_nama: String(formattedUpdated.nama_lengkap || id),
-      deskripsi: `Memperbarui profil/data anggota "${String(formattedUpdated.nama_lengkap || id)}".`,
+      target_nama: displayMemberName,
+      deskripsi:
+        changedParts.length > 0
+          ? `Perubahan profil anggota "${displayMemberName}": ${changedParts.join('; ')}.`
+          : `Memperbarui profil/data anggota "${displayMemberName}".`,
     });
 
     try {
