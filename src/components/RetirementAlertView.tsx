@@ -22,7 +22,16 @@ import {
   StopCircle,
   Settings,
   XCircle,
+  Download,
+  FileText,
+  FileSpreadsheet,
+  ChevronDown,
 } from 'lucide-react';
+import {
+  computeRetirementDeadline,
+  exportPurnaTugasToExcel,
+  exportPurnaTugasToPDF,
+} from '../utils/retirementReportExport';
 
 interface RetirementAlertViewProps {
   onOpenDetailModal: (member: AnggotaFullDetail) => void;
@@ -41,28 +50,11 @@ interface WhatsAppLogRecord {
 type AutoSendRowStatus = 'sending' | 'sent' | 'failed';
 
 const AUTO_NOTIFY_STORAGE_KEY = 'ppdi_auto_notify_retirement_3m';
-// Selaras dengan acuan kalkulasi usia pensiun pada ppdiHelpers.ts
-const REFERENCE_DATE = new Date('2026-10-14T00:00:00Z');
-
 function getRetirementDeadlineInfo(birthDateStr?: string): {
   tanggalPurnaTugas: string;
   sisaHari: number;
 } {
-  if (!birthDateStr) {
-    return { tanggalPurnaTugas: '-', sisaHari: 9999 };
-  }
-  const birth = new Date(birthDateStr);
-  if (Number.isNaN(birth.getTime())) {
-    return { tanggalPurnaTugas: '-', sisaHari: 9999 };
-  }
-  const retireDate = new Date(birth);
-  retireDate.setFullYear(birth.getFullYear() + 60);
-  const diffMs = retireDate.getTime() - REFERENCE_DATE.getTime();
-  const sisaHari = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  return {
-    tanggalPurnaTugas: retireDate.toISOString().split('T')[0],
-    sisaHari,
-  };
+  return computeRetirementDeadline(birthDateStr);
 }
 
 export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpenDetailModal }) => {
@@ -120,9 +112,30 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
     mode: 'auto' | 'manual';
   }>({ current: 0, total: 0, sent: 0, failed: 0, mode: 'manual' });
   const [showMessagePreview, setShowMessagePreview] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'excel' | null>(null);
 
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const cancelBatchRef = useRef(false);
   const autoTriggeredForKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsExportMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [isExportMenuOpen]);
 
   const isKepalaDesaMember = (m: AnggotaFullDetail) => {
     return (
@@ -463,6 +476,70 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
     }
   };
 
+  const activeCategoryMeta = useMemo(() => {
+    const map: Record<typeof activeCategory, { label: string; slug: string }> = {
+      all: { label: 'Semua Peringatan Purna Tugas', slug: 'semua_peringatan' },
+      h3bulan: { label: 'Prioritas H-3 Bulan (<= 3 Bulan)', slug: 'h3_bulan' },
+      kritis: { label: 'Kritis (< 6 Bulan)', slug: 'kritis' },
+      siaga: { label: 'Siaga (< 1 Tahun)', slug: 'siaga' },
+      waspada: { label: 'Waspada (< 2 Tahun)', slug: 'waspada' },
+      sudah: { label: 'Sudah Purna Tugas (>= 60 Tahun)', slug: 'sudah_purna' },
+    };
+    return map[activeCategory];
+  }, [activeCategory]);
+
+  const handleExportReport = async (format: 'pdf' | 'excel', scope: 'filtered' | 'all') => {
+    const targetMembers = scope === 'all' ? categorized.allAlerts : displayList;
+    const label = scope === 'all' ? 'Semua Peringatan Purna Tugas' : activeCategoryMeta.label;
+    const slug = scope === 'all' ? 'semua_peringatan' : activeCategoryMeta.slug;
+
+    setIsExportMenuOpen(false);
+    if (targetMembers.length === 0) {
+      setWaFeedback({
+        type: 'error',
+        text: `Tidak ada data perangkat desa pada kategori "${label}" untuk diekspor.`,
+      });
+      return;
+    }
+
+    setExportingFormat(format);
+    try {
+      const payload = {
+        members: targetMembers,
+        categoryLabel: label,
+        categorySlug: slug,
+        summary: {
+          h3bulan: categorized.h3bulan.length,
+          kritis: categorized.kritis.length,
+          siaga: categorized.siaga.length,
+          waspada: categorized.waspada.length,
+          sudah: categorized.sudah.length,
+          total: categorized.allAlerts.length,
+        },
+        notifiedMap,
+        printedBy: currentUser?.nama || 'Administrator PPDI',
+        referenceDateLabel: '14 Oktober 2026',
+      };
+
+      const filename =
+        format === 'pdf'
+          ? exportPurnaTugasToPDF(payload)
+          : await exportPurnaTugasToExcel(payload);
+
+      setWaFeedback({
+        type: 'success',
+        text: `Laporan ${format === 'pdf' ? 'PDF' : 'Excel'} berhasil dibuat (${targetMembers.length} data): ${filename}`,
+      });
+    } catch (err: any) {
+      setWaFeedback({
+        type: 'error',
+        text: `Gagal mengekspor laporan ${format === 'pdf' ? 'PDF' : 'Excel'}: ${err?.message || 'Terjadi kesalahan'}`,
+      });
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
   const samplePreviewMember = categorized.h3bulan[0] || categorized.kritis[0] || null;
 
   return (
@@ -494,6 +571,113 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
           >
             {fonnteActive ? 'WA: Fonnte Aktif' : 'WA: API wa.me'}
           </span>
+
+          {/* Export Data Purna Tugas Dropdown Button */}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              type="button"
+              disabled={exportingFormat !== null || categorized.allAlerts.length === 0}
+              onClick={() => setIsExportMenuOpen((prev) => !prev)}
+              className="px-3.5 py-1.5 rounded-lg bg-[#064E3B] hover:bg-emerald-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              {exportingFormat !== null ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>
+                {exportingFormat === 'pdf'
+                  ? 'Membuat PDF...'
+                  : exportingFormat === 'excel'
+                  ? 'Membuat Excel...'
+                  : 'Export Data Purna Tugas'}
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                  isExportMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {isExportMenuOpen && (
+              <div className="absolute right-0 mt-1.5 w-72 bg-white rounded-xl border border-neutral-200 shadow-xl z-40 overflow-hidden">
+                <div className="px-3.5 py-2.5 bg-neutral-50 border-b border-neutral-200">
+                  <div className="text-[11px] font-bold text-neutral-800 uppercase tracking-wider">
+                    Export Laporan Purna Tugas
+                  </div>
+                  <div className="text-[10px] text-neutral-500 mt-0.5 truncate">
+                    Filter aktif: {activeCategoryMeta.label} ({displayList.length} orang)
+                  </div>
+                </div>
+
+                <div className="p-1.5 space-y-1">
+                  <button
+                    type="button"
+                    disabled={displayList.length === 0}
+                    onClick={() => handleExportReport('pdf', 'filtered')}
+                    className="w-full px-3 py-2 rounded-lg hover:bg-red-50/80 disabled:opacity-40 text-left flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-md bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-neutral-900">
+                        Export PDF (.pdf)
+                      </div>
+                      <div className="text-[10px] text-neutral-500">
+                        Laporan resmi A4 Landscape ({displayList.length} data)
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={displayList.length === 0}
+                    onClick={() => handleExportReport('excel', 'filtered')}
+                    className="w-full px-3 py-2 rounded-lg hover:bg-emerald-50/80 disabled:opacity-40 text-left flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-md bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                      <FileSpreadsheet className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-neutral-900">
+                        Export Excel (.xlsx)
+                      </div>
+                      <div className="text-[10px] text-neutral-500">
+                        Spreadsheet lengkap terformat ({displayList.length} data)
+                      </div>
+                    </div>
+                  </button>
+
+                  {activeCategory !== 'all' && categorized.allAlerts.length > displayList.length && (
+                    <div className="pt-1.5 mt-1 border-t border-neutral-100 space-y-1">
+                      <div className="px-2.5 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                        Semua Kategori ({categorized.allAlerts.length} orang)
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 px-1">
+                        <button
+                          type="button"
+                          onClick={() => handleExportReport('pdf', 'all')}
+                          className="px-2.5 py-1.5 rounded-md bg-neutral-100 hover:bg-red-50 hover:text-red-800 text-neutral-700 text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Semua PDF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExportReport('excel', 'all')}
+                          className="px-2.5 py-1.5 rounded-md bg-neutral-100 hover:bg-emerald-50 hover:text-emerald-800 text-neutral-700 text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                          <span>Semua Excel</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
