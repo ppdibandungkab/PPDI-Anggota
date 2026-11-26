@@ -14,7 +14,8 @@ import {
   formatNIPDDisplay,
   isSekretarisDesaJabatan,
 } from '../utils/ppdiHelpers';
-import { getPhotoUrl, getSkFileUrl, handleImageError } from '../utils/fileHelpers';
+import { getPhotoUrl, getSkFileUrl } from '../utils/fileHelpers';
+import { LazyMemberAvatar } from './LazyMemberAvatar';
 import { exportAnggotaToExcel, exportAnggotaToCSV, exportAnggotaToSheetJS } from '../utils/excelExport';
 import {
   Search,
@@ -1180,12 +1181,12 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
                       {/* Profil & NIK */}
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2.5">
-                          <img
+                          <LazyMemberAvatar
                             src={getPhotoUrl(item.anggota.foto, item.anggota.jenis_kelamin)}
                             alt={item.anggota.nama_lengkap.toUpperCase()}
-                            className="w-8 h-8 rounded-full object-cover shrink-0 border border-neutral-200 print:hidden"
-                            onError={(e) => handleImageError(e, item.anggota.jenis_kelamin)}
-                            referrerPolicy="no-referrer"
+                            jenisKelamin={item.anggota.jenis_kelamin}
+                            sizeClass="w-8 h-8"
+                            className="print:hidden"
                           />
                           <div>
                             <div className="font-semibold text-neutral-900 hover:text-emerald-800 cursor-pointer uppercase tracking-tight" onClick={() => onOpenDetailModal(item)}>
@@ -1451,10 +1452,12 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             <div className="p-5 space-y-4 text-xs">
               {/* Member Card Preview */}
               <div className="p-3.5 rounded-xl border border-neutral-200 bg-neutral-50/70 flex items-center gap-3">
-                <img
-                  src={getPhotoUrl(memberToDelete.anggota.foto)}
+                <LazyMemberAvatar
+                  src={getPhotoUrl(memberToDelete.anggota.foto, memberToDelete.anggota.jenis_kelamin)}
                   alt={memberToDelete.anggota.nama_lengkap}
-                  className="w-12 h-12 rounded-full object-cover border border-neutral-300 shrink-0"
+                  jenisKelamin={memberToDelete.anggota.jenis_kelamin}
+                  sizeClass="w-12 h-12"
+                  className="border-neutral-300"
                 />
                 <div className="min-w-0 flex-1">
                   <h4 className="font-bold text-neutral-900 truncate">
@@ -1570,10 +1573,12 @@ export const AnggotaListView: React.FC<AnggotaListViewProps> = ({
             <div className="p-5 space-y-4 text-xs font-mono">
               {/* Member Summary Card */}
               <div className="p-3 rounded-xl border border-neutral-200 bg-neutral-50 flex items-center gap-3">
-                <img
+                <LazyMemberAvatar
                   src={getPhotoUrl(waModalMember.anggota.foto, waModalMember.anggota.jenis_kelamin)}
                   alt={waModalMember.anggota.nama_lengkap}
-                  className="w-10 h-10 rounded-full object-cover border border-neutral-300 shrink-0"
+                  jenisKelamin={waModalMember.anggota.jenis_kelamin}
+                  sizeClass="w-10 h-10"
+                  className="border-neutral-300"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-neutral-900 truncate uppercase">

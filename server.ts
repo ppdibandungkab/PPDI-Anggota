@@ -289,6 +289,9 @@ function createOrGetPool(overrideConfig?: any, forceRecreate = false): mysql.Poo
   activeDbConfig = overrideConfig ? getDbConfig(overrideConfig) : getDbConfig();
   pool = mysql.createPool({
     ...activeDbConfig,
+    // Keep MySQL DATE columns (e.g. tanggal_lahir, tgl_sk_pengangkatan, tmt_jabatan) as exact 'YYYY-MM-DD' strings
+    // so JS Date UTC conversion never shifts birth dates by ±1 day across timezones.
+    dateStrings: ['DATE'],
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
@@ -296,6 +299,47 @@ function createOrGetPool(overrideConfig?: any, forceRecreate = false): mysql.Poo
     keepAliveInitialDelay: 10000,
   });
   return pool;
+}
+
+/**
+ * Formats a MySQL DATE / JS Date / ISO string into a timezone-safe 'YYYY-MM-DD' calendar string.
+ * Never uses Date.prototype.toISOString() on local-midnight Date objects (which shifts dates by -1 day in UTC+7).
+ */
+function getLocalTodayYMD(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function formatDateOnlyYMD(val: any, fallback: string): string {
+  if (val === null || val === undefined || val === '') return fallback;
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return fallback;
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const str = String(val).trim();
+  if (!str) return fallback;
+  const ymdMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (ymdMatch) {
+    return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmyMatch) {
+    return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return fallback;
 }
 
 // Initial pool creation
@@ -442,7 +486,15 @@ async function executeDatabaseBackup(options?: { isAuto?: boolean }): Promise<an
             const val = row[col];
             if (val === null) return 'NULL';
             if (typeof val === 'number') return val;
-            if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
+            if (val instanceof Date) {
+              const y = val.getFullYear();
+              const mo = String(val.getMonth() + 1).padStart(2, '0');
+              const da = String(val.getDate()).padStart(2, '0');
+              const hh = String(val.getHours()).padStart(2, '0');
+              const mm = String(val.getMinutes()).padStart(2, '0');
+              const ss = String(val.getSeconds()).padStart(2, '0');
+              return `'${y}-${mo}-${da} ${hh}:${mm}:${ss}'`;
+            }
             return conn!.escape(val);
           });
           return `(${vals.join(', ')})`;
@@ -4782,7 +4834,12 @@ app.put('/api/pendaftaran/:id', async (req, res) => {
     await ensureSignatureColumns(conn);
 
     const [existingRows]: [any[], any] = await conn.query(
-      'SELECT * FROM pendaftaran_perangkat_desa WHERE id_pendaftaran = ? LIMIT 1',
+      `SELECT p.*,
+              DATE_FORMAT(p.tanggal_lahir, '%Y-%m-%d') AS tanggal_lahir,
+              DATE_FORMAT(p.tgl_sk_pengangkatan, '%Y-%m-%d') AS tgl_sk_pengangkatan,
+              DATE_FORMAT(p.tmt_jabatan, '%Y-%m-%d') AS tmt_jabatan
+       FROM pendaftaran_perangkat_desa p
+       WHERE p.id_pendaftaran = ? LIMIT 1`,
       [pendaftaranId]
     );
     if (!existingRows || existingRows.length === 0) {
@@ -4975,7 +5032,7 @@ app.put('/api/pendaftaran/:id', async (req, res) => {
         data.gelar_depan ? String(data.gelar_depan).trim() : null,
         data.gelar_belakang ? String(data.gelar_belakang).trim() : null,
         String(data.tempat_lahir || existing.tempat_lahir || 'Bandung').trim(),
-        data.tanggal_lahir || existing.tanggal_lahir || '1990-01-01',
+        formatDateOnlyYMD(data.tanggal_lahir ?? existing.tanggal_lahir, '1990-01-01'),
         cleanJk,
         String(data.agama || existing.agama || 'Islam').trim(),
         String(data.pendidikan_terakhir || existing.pendidikan_terakhir || 'SMA/SMK').trim(),
@@ -4988,8 +5045,8 @@ app.put('/api/pendaftaran/:id', async (req, res) => {
         effectiveJabId,
         periodeCheck.value,
         data.no_sk_pengangkatan ? String(data.no_sk_pengangkatan).trim() : null,
-        data.tgl_sk_pengangkatan || null,
-        data.tmt_jabatan || null,
+        data.tgl_sk_pengangkatan ? formatDateOnlyYMD(data.tgl_sk_pengangkatan, '') || null : null,
+        data.tmt_jabatan ? formatDateOnlyYMD(data.tmt_jabatan, '') || null : null,
         savedFotoPath,
         savedSkPath,
         savedTtdPath,
@@ -5061,7 +5118,12 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
     }
 
     const [rows]: [any[], any] = await conn.query(
-      'SELECT * FROM pendaftaran_perangkat_desa WHERE id_pendaftaran = ? LIMIT 1',
+      `SELECT p.*,
+              DATE_FORMAT(p.tanggal_lahir, '%Y-%m-%d') AS tanggal_lahir,
+              DATE_FORMAT(p.tgl_sk_pengangkatan, '%Y-%m-%d') AS tgl_sk_pengangkatan,
+              DATE_FORMAT(p.tmt_jabatan, '%Y-%m-%d') AS tmt_jabatan
+       FROM pendaftaran_perangkat_desa p
+       WHERE p.id_pendaftaran = ? LIMIT 1`,
       [parsedPendaftaranId]
     );
     if (rows.length === 0) {
@@ -5113,15 +5175,10 @@ app.put('/api/pendaftaran/:id/approve', async (req, res) => {
       ? (approvedPeriodeCheck.valid ? approvedPeriodeCheck.value : 1)
       : null;
 
-    const safeTglLahir = p.tanggal_lahir
-      ? (p.tanggal_lahir instanceof Date ? p.tanggal_lahir.toISOString().slice(0, 10) : String(p.tanggal_lahir).slice(0, 10))
-      : '1990-01-01';
-    const safeTglSk = p.tgl_sk_pengangkatan
-      ? (p.tgl_sk_pengangkatan instanceof Date ? p.tgl_sk_pengangkatan.toISOString().slice(0, 10) : String(p.tgl_sk_pengangkatan).slice(0, 10))
-      : new Date().toISOString().split('T')[0];
-    const safeTmt = p.tmt_jabatan
-      ? (p.tmt_jabatan instanceof Date ? p.tmt_jabatan.toISOString().slice(0, 10) : String(p.tmt_jabatan).slice(0, 10))
-      : new Date().toISOString().split('T')[0];
+    const todayYmd = getLocalTodayYMD();
+    const safeTglLahir = formatDateOnlyYMD(p.tanggal_lahir, '1990-01-01');
+    const safeTglSk = formatDateOnlyYMD(p.tgl_sk_pengangkatan, todayYmd);
+    const safeTmt = formatDateOnlyYMD(p.tmt_jabatan, todayYmd);
 
     // Prevent VARCHAR(255) overflow if registration record contains inline base64 data URL
     let safeFotoPath: string | null = p.foto || null;

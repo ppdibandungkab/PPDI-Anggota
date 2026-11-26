@@ -1,8 +1,50 @@
 import { Anggota, RiwayatJabatan, KeanggotaanPPDI, RefDesa, RefKecamatan, RefJabatan, AnggotaFullDetail, IuranAnggota, WhatsAppSettings } from '../types/ppdi';
 import { generateKtaShortUrl } from './qrCrypto';
 
-// Reference date for 2026-10-14
-const TODAY = new Date('2026-10-14T00:00:00Z');
+// Reference date for 2026-10-14 (local calendar date, avoiding UTC midnight shift)
+const TODAY = new Date(2026, 9, 14);
+
+/**
+ * Parses a calendar date string (e.g. 'YYYY-MM-DD', 'YYYY-MM-DDTHH:mm:ss', 'DD/MM/YYYY')
+ * into numeric calendar parts { year, month, day } without UTC-midnight timezone shifting.
+ */
+export function parseCalendarDateParts(
+  dateStr?: string | null
+): { year: number; month: number; day: number } | null {
+  if (!dateStr) return null;
+  const trimmed = String(dateStr).trim();
+  if (!trimmed) return null;
+
+  const ymdMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10);
+    const day = parseInt(ymdMatch[3], 10);
+    if (year >= 1000 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { year, month, day };
+    }
+  }
+
+  const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10);
+    const year = parseInt(dmyMatch[3], 10);
+    if (year >= 1000 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { year, month, day };
+    }
+  }
+
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    return {
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+    };
+  }
+  return null;
+}
 
 export function calculateAgeAndRetirement(birthDateStr: string): {
   usia: number;
@@ -11,8 +53,8 @@ export function calculateAgeAndRetirement(birthDateStr: string): {
   statusPensiun: 'Aman' | 'Waspada (<2 Thn)' | 'Siaga (<1 Thn)' | 'Kritis (<6 Bln)' | 'Sudah Purna Tugas';
   tanggalPurnaTugas: string;
 } {
-  const birthDate = new Date(birthDateStr);
-  if (isNaN(birthDate.getTime())) {
+  const parts = parseCalendarDateParts(birthDateStr);
+  if (!parts) {
     return {
       usia: 0,
       sisaTahun: 60,
@@ -22,9 +64,10 @@ export function calculateAgeAndRetirement(birthDateStr: string): {
     };
   }
 
+  const birthDate = new Date(parts.year, parts.month - 1, parts.day);
   // Usia pensiun perangkat desa sesuai regulasi UU Desa adalah 60 tahun
-  const retirementDate = new Date(birthDate);
-  retirementDate.setFullYear(birthDate.getFullYear() + 60);
+  const retirementYear = parts.year + 60;
+  const retirementDate = new Date(retirementYear, parts.month - 1, parts.day);
 
   // Age calculation
   let age = TODAY.getFullYear() - birthDate.getFullYear();
@@ -55,7 +98,7 @@ export function calculateAgeAndRetirement(birthDateStr: string): {
     statusPensiun = 'Aman';
   }
 
-  const tanggalPurnaTugas = retirementDate.toISOString().split('T')[0];
+  const tanggalPurnaTugas = `${retirementDate.getFullYear()}-${String(retirementDate.getMonth() + 1).padStart(2, '0')}-${String(retirementDate.getDate()).padStart(2, '0')}`;
 
   return {
     usia: Math.max(0, age),
@@ -77,49 +120,20 @@ export function formatRupiah(amount: number): string {
 export function formatDateIndo(dateStr?: string): string {
   if (!dateStr) return '-';
   try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-      const parts = dateStr.split(/[-/]/);
-      if (parts.length === 3) {
-        if (parts[0].length === 4) {
-          return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
-        }
-        return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
-      }
-      return dateStr;
+    const parts = parseCalendarDateParts(dateStr);
+    if (parts) {
+      const day = String(parts.day).padStart(2, '0');
+      const month = String(parts.month).padStart(2, '0');
+      return `${day}/${month}/${parts.year}`;
     }
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
+    return dateStr;
   } catch {
     return dateStr;
   }
 }
 
 export function formatDateShort(dateStr?: string): string {
-  if (!dateStr) return '-';
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-      // If already YYYY-MM-DD or similar
-      const parts = dateStr.split(/[-/]/);
-      if (parts.length === 3) {
-        if (parts[0].length === 4) {
-          // YYYY-MM-DD -> DD/MM/YYYY
-          return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
-        }
-        return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
-      }
-      return dateStr;
-    }
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
-  } catch {
-    return dateStr;
-  }
+  return formatDateIndo(dateStr);
 }
 
 export function formatNamaLengkap(anggota: { nama_lengkap: string; gelar_depan?: string; gelar_belakang?: string }): string {
