@@ -263,6 +263,60 @@
   margin: 12mm;
 }
 
+/* On-screen Print Preview mode toggled via .dashboard-print-preview-mode on .dashboard-print-root */
+.dashboard-print-root.dashboard-print-preview-mode {
+  background-color: #e5e7eb;
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-screen-content {
+  display: none;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-report {
+  display: block !important;
+  width: 100%;
+  max-width: 210mm;
+  min-height: 297mm;
+  margin: 1rem auto 0.5rem;
+  padding: 12mm;
+  background: #ffffff;
+  color: #111113;
+  border: 1px solid #d4d4d8;
+  box-shadow: 0 20px 45px rgba(17, 17, 19, 0.14);
+  font-size: 9.5pt;
+  line-height: 1.45;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-section {
+  margin-bottom: 14px;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-card {
+  border: 1px solid #d4d4d8;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.5pt;
+  color: #111113;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-table th,
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-table td {
+  border: 1px solid #d4d4d8;
+  padding: 4.5px 6px;
+  vertical-align: top;
+}
+
+.dashboard-print-root.dashboard-print-preview-mode .dashboard-print-table thead th {
+  background-color: #064E3B;
+  color: #ffffff;
+  font-weight: 700;
+}
+
 @media print {
   @page {
     size: portrait;
@@ -292,16 +346,27 @@
   }
 
   /* Print-friendly view specifically for DashboardView PDF Report */
-  .dashboard-print-root {
+  .dashboard-print-root,
+  .dashboard-print-root.dashboard-print-preview-mode {
     page: dashboard-report;
     width: 100% !important;
     background: #ffffff !important;
     color: #111113 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
   }
 
-  .dashboard-print-report {
+  .dashboard-print-report,
+  .dashboard-print-root.dashboard-print-preview-mode .dashboard-print-report {
     display: block !important;
     width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
     font-size: 9.5pt !important;
     line-height: 1.45 !important;
     color: #111113 !important;

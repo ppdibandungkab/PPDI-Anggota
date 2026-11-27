@@ -45,6 +45,8 @@ import {
   Zap,
   CalendarDays,
   Printer,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -139,7 +141,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
   const [hasTriggeredAuto6MonthToast, setHasTriggeredAuto6MonthToast] = useState<boolean>(false);
   const [actionToast, setActionToast] = useState<{ title: string; message: string } | null>(null);
   const [isQuickSkModalOpen, setIsQuickSkModalOpen] = useState<boolean>(false);
-  const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState<boolean>(false);
+  const [isPrintPreviewMode, setIsPrintPreviewMode] = useState<boolean>(false);
   const [printSections, setPrintSections] = useState<DashboardPrintSections>({
     ringkasanEksekutif: true,
     rekapWilayah: true,
@@ -147,6 +149,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     purnaTugasPendaftaran: true,
     aktivitasTerkini: true,
   });
+
+  useEffect(() => {
+    if (!isPrintPreviewMode) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsPrintPreviewMode(false);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isPrintPreviewMode]);
   const [reportBulan, setReportBulan] = useState<number>(() => new Date().getMonth() + 1);
   const [reportTahun, setReportTahun] = useState<number>(() => new Date().getFullYear());
 
@@ -671,11 +682,82 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
   };
 
   return (
-    <div className="dashboard-print-root">
+    <div className={`dashboard-print-root ${isPrintPreviewMode ? 'dashboard-print-preview-mode' : ''}`}>
+      {/* Sticky Print Preview Control Bar (hanya tampil saat mode Print Preview aktif, disembunyikan saat print) */}
+      {isPrintPreviewMode && (
+        <div className="no-print sticky top-2 z-30 max-w-[210mm] mx-auto bg-[#064E3B] text-white rounded-xl shadow-lg border border-emerald-800 overflow-hidden">
+          <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-300 text-neutral-950 flex items-center justify-center shrink-0">
+                <Eye className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm font-bold leading-tight">
+                  Mode Print Preview Laporan Dashboard (A4 Portrait)
+                </div>
+                <div className="text-[11px] text-emerald-100/90">
+                  Tampilan di bawah mencerminkan hasil cetak PDF menggunakan CSS print media.
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleTriggerDashboardPrint}
+                className="px-3.5 py-1.5 rounded-lg bg-amber-300 hover:bg-amber-400 text-neutral-950 text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak / Simpan PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPrintPreviewMode(false)}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <EyeOff className="w-3.5 h-3.5" />
+                <span>Tutup Print Preview</span>
+              </button>
+            </div>
+          </div>
+          <div className="bg-white text-neutral-800 px-4 py-2 border-t border-emerald-800/20 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                Bagian Laporan:
+              </span>
+              {(
+                [
+                  { key: 'ringkasanEksekutif', label: 'Indikator & Demografi' },
+                  { key: 'rekapWilayah', label: 'Statistik Kecamatan' },
+                  { key: 'jabatanMasaKerja', label: 'Jabatan & Masa Kerja' },
+                  { key: 'purnaTugasPendaftaran', label: 'Purna Tugas & Registrasi' },
+                  { key: 'aktivitasTerkini', label: 'Aktivitas Terkini' },
+                ] as Array<{ key: keyof DashboardPrintSections; label: string }>
+              ).map((item) => (
+                <label
+                  key={item.key}
+                  className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium"
+                >
+                  <input
+                    type="checkbox"
+                    checked={printSections[item.key]}
+                    onChange={() => togglePrintSection(item.key)}
+                    className="w-3.5 h-3.5 accent-[#064E3B] rounded cursor-pointer"
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+            <span className="text-[10px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+              Tekan ESC untuk kembali
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ============================================================= */}
-      {/* TAMPILAN LAYAR INTERAKTIF (DISEMBUNYIKAN SAAT PRINT PDF)       */}
+      {/* TAMPILAN LAYAR INTERAKTIF (DISEMBUNYIKAN SAAT PRINT / PREVIEW) */}
       {/* ============================================================= */}
-      <div className="no-print space-y-4 sm:space-y-6">
+      <div className="no-print dashboard-screen-content space-y-4 sm:space-y-6">
       {/* Top Banner & Context */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3.5 sm:pb-4 border-b border-neutral-200 gap-3">
         <div>
@@ -701,12 +783,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
           </button>
           <button
             type="button"
-            onClick={() => setIsPrintPreviewOpen(true)}
+            aria-pressed={isPrintPreviewMode}
+            onClick={() => setIsPrintPreviewMode((prev) => !prev)}
             className="px-3 py-1.5 text-xs font-semibold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-            title="Lihat Pratinjau A4 & Atur Bagian Laporan sebelum Cetak PDF"
+            title="Aktifkan Mode Print Preview untuk melihat tampilan laporan sebelum mencetak"
           >
-            <FileText className="w-3.5 h-3.5 text-amber-700" />
-            <span>Pratinjau A4</span>
+            <Eye className="w-3.5 h-3.5 text-amber-700" />
+            <span>Print Preview</span>
           </button>
           <button
             type="button"
@@ -1845,91 +1928,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         onClose={() => setIsQuickSkModalOpen(false)}
         onNotify={(msg) => showActionToast('Verifikasi SK Diperbarui', msg)}
       />
-
-      {/* Modal Pratinjau & Cetak Laporan Dashboard (A4 Print Media Preview) */}
-      {isPrintPreviewOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Pratinjau Cetak Laporan Dashboard"
-          className="fixed inset-0 z-[70] bg-neutral-950/70 backdrop-blur-xs flex flex-col"
-        >
-          {/* Sticky Action Bar */}
-          <div className="bg-[#064E3B] text-white px-4 sm:px-6 py-3 border-b border-emerald-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-amber-300 text-neutral-950 flex items-center justify-center shrink-0">
-                <Printer className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold leading-tight">Cetak Laporan Dashboard (PDF A4)</h2>
-                <p className="text-[11px] text-emerald-100/90">
-                  Pratinjau tata letak A4 Portrait menggunakan CSS Print Media &middot; Pilih &ldquo;Simpan sebagai PDF&rdquo; pada dialog cetak
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleTriggerDashboardPrint}
-                className="px-4 py-2 rounded-lg bg-amber-300 hover:bg-amber-400 text-neutral-950 text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Cetak / Simpan sebagai PDF</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPrintPreviewOpen(false)}
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                aria-label="Tutup pratinjau cetak laporan dashboard"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Section Filter Controls */}
-          <div className="bg-white border-b border-neutral-200 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
-                Bagian Laporan:
-              </span>
-              {(
-                [
-                  { key: 'ringkasanEksekutif', label: 'Indikator & Demografi' },
-                  { key: 'rekapWilayah', label: 'Statistik Kecamatan' },
-                  { key: 'jabatanMasaKerja', label: 'Jabatan & Masa Kerja' },
-                  { key: 'purnaTugasPendaftaran', label: 'Purna Tugas & Registrasi' },
-                  { key: 'aktivitasTerkini', label: 'Aktivitas Terkini' },
-                ] as Array<{ key: keyof DashboardPrintSections; label: string }>
-              ).map((item) => (
-                <label
-                  key={item.key}
-                  className="inline-flex items-center gap-1.5 cursor-pointer select-none text-neutral-800 font-medium"
-                >
-                  <input
-                    type="checkbox"
-                    checked={printSections[item.key]}
-                    onChange={() => togglePrintSection(item.key)}
-                    className="w-3.5 h-3.5 accent-[#064E3B] rounded cursor-pointer"
-                  />
-                  <span>{item.label}</span>
-                </label>
-              ))}
-            </div>
-            <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded font-medium">
-              Tip: Aktifkan &ldquo;Grafis latar belakang / Background graphics&rdquo; di pengaturan cetak
-            </span>
-          </div>
-
-          {/* Scrollable A4 Paper Preview Stage */}
-          <div className="flex-1 overflow-y-auto bg-neutral-200/90 p-4 sm:p-6">
-            <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white shadow-2xl border border-neutral-300 rounded-xs p-6 sm:p-8">
-              <DashboardPrintReportDocument {...dashboardPrintReportProps} />
-            </div>
-          </div>
-        </div>
-      )}
       </div>
 
       {/* ============================================================= */}
