@@ -5,6 +5,7 @@ import {
   formatDateIndo,
   dispatchWhatsAppNotification,
   isFonnteWebhookActive,
+  isExemptFromPurnaTugas,
 } from '../utils/ppdiHelpers';
 import { exportStatistikWilayahToPDF, WilayahStatRow } from '../utils/pdfWilayahExport';
 import { exportMonthlyReportToPDF } from '../utils/pdfMonthlyReportExport';
@@ -62,6 +63,10 @@ import { StatistikWilayahView } from './StatistikWilayahView';
 import { QuickSkVerifyModal } from './QuickSkVerifyModal';
 import { KalenderAcaraSection } from './KalenderAcaraSection';
 import { KecamatanDistributionChart } from './KecamatanDistributionChart';
+import {
+  DashboardPrintReportDocument,
+  DashboardPrintSections,
+} from './DashboardPrintReport';
 
 // Custom Tooltip for Recharts
 const CustomChartTooltip = ({ active, payload, label }: any) => {
@@ -134,6 +139,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
   const [hasTriggeredAuto6MonthToast, setHasTriggeredAuto6MonthToast] = useState<boolean>(false);
   const [actionToast, setActionToast] = useState<{ title: string; message: string } | null>(null);
   const [isQuickSkModalOpen, setIsQuickSkModalOpen] = useState<boolean>(false);
+  const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState<boolean>(false);
+  const [printSections, setPrintSections] = useState<DashboardPrintSections>({
+    ringkasanEksekutif: true,
+    rekapWilayah: true,
+    jabatanMasaKerja: true,
+    purnaTugasPendaftaran: true,
+    aktivitasTerkini: true,
+  });
   const [reportBulan, setReportBulan] = useState<number>(() => new Date().getMonth() + 1);
   const [reportTahun, setReportTahun] = useState<number>(() => new Date().getFullYear());
 
@@ -230,11 +243,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
 
   const retirement18MonthsMembers = useMemo(() => {
     return visibleMembers.filter(m => {
-      const isKades = 
-        m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
-        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
-        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
-      if (isKades) return false;
+      if (isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan)) return false;
       if (m.statusPensiun === 'Sudah Purna Tugas') return false;
       const totalSisaBulan = getSisaBulanPensiun(m);
       return totalSisaBulan > 0 && totalSisaBulan <= 18;
@@ -386,11 +395,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     let purnaTugas = 0; // Sudah Purna Tugas
 
     chartFilteredMembers.forEach((m) => {
-      const isKades = 
-        m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
-        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
-        m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
-      if (isKades) return; // Kepala Desa tidak masuk ke dalam kalkulasi masa pensiun perangkat desa
+      if (isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan)) return; // Kepala Desa & Staf Perangkat Desa tidak masuk kalkulasi masa pensiun
 
       if (m.statusPensiun === 'Sudah Purna Tugas') {
         purnaTugas++;
@@ -517,8 +522,89 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
     return (scopedPendaftaran || []).slice(0, 10);
   }, [scopedPendaftaran]);
 
-  const handlePrintDashboard = () => {
+  const anggotaAktifCount = useMemo(
+    () => visibleMembers.filter((m) => m.jabatanTerkini?.status_aktif === 'Aktif').length,
+    [visibleMembers]
+  );
+
+  const lakiLakiCount = useMemo(
+    () => visibleMembers.filter((m) => m.anggota.jenis_kelamin === 'L').length,
+    [visibleMembers]
+  );
+
+  const perempuanCount = useMemo(
+    () => visibleMembers.filter((m) => m.anggota.jenis_kelamin === 'P').length,
+    [visibleMembers]
+  );
+
+  const pendidikanSummary = useMemo(() => {
+    const counts: Record<string, number> = {};
+    visibleMembers.forEach((m) => {
+      const edu = (m.anggota.pendidikan_terakhir || 'Lainnya').trim() || 'Lainnya';
+      counts[edu] = (counts[edu] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [visibleMembers]);
+
+  const togglePrintSection = (key: keyof DashboardPrintSections) => {
+    setPrintSections((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (!Object.values(next).some(Boolean)) return prev;
+      return next;
+    });
+  };
+
+  // Trigger native browser print dialog (CSS @media print -> @page dashboard-report) with clean PDF filename
+  const handleTriggerDashboardPrint = () => {
+    const prevTitle = document.title;
+    const now = new Date();
+    const dateTag = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    document.title = `Laporan_Dashboard_PPDI_Kab_Bandung_${dateTag}`;
+
+    let restored = false;
+    const restoreTitle = () => {
+      if (restored) return;
+      restored = true;
+      document.title = prevTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle);
     window.print();
+    window.setTimeout(restoreTitle, 1500);
+  };
+
+  const dashboardPrintReportProps = {
+    appName: appSettings?.appName || 'PPDI KABUPATEN BANDUNG',
+    logoUrl: appSettings?.logoUrl || '/logo_kabupaten_bandung.svg',
+    roleScopeLabel,
+    printedBy: currentUser?.nama || 'Administrator PPDI',
+    totalAnggota,
+    anggotaAktifCount,
+    purnaTugasCount,
+    ktaAktifCount,
+    ktaPendingCount,
+    ktaPercentage,
+    totalIuranTerkumpul,
+    pendingIuranCount,
+    retirement18MonthsCount: retirement18MonthsMembers.length,
+    retirementKritisCount: retirementBreakdown.kritis.length,
+    retirementSiagaCount: retirementBreakdown.siaga.length,
+    retirementWaspadaCount: retirementBreakdown.waspada.length,
+    totalRegistrasi,
+    pendingApprovalCount,
+    approvedPendaftaranCount,
+    rejectedPendaftaranCount,
+    lakiLakiCount,
+    perempuanCount,
+    pendidikanSummary,
+    wilayahStatRows,
+    jabatanChartData,
+    masaKerjaChartData,
+    recentActivities: recentActivitiesForPrint,
+    recentRegistrations: recentRegistrationsForPrint,
+    sections: printSections,
   };
 
   // Handler untuk unduh data statistik wilayah format PDF langsung dari Dashboard
@@ -606,12 +692,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={handlePrintDashboard}
-            className="px-3 py-1.5 text-xs font-bold text-neutral-900 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
-            title="Cetak Ringkasan Statistik Wilayah & Aktivitas Terkini ke PDF (Print)"
+            onClick={() => setIsPrintPreviewOpen(true)}
+            className="px-3.5 py-1.5 text-xs font-bold text-neutral-900 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Buka Pratinjau & Cetak Laporan Ringkasan Statistik Dashboard ke PDF (CSS Print Media)"
           >
             <Printer className="w-3.5 h-3.5 text-neutral-900" />
-            <span>Print Laporan</span>
+            <span>Cetak Laporan Dashboard</span>
           </button>
           <button
             type="button"
@@ -1750,270 +1836,98 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         onClose={() => setIsQuickSkModalOpen(false)}
         onNotify={(msg) => showActionToast('Verifikasi SK Diperbarui', msg)}
       />
+
+      {/* Modal Pratinjau & Cetak Laporan Dashboard (A4 Print Media Preview) */}
+      {isPrintPreviewOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pratinjau Cetak Laporan Dashboard"
+          className="fixed inset-0 z-[70] bg-neutral-950/70 backdrop-blur-xs flex flex-col"
+        >
+          {/* Sticky Action Bar */}
+          <div className="bg-[#064E3B] text-white px-4 sm:px-6 py-3 border-b border-emerald-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-300 text-neutral-950 flex items-center justify-center shrink-0">
+                <Printer className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold leading-tight">Cetak Laporan Dashboard (PDF A4)</h2>
+                <p className="text-[11px] text-emerald-100/90">
+                  Pratinjau tata letak A4 Portrait menggunakan CSS Print Media &middot; Pilih &ldquo;Simpan sebagai PDF&rdquo; pada dialog cetak
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleTriggerDashboardPrint}
+                className="px-4 py-2 rounded-lg bg-amber-300 hover:bg-amber-400 text-neutral-950 text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Cetak / Simpan sebagai PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPrintPreviewOpen(false)}
+                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                aria-label="Tutup pratinjau cetak laporan dashboard"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Section Filter Controls */}
+          <div className="bg-white border-b border-neutral-200 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+                Bagian Laporan:
+              </span>
+              {(
+                [
+                  { key: 'ringkasanEksekutif', label: 'Indikator & Demografi' },
+                  { key: 'rekapWilayah', label: 'Statistik Kecamatan' },
+                  { key: 'jabatanMasaKerja', label: 'Jabatan & Masa Kerja' },
+                  { key: 'purnaTugasPendaftaran', label: 'Purna Tugas & Registrasi' },
+                  { key: 'aktivitasTerkini', label: 'Aktivitas Terkini' },
+                ] as Array<{ key: keyof DashboardPrintSections; label: string }>
+              ).map((item) => (
+                <label
+                  key={item.key}
+                  className="inline-flex items-center gap-1.5 cursor-pointer select-none text-neutral-800 font-medium"
+                >
+                  <input
+                    type="checkbox"
+                    checked={printSections[item.key]}
+                    onChange={() => togglePrintSection(item.key)}
+                    className="w-3.5 h-3.5 accent-[#064E3B] rounded cursor-pointer"
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+            <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded font-medium">
+              Tip: Aktifkan &ldquo;Grafis latar belakang / Background graphics&rdquo; di pengaturan cetak
+            </span>
+          </div>
+
+          {/* Scrollable A4 Paper Preview Stage */}
+          <div className="flex-1 overflow-y-auto bg-neutral-200/90 p-4 sm:p-6">
+            <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white shadow-2xl border border-neutral-300 rounded-xs p-6 sm:p-8">
+              <DashboardPrintReportDocument {...dashboardPrintReportProps} />
+            </div>
+          </div>
+        </div>
+      )}
       </div>
 
       {/* ============================================================= */}
       {/* LAPORAN PRINT-FRIENDLY PDF (HANYA MUNCUL SAAT @MEDIA PRINT)    */}
       {/* ============================================================= */}
       <article className="hidden print:block dashboard-print-report">
-        {/* Kop Laporan Resmi */}
-        <header className="pb-3 mb-4 border-b-2 border-[#064E3B] flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img
-              src={appSettings?.logoUrl || '/logo_kabupaten_bandung.svg'}
-              alt="Logo PPDI"
-              className="w-12 h-12 object-contain shrink-0"
-            />
-            <div>
-              <div className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#064E3B]">
-                {appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}
-              </div>
-              <h1 className="text-base font-extrabold text-neutral-950 uppercase tracking-tight leading-tight">
-                Laporan Ringkasan Statistik Wilayah &amp; Aktivitas Terkini
-              </h1>
-              <p className="text-[10px] text-neutral-600 mt-0.5">
-                Cakupan Data: <b>{roleScopeLabel}</b> &middot; Dicetak oleh: <b>{currentUser?.nama || 'Administrator'}</b>
-              </p>
-            </div>
-          </div>
-          <div className="text-right text-[10px] font-mono text-neutral-600 shrink-0">
-            <div className="font-bold text-neutral-900">TANGGAL CETAK</div>
-            <div>
-              {new Date().toLocaleString('id-ID', {
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}{' '}
-              WIB
-            </div>
-          </div>
-        </header>
-
-        {/* 1. Ringkasan Metrik Eksekutif */}
-        <section className="dashboard-print-section">
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
-            I. Ringkasan Indikator Utama Keanggotaan
-          </h2>
-          <div className="grid grid-cols-4 gap-2.5">
-            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
-              <div className="text-[9px] font-bold uppercase text-neutral-500">Total Perangkat Terdata</div>
-              <div className="text-lg font-extrabold text-neutral-950 font-mono mt-0.5">{totalAnggota}</div>
-              <div className="text-[9px] text-neutral-600 mt-0.5">
-                {visibleMembers.filter((m) => m.jabatanTerkini?.status_aktif === 'Aktif').length} Aktif &middot; {purnaTugasCount} Purna
-              </div>
-            </div>
-            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
-              <div className="text-[9px] font-bold uppercase text-neutral-500">E-KTA Diterbitkan</div>
-              <div className="text-lg font-extrabold text-[#064E3B] font-mono mt-0.5">
-                {ktaAktifCount} <span className="text-xs font-bold">({ktaPercentage}%)</span>
-              </div>
-              <div className="text-[9px] text-neutral-600 mt-0.5">{ktaPendingCount} Menunggu Validasi</div>
-            </div>
-            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
-              <div className="text-[9px] font-bold uppercase text-neutral-500">Kas Iuran Terkumpul</div>
-              <div className="text-sm font-extrabold text-neutral-950 font-mono mt-1">
-                {formatRupiah(totalIuranTerkumpul)}
-              </div>
-              <div className="text-[9px] text-neutral-600 mt-0.5">{pendingIuranCount} Verifikasi Pending</div>
-            </div>
-            <div className="dashboard-print-card rounded-lg p-2.5 bg-neutral-50">
-              <div className="text-[9px] font-bold uppercase text-neutral-500">Purna Tugas (&lt;18 Bln)</div>
-              <div className="text-lg font-extrabold text-amber-800 font-mono mt-0.5">
-                {retirement18MonthsMembers.length}
-              </div>
-              <div className="text-[9px] text-neutral-600 mt-0.5">
-                {retirementBreakdown.kritis.length} Kritis (&le;6 Bln) &middot; {pendingApprovalCount} Antrean Reg.
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 2. Ringkasan Statistik Wilayah per Kecamatan */}
-        <section className="mb-4">
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
-            II. Rekapitulasi Statistik Wilayah Per Kecamatan ({wilayahStatRows.length} Kecamatan)
-          </h2>
-          <table className="dashboard-print-table">
-            <thead>
-              <tr>
-                <th className="w-8 text-center">No</th>
-                <th className="text-left">Kecamatan</th>
-                <th className="text-center">Desa Terdata</th>
-                <th className="text-right">Total Anggota</th>
-                <th className="text-center">L / P</th>
-                <th className="text-right">E-KTA Aktif</th>
-                <th className="text-right">Pending</th>
-                <th className="text-right">Porsi (%)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wilayahStatRows.map((row, index) => (
-                <tr key={row.id_kecamatan} className={index % 2 === 1 ? 'bg-neutral-50' : ''}>
-                  <td className="text-center font-mono">{index + 1}</td>
-                  <td className="font-semibold">{row.nama_kecamatan}</td>
-                  <td className="text-center font-mono">
-                    {row.desaWithMembers} / {row.totalDesa}
-                  </td>
-                  <td className="text-right font-mono font-bold">{row.totalAnggota}</td>
-                  <td className="text-center font-mono">
-                    {row.lakiLaki} / {row.perempuan}
-                  </td>
-                  <td className="text-right font-mono">{row.ktaAktif}</td>
-                  <td className="text-right font-mono">{row.ktaPending}</td>
-                  <td className="text-right font-mono">{row.persentaseTotal.toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-emerald-50 font-bold">
-                <td colSpan={3} className="text-right uppercase">
-                  Total Keseluruhan
-                </td>
-                <td className="text-right font-mono">{totalAnggota}</td>
-                <td className="text-center font-mono">
-                  {wilayahStatRows.reduce((s, r) => s + r.lakiLaki, 0)} /{' '}
-                  {wilayahStatRows.reduce((s, r) => s + r.perempuan, 0)}
-                </td>
-                <td className="text-right font-mono">{ktaAktifCount}</td>
-                <td className="text-right font-mono">{ktaPendingCount}</td>
-                <td className="text-right font-mono">100.0%</td>
-              </tr>
-            </tfoot>
-          </table>
-        </section>
-
-        {/* 3. Ringkasan Distribusi Jabatan & Masa Kerja */}
-        <section className="dashboard-print-section">
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
-            III. Ringkasan Sebaran Jabatan &amp; Masa Kerja Perangkat Desa
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-[10px] font-bold text-neutral-700 mb-1">Distribusi Jabatan Teratas</div>
-              <table className="dashboard-print-table">
-                <thead>
-                  <tr>
-                    <th className="text-left">Jabatan</th>
-                    <th className="text-right w-20">Jumlah</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jabatanChartData.slice(0, 8).map((item) => (
-                    <tr key={item.nama}>
-                      <td>{item.nama}</td>
-                      <td className="text-right font-mono font-bold">{item.jumlah}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold text-neutral-700 mb-1">Komposisi Masa Kerja</div>
-              <table className="dashboard-print-table">
-                <thead>
-                  <tr>
-                    <th className="text-left">Rentang Masa Kerja</th>
-                    <th className="text-right w-20">Jumlah</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {masaKerjaChartData.map((item) => (
-                    <tr key={item.kategori}>
-                      <td>{item.kategori}</td>
-                      <td className="text-right font-mono font-bold">{item.jumlah}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        {/* 4. Aktivitas Terkini Sistem & Pendaftaran */}
-        <section className="dashboard-print-section">
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#064E3B] mb-2">
-            IV. Log Aktivitas Terkini &amp; Pendaftaran Terbaru
-          </h2>
-          {recentActivitiesForPrint.length > 0 ? (
-            <table className="dashboard-print-table">
-              <thead>
-                <tr>
-                  <th className="text-left w-28">Waktu</th>
-                  <th className="text-left w-28">Pengguna</th>
-                  <th className="text-left w-28">Modul / Aksi</th>
-                  <th className="text-left">Deskripsi Aktivitas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentActivitiesForPrint.map((log) => (
-                  <tr key={log.id}>
-                    <td className="font-mono text-[8pt]">
-                      {new Date(log.timestamp).toLocaleString('id-ID', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                    <td className="font-semibold">{log.user_name}</td>
-                    <td>
-                      <div className="font-bold">{log.aksi}</div>
-                      <div className="text-[8pt] text-neutral-600">{log.modul}</div>
-                    </td>
-                    <td>
-                      {log.target_nama ? <span className="font-semibold">{log.target_nama}: </span> : null}
-                      {log.deskripsi}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : recentRegistrationsForPrint.length > 0 ? (
-            <table className="dashboard-print-table">
-              <thead>
-                <tr>
-                  <th className="text-left w-28">Tanggal</th>
-                  <th className="text-left">Nama Perangkat Desa</th>
-                  <th className="text-left">Wilayah</th>
-                  <th className="text-center w-24">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentRegistrationsForPrint.map((reg) => (
-                  <tr key={reg.id_pendaftaran}>
-                    <td className="font-mono text-[8pt]">
-                      {reg.tgl_pendaftaran ? formatDateIndo(String(reg.tgl_pendaftaran).slice(0, 10)) : '-'}
-                    </td>
-                    <td className="font-semibold">{reg.nama_lengkap}</td>
-                    <td>
-                      {reg.nama_desa || reg.id_desa}, Kec. {reg.nama_kecamatan || reg.id_kecamatan}
-                    </td>
-                    <td className="text-center font-bold">{reg.status_approval}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-[10px] text-neutral-500 italic">Belum terdapat catatan aktivitas terkini pada sesi ini.</p>
-          )}
-        </section>
-
-        {/* Footer Pengesahan */}
-        <footer className="dashboard-print-card mt-5 pt-3 border-t border-neutral-300 flex items-end justify-between text-[9.5px] text-neutral-700">
-          <div>
-            <div className="font-bold text-neutral-900">{appSettings?.appName || 'PPDI KABUPATEN BANDUNG'}</div>
-            <div>Dokumen ini dicetak langsung melalui Dashboard Sistem Informasi Keanggotaan PPDI.</div>
-          </div>
-          <div className="text-center min-w-[180px]">
-            <div>Kabupaten Bandung, {formatDateIndo(new Date().toISOString().slice(0, 10))}</div>
-            <div className="mt-10 border-t border-neutral-800 pt-1 font-bold text-neutral-900">
-              {currentUser?.nama || 'Administrator PPDI'}
-            </div>
-          </div>
-        </footer>
+        <DashboardPrintReportDocument {...dashboardPrintReportProps} />
       </article>
     </div>
   );

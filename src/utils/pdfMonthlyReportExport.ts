@@ -6,7 +6,7 @@ import {
   RefKecamatan,
   RiwayatJabatan,
 } from '../types/ppdi';
-import { formatRupiah } from './ppdiHelpers';
+import { formatRupiah, isExemptFromPurnaTugas } from './ppdiHelpers';
 
 export interface MonthlyReportExportParams {
   bulan: number; // 1 - 12
@@ -164,11 +164,7 @@ export function exportMonthlyReportToPDF(params: MonthlyReportExportParams): str
   ).length;
 
   const pensiun6BulanMembers = members.filter((m) => {
-    const isKades =
-      m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
-      m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
-      m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
-    if (isKades || m.statusPensiun === 'Sudah Purna Tugas') return false;
+    if (isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan) || m.statusPensiun === 'Sudah Purna Tugas') return false;
     const sisa = typeof m.sisaMasaPensiunBulan === 'number' ? m.sisaMasaPensiunBulan : (m.sisaMasaPensiunTahun || 0) * 12;
     return sisa >= 0 && sisa <= 6;
   });

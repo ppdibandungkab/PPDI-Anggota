@@ -206,14 +206,11 @@ export function buildFullMember(
 
   const retirement = calculateAgeAndRetirement(upperAnggota.tanggal_lahir);
 
-  const isKepalaDesa = 
-    jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
-    jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
-    jabatanRef?.nama_jabatan?.toLowerCase().includes('kades');
+  const isExempt = isExemptFromPurnaTugas(jabatanRef, activeRiwayat?.id_jabatan);
 
-  // Jabatan Kepala Desa mengikuti periodisasi masa jabatan (UU Desa), bukan batas usia pensiun 60 tahun perangkat desa.
-  // Oleh karena itu Kepala Desa tidak dimasukkan ke dalam filter/peringatan dini masa purna tugas.
-  const effectiveStatusPensiun = isKepalaDesa
+  // Jabatan Kepala Desa (periodisasi) dan Staf Perangkat Desa tidak termasuk dalam batas usia pensiun 60 tahun perangkat desa.
+  // Oleh karena itu keduanya tidak dimasukkan ke dalam filter/peringatan dini masa purna tugas.
+  const effectiveStatusPensiun = isExempt
     ? 'Aman'
     : (activeRiwayat?.status_aktif === 'Purna Tugas' ? 'Sudah Purna Tugas' : retirement.statusPensiun);
 
@@ -229,11 +226,39 @@ export function buildFullMember(
     jabatanRef,
     keanggotaan,
     usia: retirement.usia,
-    sisaMasaPensiunTahun: isKepalaDesa ? 99 : retirement.sisaTahun,
-    sisaMasaPensiunBulan: isKepalaDesa ? 999 : retirement.sisaBulan,
+    sisaMasaPensiunTahun: isExempt ? 99 : retirement.sisaTahun,
+    sisaMasaPensiunBulan: isExempt ? 999 : retirement.sisaBulan,
     statusPensiun: effectiveStatusPensiun,
     totalIuranLunas,
   };
+}
+
+/**
+ * Mengecek apakah jabatan dikecualikan dari Modul Purna Tugas (batas usia pensiun 60 tahun):
+ * - Kepala Desa (id_jabatan = 10 / periodisasi masa jabatan)
+ * - Staf Perangkat Desa (id_jabatan = 9 / bukan perangkat desa struktural)
+ */
+export function isExemptFromPurnaTugas(
+  jabatanRef?: { id_jabatan?: number | string; nama_jabatan?: string; kategori_jabatan?: string } | null,
+  idJabatanFallback?: number | string | null
+): boolean {
+  const jId = Number(jabatanRef?.id_jabatan ?? idJabatanFallback ?? 0);
+  const katLower = (jabatanRef?.kategori_jabatan || '').toLowerCase().trim();
+  const namaLower = (jabatanRef?.nama_jabatan || '').toLowerCase().trim();
+
+  const isKepalaDesa =
+    jId === ID_JABATAN_KEPALA_DESA ||
+    katLower === 'kepala desa' ||
+    namaLower.includes('kepala desa') ||
+    namaLower.includes('kades');
+
+  const isStafPerangkatDesa =
+    jId === ID_JABATAN_STAF_PERANGKAT_DESA ||
+    katLower === 'staf desa' ||
+    katLower === 'staf perangkat desa' ||
+    namaLower.includes('staf');
+
+  return isKepalaDesa || isStafPerangkatDesa;
 }
 
 export function generateNextKTA(

@@ -341,7 +341,7 @@ export function exportPurnaTugasToPDF(params: ExportPurnaTugasParams): string {
       doc.setFontSize(7.5);
       doc.setTextColor(253, 230, 138);
       doc.text(
-        'Berdasarkan UU No. 3 Tahun 2024 tentang Desa (Jabatan Kepala Desa Dikecualikan)',
+        'Berdasarkan UU No. 3 Tahun 2024 tentang Desa (Kepala Desa & Staf Perangkat Desa Dikecualikan)',
         pageWidth / 2,
         19.8,
         { align: 'center' }

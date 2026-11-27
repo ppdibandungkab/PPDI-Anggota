@@ -297,7 +297,11 @@ JOIN riwayat_jabatan rj ON a.id_anggota = rj.id_anggota AND rj.status_aktif = 'A
 JOIN ref_desa d ON rj.id_desa = d.id_desa
 JOIN ref_kecamatan k ON d.id_kecamatan = k.id_kecamatan
 JOIN ref_jabatan j ON rj.id_jabatan = j.id_jabatan
-WHERE j.kategori_jabatan <> 'Kepala Desa' AND LOWER(j.nama_jabatan) NOT LIKE '%kepala desa%' AND LOWER(j.nama_jabatan) NOT LIKE '%kades%'
+WHERE j.id_jabatan NOT IN (9, 10)
+  AND j.kategori_jabatan NOT IN ('Kepala Desa', 'Staf Desa')
+  AND LOWER(j.nama_jabatan) NOT LIKE '%kepala desa%'
+  AND LOWER(j.nama_jabatan) NOT LIKE '%kades%'
+  AND LOWER(j.nama_jabatan) NOT LIKE '%staf%'
 ORDER BY sisa_bulan_pensiun ASC;
 
 -- View 3: Monitoring Pensiun Perangkat Desa
@@ -331,9 +335,11 @@ JOIN ref_desa d ON r.id_desa = d.id_desa
 JOIN ref_kecamatan k ON d.id_kecamatan = k.id_kecamatan
 JOIN ref_jabatan j ON r.id_jabatan = j.id_jabatan
 WHERE r.status_aktif = 'Aktif'
-  AND j.kategori_jabatan <> 'Kepala Desa'
+  AND j.id_jabatan NOT IN (9, 10)
+  AND j.kategori_jabatan NOT IN ('Kepala Desa', 'Staf Desa')
   AND LOWER(j.nama_jabatan) NOT LIKE '%kepala desa%'
-  AND LOWER(j.nama_jabatan) NOT LIKE '%kades%';
+  AND LOWER(j.nama_jabatan) NOT LIKE '%kades%'
+  AND LOWER(j.nama_jabatan) NOT LIKE '%staf%';
 
 -- View 4: Rekap PPDI per Kecamatan
 CREATE OR REPLACE VIEW \`v_rekap_ppdi_kecamatan\` AS

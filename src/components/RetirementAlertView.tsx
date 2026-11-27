@@ -7,6 +7,7 @@ import {
   isFonnteWebhookActive,
   formatPhoneForWhatsApp,
   safeFetchJson,
+  isExemptFromPurnaTugas,
 } from '../utils/ppdiHelpers';
 import {
   ClockAlert,
@@ -137,15 +138,12 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
     };
   }, [isExportMenuOpen]);
 
-  const isKepalaDesaMember = (m: AnggotaFullDetail) => {
-    return (
-      m.jabatanRef?.kategori_jabatan === 'Kepala Desa' ||
-      m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kepala desa') ||
-      m.jabatanRef?.nama_jabatan?.toLowerCase().includes('kades')
-    );
+  const isExcludedFromPurnaTugas = (m: AnggotaFullDetail) => {
+    return isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan);
   };
 
   const isWithin3MonthsWindow = useCallback((m: AnggotaFullDetail) => {
+    if (isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan)) return false;
     if (m.statusPensiun === 'Sudah Purna Tugas') return false;
     if (m.sisaMasaPensiunBulan > 0 && m.sisaMasaPensiunBulan <= 3) return true;
     const { sisaHari } = getRetirementDeadlineInfo(m.anggota.tanggal_lahir);
@@ -186,15 +184,15 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
     fetchWhatsAppLogs();
   }, [fetchWhatsAppLogs]);
 
-  // Categorize members (Kepala Desa dikecualikan karena bukan perangkat desa pensiun 60 tahun)
+  // Categorize members (Kepala Desa & Staf Perangkat Desa dikecualikan dari batas usia pensiun 60 tahun)
   const categorized = useMemo(() => {
-    const nonKadesMembers = visibleMembers.filter((m) => !isKepalaDesaMember(m));
+    const eligibleRetirementMembers = visibleMembers.filter((m) => !isExcludedFromPurnaTugas(m));
 
-    const h3bulan = nonKadesMembers.filter((m) => isWithin3MonthsWindow(m));
-    const kritis = nonKadesMembers.filter((m) => m.statusPensiun === 'Kritis (<6 Bln)');
-    const siaga = nonKadesMembers.filter((m) => m.statusPensiun === 'Siaga (<1 Thn)');
-    const waspada = nonKadesMembers.filter((m) => m.statusPensiun === 'Waspada (<2 Thn)');
-    const sudah = nonKadesMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas');
+    const h3bulan = eligibleRetirementMembers.filter((m) => isWithin3MonthsWindow(m));
+    const kritis = eligibleRetirementMembers.filter((m) => m.statusPensiun === 'Kritis (<6 Bln)');
+    const siaga = eligibleRetirementMembers.filter((m) => m.statusPensiun === 'Siaga (<1 Thn)');
+    const waspada = eligibleRetirementMembers.filter((m) => m.statusPensiun === 'Waspada (<2 Thn)');
+    const sudah = eligibleRetirementMembers.filter((m) => m.statusPensiun === 'Sudah Purna Tugas');
 
     return {
       h3bulan,
@@ -560,7 +558,7 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
             Regulasi: Batas 60 Tahun (Perangkat Desa)
           </span>
           <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg font-medium">
-            Jabatan Kepala Desa Dikecualikan
+            Kepala Desa &amp; Staf Perangkat Desa Dikecualikan
           </span>
           <span
             className={`px-3 py-1.5 rounded-lg font-mono font-semibold border ${
