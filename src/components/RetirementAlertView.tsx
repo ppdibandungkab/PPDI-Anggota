@@ -78,6 +78,7 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
   const [activeCategory, setActiveCategory] = useState<
     'all' | 'h3bulan' | 'kritis' | 'siaga' | 'waspada' | 'sudah'
   >('all');
+  const [selectedJabatanFilter, setSelectedJabatanFilter] = useState<string>('all');
   const [sendingWaMemberId, setSendingWaMemberId] = useState<string | null>(null);
   const [waFeedback, setWaFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -138,9 +139,28 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
     };
   }, [isExportMenuOpen]);
 
-  const isExcludedFromPurnaTugas = (m: AnggotaFullDetail) => {
-    return isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan);
-  };
+  const isStafPerangkatDesaMember = useCallback((m: AnggotaFullDetail) => {
+    const namaJab = (m.jabatanRef?.nama_jabatan || '').toLowerCase().trim();
+    const katJab = (m.jabatanRef?.kategori_jabatan || '').toLowerCase().trim();
+    const idJab = Number(m.jabatanRef?.id_jabatan ?? m.jabatanTerkini?.id_jabatan ?? 0);
+    return (
+      idJab === 9 ||
+      namaJab === 'staf perangkat desa' ||
+      namaJab.includes('staf') ||
+      katJab === 'staf desa' ||
+      katJab === 'staf perangkat desa'
+    );
+  }, []);
+
+  const isExcludedFromPurnaTugas = useCallback(
+    (m: AnggotaFullDetail) => {
+      return (
+        isStafPerangkatDesaMember(m) ||
+        isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan)
+      );
+    },
+    [isStafPerangkatDesaMember]
+  );
 
   const isWithin3MonthsWindow = useCallback((m: AnggotaFullDetail) => {
     if (isExemptFromPurnaTugas(m.jabatanRef, m.jabatanTerkini?.id_jabatan)) return false;
@@ -219,14 +239,36 @@ export const RetirementAlertView: React.FC<RetirementAlertViewProps> = ({ onOpen
   const notified3MonthsCount = eligible3MonthsWithPhone.length - pending3MonthsMembers.length;
   const missingPhone3MonthsCount = categorized.h3bulan.length - eligible3MonthsWithPhone.length;
 
+  // Daftar jabatan strategis yang muncul pada tabel purna tugas (otomatis mengecualikan Staf Perangkat Desa)
+  const strategicJabatanOptions = useMemo(() => {
+    const names = new Set<string>();
+    categorized.allAlerts.forEach((m) => {
+      if (isExcludedFromPurnaTugas(m)) return;
+      const nama = (m.jabatanRef?.nama_jabatan || '').trim();
+      if (nama && !nama.toLowerCase().includes('staf')) {
+        names.add(nama);
+      }
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'id'));
+  }, [categorized.allAlerts, isExcludedFromPurnaTugas]);
+
   const displayList = useMemo(() => {
-    if (activeCategory === 'h3bulan') return categorized.h3bulan;
-    if (activeCategory === 'kritis') return categorized.kritis;
-    if (activeCategory === 'siaga') return categorized.siaga;
-    if (activeCategory === 'waspada') return categorized.waspada;
-    if (activeCategory === 'sudah') return categorized.sudah;
-    return categorized.allAlerts;
-  }, [categorized, activeCategory]);
+    let baseList = categorized.allAlerts;
+    if (activeCategory === 'h3bulan') baseList = categorized.h3bulan;
+    else if (activeCategory === 'kritis') baseList = categorized.kritis;
+    else if (activeCategory === 'siaga') baseList = categorized.siaga;
+    else if (activeCategory === 'waspada') baseList = categorized.waspada;
+    else if (activeCategory === 'sudah') baseList = categorized.sudah;
+
+    // Pastikan kolom jabatan selalu mengecualikan Staf Perangkat Desa & jabatan non-eligible
+    return baseList.filter((m) => {
+      if (isExcludedFromPurnaTugas(m)) return false;
+      if (selectedJabatanFilter !== 'all') {
+        return (m.jabatanRef?.nama_jabatan || '').trim() === selectedJabatanFilter;
+      }
+      return true;
+    });
+  }, [categorized, activeCategory, selectedJabatanFilter, isExcludedFromPurnaTugas]);
 
   // Create WhatsApp message template (khusus penekanan 3 bulan sebelum masa bakti berakhir)
   const buildRetirementWAMessage = useCallback(
@@ -997,9 +1039,29 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
           </button>
         </div>
 
-        <span className="text-xs text-neutral-500">
-          Kalkulasi per: <strong>14 Oktober 2026</strong>
-        </span>
+        <div className="flex flex-wrap items-center gap-2.5 text-xs">
+          {strategicJabatanOptions.length > 0 && (
+            <label className="inline-flex items-center gap-1.5 text-neutral-600">
+              <span className="font-medium">Jabatan:</span>
+              <select
+                aria-label="Filter Jabatan Strategis Purna Tugas"
+                value={selectedJabatanFilter}
+                onChange={(e) => setSelectedJabatanFilter(e.target.value)}
+                className="px-2.5 py-1 rounded-lg border border-neutral-300 bg-white text-neutral-800 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#064E3B]"
+              >
+                <option value="all">Semua Jabatan Strategis (Non-Staf)</option>
+                {strategicJabatanOptions.map((jab) => (
+                  <option key={jab} value={jab}>
+                    {jab}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <span className="text-neutral-500">
+            Kalkulasi per: <strong>14 Oktober 2026</strong>
+          </span>
+        </div>
       </div>
 
       {/* Table of Members Approaching Retirement */}
@@ -1009,7 +1071,7 @@ Terima kasih atas pengabdian terbaik bagi kemajuan desa!`;
             <thead>
               <tr className="bg-neutral-50 border-b border-neutral-200 text-neutral-600 font-semibold">
                 <th className="py-3 px-4">Nama Perangkat &amp; NIK</th>
-                <th className="py-3 px-4">Jabatan &amp; Wilayah</th>
+                <th className="py-3 px-4">Jabatan Strategis &amp; Wilayah</th>
                 <th className="py-3 px-4">Tgl Lahir &amp; Purna</th>
                 <th className="py-3 px-4">Usia Saat Ini</th>
                 <th className="py-3 px-4">Sisa Masa Jabatan</th>

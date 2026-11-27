@@ -692,12 +692,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenAddModal }) 
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setIsPrintPreviewOpen(true)}
+            onClick={handleTriggerDashboardPrint}
             className="px-3.5 py-1.5 text-xs font-bold text-neutral-900 bg-amber-300 hover:bg-amber-400 border border-amber-400 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
-            title="Buka Pratinjau & Cetak Laporan Ringkasan Statistik Dashboard ke PDF (CSS Print Media)"
+            title="Cetak & Unduh Ringkasan Statistik Keanggotaan Dashboard ke PDF (window.print)"
           >
             <Printer className="w-3.5 h-3.5 text-neutral-900" />
-            <span>Cetak Laporan Dashboard</span>
+            <span>Cetak Laporan</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsPrintPreviewOpen(true)}
+            className="px-3 py-1.5 text-xs font-semibold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            title="Lihat Pratinjau A4 & Atur Bagian Laporan sebelum Cetak PDF"
+          >
+            <FileText className="w-3.5 h-3.5 text-amber-700" />
+            <span>Pratinjau A4</span>
           </button>
           <button
             type="button"
